@@ -88,7 +88,7 @@ def _fetch_topics_page(
     if end_time:
         params["end_time"] = end_time
 
-    url = f"{ZSXQ_API_BASE}/groups/{group_id}/topics?{urlencode(params)}"
+    url = f"{ZSXQ_API_BASE}/groups/{group_id}/topics?{urlencode(params, quote_via=quote)}"
     headers = _get_zsxq_headers(cookies)
 
     try:
