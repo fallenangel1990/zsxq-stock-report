@@ -2,9 +2,11 @@
 
 通过 QQ 邮箱 SMTP 发送带 PDF 附件的邮件。
 凭证通过环境变量配置，支持 GitHub Actions Secrets。
+支持从报告 Markdown 中提取摘要嵌入邮件正文。
 """
 
 import os
+import re
 import smtplib
 import sys
 from datetime import datetime
@@ -50,16 +52,17 @@ def _build_message(
     # 正文
     msg.attach(MIMEText(body_html, "html", "utf-8"))
 
-    # PDF 附件
-    with open(attachment_path, "rb") as f:
-        pdf = MIMEApplication(f.read(), _subtype="pdf")
-        filename = Path(attachment_path).name
-        pdf.add_header(
-            "Content-Disposition",
-            "attachment",
-            filename=("utf-8", "", filename),
-        )
-        msg.attach(pdf)
+    # PDF 附件（如果有）
+    if attachment_path:
+        with open(attachment_path, "rb") as f:
+            pdf = MIMEApplication(f.read(), _subtype="pdf")
+            filename = Path(attachment_path).name
+            pdf.add_header(
+                "Content-Disposition",
+                "attachment",
+                filename=("utf-8", "", filename),
+            )
+            msg.attach(pdf)
 
     return msg
 
@@ -121,11 +124,12 @@ def send_email(
 </body>
 </html>"""
 
-    if not attachment_path:
-        raise ValueError("attachment_path 不能为空")
-
-    print(f"[邮件] 发送至 {to} ...")
-    print(f"[邮件] 附件: {attachment_path} ({Path(attachment_path).stat().st_size / 1024:.1f} KB)")
+    has_attachment = bool(attachment_path)
+    if has_attachment:
+        print(f"[邮件] 发送至 {to} ...")
+        print(f"[邮件] 附件: {attachment_path} ({Path(attachment_path).stat().st_size / 1024:.1f} KB)")
+    else:
+        print(f"[邮件] 发送至 {to}（无附件）...")
 
     msg = _build_message(to, subject, body_html, attachment_path)
 
@@ -137,31 +141,103 @@ def send_email(
     return True
 
 
+def _extract_top_stocks_from_md(md_path: str, max_rows: int = 8) -> str:
+    """从股票报告 Markdown 中提取优先级排序总览的前几行，生成 HTML 表格。
+
+    Args:
+        md_path: Markdown 报告文件路径。
+        max_rows: 最多提取的行数。
+
+    Returns:
+        HTML 表格字符串，如果找不到表格则返回空字符串。
+    """
+    if not Path(md_path).exists():
+        return ""
+
+    text = Path(md_path).read_text(encoding="utf-8")
+
+    # 定位"优先级排序总览"之后的第一个表格
+    overview_start = text.find("优先级排序总览")
+    if overview_start == -1:
+        return ""
+
+    # 找到表格开始位置（第一个 | 开头的行）
+    table_start = text.find("\n|", overview_start)
+    if table_start == -1:
+        return ""
+
+    # 提取表格行
+    lines = text[table_start:].split("\n")
+    table_lines = []
+    header_found = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("|") and stripped.endswith("|"):
+            if not header_found and "推荐" in stripped:
+                header_found = True
+            if header_found:
+                table_lines.append(stripped)
+                if len(table_lines) > max_rows + 1:  # header + max_rows
+                    break
+        elif table_lines:
+            break  # 表格结束
+
+    if len(table_lines) < 2:
+        return ""
+
+    # 构建 HTML 表格
+    html = '<table style="border-collapse:collapse;width:100%;font-size:12px;margin:10px 0;">\n'
+    for i, row in enumerate(table_lines):
+        cells = [c.strip() for c in row.strip("|").split("|")]
+        tag = "th" if i == 0 else "td"
+        style = (
+            'style="background:#2563eb;color:white;padding:4px 6px;text-align:center;"'
+            if i == 0
+            else 'style="padding:4px 6px;border-bottom:1px solid #e5e7eb;text-align:center;"'
+        )
+        html += "<tr>\n"
+        for cell in cells:
+            html += f"  <{tag} {style}>{cell}</{tag}>\n"
+        html += "</tr>\n"
+    html += "</table>"
+
+    return html
+
+
 def send_report_notification(
     pdf_path: str,
     to_email: str = "",
     extra_info: Optional[dict] = None,
+    markdown_path: str = "",
 ) -> bool:
     """发送股票报告通知邮件（便捷封装）。
 
-    自动生成带报告摘要的邮件正文。
+    自动从 Markdown 报告中提取摘要嵌入正文。
 
     Args:
         pdf_path: PDF 报告文件路径。
         to_email: 收件人邮箱。
-        extra_info: 额外信息字典，支持以下字段：
+        extra_info: 额外信息字典：
             - total_posts: 新增帖子数
             - new_stocks: 新发现股票数
             - cookie_expired: cookie 是否过期
+            - cookie_warning: cookie 是否即将过期
+            - cookie_days: cookie 剩余天数
+        markdown_path: 对应的 Markdown 报告路径（用于提取摘要）。
     """
     today = datetime.now().strftime("%Y-%m-%d")
     extra_info = extra_info or {}
 
-    # 构建更丰富的正文
+    # 提取摘要表格
+    summary_html = ""
+    md_path = markdown_path or pdf_path.replace(".pdf", ".md")
+    if md_path:
+        summary_html = _extract_top_stocks_from_md(md_path)
+
     lines = [
+        '<div style="font-family:sans-serif;">',
         f"<h2>📊 每日股票机会报告</h2>",
         f"<p><strong>日期：</strong>{today}（{datetime.now().strftime('%A')}）</p>",
-        f"<p><strong>报告文件：</strong>{Path(pdf_path).name}</p>",
     ]
 
     if extra_info.get("total_posts"):
@@ -169,13 +245,25 @@ def send_report_notification(
     if extra_info.get("new_stocks"):
         lines.append(f"<p><strong>发现标的：</strong>{extra_info['new_stocks']} 只</p>")
 
+    # Cookie 预警
     if extra_info.get("cookie_expired"):
         lines.append(
             f'<p style="color:#dc2626;"><strong>⚠️ Cookie 已过期！</strong>'
             f"请本地运行 <code>python main.py login</code> 重新登录后更新 GitHub Secret。</p>"
         )
+    elif extra_info.get("cookie_warning"):
+        days = extra_info.get("cookie_days", "")
+        lines.append(
+            f'<p style="color:#f59e0b;"><strong>⚠️ Cookie 将在 {days} 天后过期</strong>'
+            f"（{extra_info.get('cookie_expires', '')}），请提前更新。</p>"
+        )
 
-    lines.append("<p>请查收附件中的完整股票机会分析报告（PDF）。</p>")
+    # 嵌入摘要
+    if summary_html:
+        lines.append('<p><strong>📋 优先级排序总览（前8只）：</strong></p>')
+        lines.append(summary_html)
+
+    lines.append("<p>完整报告请查看附件 PDF。</p>")
     lines.append("<hr>")
     lines.append(
         '<p style="color:#888;font-size:12px;">'
@@ -183,10 +271,13 @@ def send_report_notification(
         "报告基于知识星球专栏内容，由 AI 自动生成，仅供参考。"
         "</p>"
     )
+    lines.append("</div>")
 
     subject = f"📊 每日股票机会报告 {today}"
     if extra_info.get("cookie_expired"):
         subject = f"[需重新登录] {subject}"
+    elif extra_info.get("cookie_warning"):
+        subject = f"[Cookie 即将过期] {subject}"
 
     return send_email(
         to_email=to_email,
@@ -194,6 +285,39 @@ def send_report_notification(
         body_html="\n".join(lines),
         attachment_path=pdf_path,
     )
+
+
+def send_error_email(
+    error_msg: str,
+    to_email: str = "",
+    step: str = "",
+) -> bool:
+    """发送错误通知邮件（无附件，纯文本）。
+
+    Args:
+        error_msg: 错误信息。
+        to_email: 收件人邮箱。
+        step: 失败的步骤名称。
+    """
+    today = datetime.now().strftime("%Y-%m-%d %H:%M")
+    step_info = f"（步骤：{step}）" if step else ""
+
+    body = f"""\
+<html>
+<body style="font-family: sans-serif;">
+<h2>⚠️ 股票报告生成失败</h2>
+<p><strong>时间：</strong>{today}</p>
+<p><strong>失败步骤：</strong>{step or '未知'}</p>
+<p><strong>错误信息：</strong></p>
+<pre style="background:#fef2f2;padding:12px;border-radius:4px;color:#dc2626;">{error_msg}</pre>
+<p>请检查 <a href="https://github.com/fallenangel1990/zsxq-stock-report/actions">GitHub Actions</a> 的详细日志。</p>
+<hr>
+<p style="color:#888;font-size:12px;">本邮件由自动化系统发送。</p>
+</body>
+</html>"""
+
+    subject = f"❌ 股票报告异常 {step_info}"
+    return send_email(to_email=to_email, subject=subject, body_html=body, attachment_path="")
 
 
 # ── CLI ──

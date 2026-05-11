@@ -7,6 +7,7 @@
 import json
 import re
 import math
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -51,27 +52,44 @@ def extract_stock_opportunities(
     all_stocks_json = {"quantitative": [], "elastic": [], "sectors": [], "risks": []}
 
     if verbose:
-        print(f"从 {len(posts)} 篇帖子中提取股票机会，分 {total_batches} 批...", flush=True)
+        print(f"从 {len(posts)} 篇帖子中提取股票机会，分 {total_batches} 批，并发执行...", flush=True)
 
+    # 准备所有批次
+    batches = []
     for i in range(0, len(posts), batch_size):
-        batch = posts[i : i + batch_size]
         batch_num = i // batch_size + 1
-        start_idx = i + 1
-        end_idx = min(i + batch_size, len(posts))
-        if verbose:
-            print(f"  [股票 {batch_num}/{total_batches}] 第 {start_idx}-{end_idx} 篇...", flush=True)
+        batches.append((
+            client,
+            posts[i : i + batch_size],
+            batch_num,
+            total_batches,
+        ))
 
-        report = _extract_stocks_batch(client, batch, batch_num, total_batches)
+    # 并发调用 AI（最多 3 个并发，避免触发 API 限流）
+    max_workers = min(3, len(batches))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_idx = {
+            executor.submit(_extract_stocks_batch, *b): b[2]
+            for b in batches
+        }
+        # 按批次号收集结果以保持顺序
+        results = {}
+        for future in as_completed(future_to_idx):
+            batch_num = future_to_idx[future]
+            try:
+                report = future.result()
+                results[batch_num] = report
+                batch_json = _parse_stock_json(report)
+                _merge_json(all_stocks_json, batch_json)
+                q = len(batch_json.get("quantitative", []))
+                e = len(batch_json.get("elastic", []))
+                if verbose:
+                    print(f"  [股票 {batch_num}/{total_batches}] 完成 (量化:{q} 弹性:{e})", flush=True)
+            except Exception as exc:
+                print(f"  [股票 {batch_num}/{total_batches}] 失败: {exc}", flush=True)
 
-        # ── 从每批中立即提取 JSON，避免合并时丢失 ──
-        batch_json = _parse_stock_json(report)
-        _merge_json(all_stocks_json, batch_json)
-
-        batch_reports.append(report)
-        if verbose:
-            q = len(batch_json.get("quantitative", []))
-            e = len(batch_json.get("elastic", []))
-            print(f"  [股票 {batch_num}/{total_batches}] 完成 (量化:{q} 弹性:{e})", flush=True)
+    # 按批次号排序结果
+    batch_reports = [results[k] for k in sorted(results.keys())]
 
     if verbose:
         total_q = len(all_stocks_json["quantitative"])

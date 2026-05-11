@@ -6,6 +6,7 @@
 import json
 import os
 import time
+from datetime import datetime
 from pathlib import Path
 
 COOKIE_FILE = Path(__file__).parent / "cookies.json"
@@ -144,6 +145,52 @@ def get_authenticated_context(playwright, headless: bool = True):
     time.sleep(2)
 
     return browser, context, page
+
+
+def get_cookie_status() -> dict:
+    """检查 cookie 状态，返回过期信息和剩余天数。
+
+    用于 CI 环境：将结果写入 GITHUB_OUTPUT，便于后续步骤判断是否需要告警。
+
+    Returns:
+        dict: {
+            valid: bool,
+            expires_at: str (ISO 日期),
+            days_remaining: int,
+            warning: bool (剩余 ≤ 3 天),
+        }
+    """
+    # CI 环境：从环境变量加载
+    env_cookies = os.environ.get("ZSXQ_COOKIES", "")
+    if env_cookies:
+        try:
+            cookies = json.loads(env_cookies)
+        except json.JSONDecodeError:
+            cookies = []
+    elif COOKIE_FILE.exists():
+        cookies = json.loads(COOKIE_FILE.read_text())
+    else:
+        return {"valid": False, "expires_at": "", "days_remaining": 0, "warning": True}
+
+    # 查找 zsxq_access_token 的过期时间
+    now = time.time()
+    for c in cookies:
+        if c.get("name") == "zsxq_access_token":
+            expires = c.get("expires", 0)
+            if isinstance(expires, (int, float)) and expires > 0:
+                expires_dt = datetime.fromtimestamp(expires)
+                days = (expires_dt - datetime.now()).days
+                return {
+                    "valid": expires > now,
+                    "expires_at": expires_dt.strftime("%Y-%m-%d"),
+                    "days_remaining": max(0, days),
+                    "warning": days <= 3,
+                }
+            break
+
+    return {"valid": False, "expires_at": "未知", "days_remaining": 0, "warning": True}
+
+
 
 
 if __name__ == "__main__":

@@ -25,7 +25,9 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      # ── 1. 环境准备 ──
+      # ═══════════════════════════════════════════════════════════
+      # 1. 环境准备
+      # ═══════════════════════════════════════════════════════════
       - name: 检出代码
         uses: actions/checkout@v4
 
@@ -45,7 +47,9 @@ jobs:
           pip install --upgrade pip -q
           pip install -r requirements.txt -q
 
-      # ── 2. 准备配置文件 ──
+      # ═══════════════════════════════════════════════════════════
+      # 2. 配置准备
+      # ═══════════════════════════════════════════════════════════
       - name: 创建 config.yaml
         run: |
           if [ ! -f config.yaml ]; then
@@ -55,7 +59,9 @@ jobs:
             echo "✅ config.yaml 已存在"
           fi
 
-      # ── 3. 交易日检查 ──
+      # ═══════════════════════════════════════════════════════════
+      # 3. 交易日检查
+      # ═══════════════════════════════════════════════════════════
       - name: 检查交易日
         if: ${{ !inputs.force }}
         shell: python3 {0}
@@ -75,7 +81,9 @@ jobs:
                   exit(0)
               print(f"⚠️  chinese_calendar 未安装，仅检测周末，无法排除节假日")
 
-      # ── 4. 注入凭证 ──
+      # ═══════════════════════════════════════════════════════════
+      # 4. 注入凭证
+      # ═══════════════════════════════════════════════════════════
       - name: 写入 cookies.json
         env:
           ZSXQ_COOKIES: ${{ secrets.ZSXQ_COOKIES }}
@@ -86,6 +94,27 @@ jobs:
           else
             echo "⚠️  ZSXQ_COOKIES secret 未设置"
           fi
+
+      - name: 检查 Cookie 状态
+        id: cookie_check
+        shell: python3 {0}
+        run: |
+          import json, os, sys
+          sys.path.insert(0, '.')
+          from auth import get_cookie_status
+          status = get_cookie_status()
+          print(f"Cookie 状态: 有效={status['valid']}, 到期={status['expires_at']}, 剩余{status['days_remaining']}天")
+
+          if not status['valid']:
+              print("⚠️  Cookie 已过期")
+              with open(os.environ.get('GITHUB_OUTPUT', ''), 'a') as f:
+                  f.write("cookie_expired=true\n")
+          elif status['warning']:
+              print(f"⚠️  Cookie 将在 {status['days_remaining']} 天后过期")
+              with open(os.environ.get('GITHUB_OUTPUT', ''), 'a') as f:
+                  f.write(f"cookie_warning=true\n")
+                  f.write(f"cookie_days={status['days_remaining']}\n")
+                  f.write(f"cookie_expires={status['expires_at']}\n")
 
       - name: 写入环境变量
         env:
@@ -99,7 +128,9 @@ jobs:
           echo "SMTP_PASS=${SMTP_PASS}" >> $GITHUB_ENV
           echo "TO_EMAIL=${TO_EMAIL:-470337944@qq.com}" >> $GITHUB_ENV
 
-      # ── 5. 执行主流程 ──
+      # ═══════════════════════════════════════════════════════════
+      # 5. 执行主流程
+      # ═══════════════════════════════════════════════════════════
       - name: 运行爬取 + 股票提取
         id: crawl
         env:
@@ -112,42 +143,144 @@ jobs:
           fi
           echo "专栏 URL: $GROUP_URL"
 
-          python main.py all "$GROUP_URL" || {
-            EXIT_CODE=$?
-            echo "⚠️  main.py 退出码: $EXIT_CODE"
+          # 运行并捕获输出
+          python main.py all "$GROUP_URL" 2>&1 | tee /tmp/crawl.log || {
+            EXIT_CODE=${PIPESTATUS[0]}
             echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+            # 提取错误信息用于失败通知
+            tail -30 /tmp/crawl.log > /tmp/crawl_error.txt
           }
 
-      # ── 6. 查找最新报告并生成 PDF ──
-      - name: 生成 PDF
+          # 提取帖子数（从日志）
+          if grep -q "爬取完成" /tmp/crawl.log; then
+            POST_COUNT=$(grep -oP '爬取完成.*?共 \K\d+' /tmp/crawl.log | tail -1 || echo "0")
+            echo "total_posts=$POST_COUNT" >> $GITHUB_OUTPUT
+          fi
+
+          # 提取发现标的总数（从日志）
+          if grep -q "JSON 合并完成" /tmp/crawl.log; then
+            Q_COUNT=$(grep -oP '量化 \K\d+' /tmp/crawl.log | tail -1 || echo "0")
+            E_COUNT=$(grep -oP '弹性 \K\d+' /tmp/crawl.log | tail -1 || echo "0")
+            echo "new_stocks=$((Q_COUNT + E_COUNT))" >> $GITHUB_OUTPUT
+          fi
+
+      # ═══════════════════════════════════════════════════════════
+      # 6. 生成 PDF
+      # ═══════════════════════════════════════════════════════════
+      - name: 验证 PDF 后端 + 生成 PDF
         id: pdf
+        if: success() || steps.crawl.outcome == 'failure'
         run: |
+          # 验证 WeasyPrint 可用性
+          python3 -c "
+          def check_backend():
+              try:
+                  from weasyprint import HTML
+                  print('[PDF] WeasyPrint 可用 ✅')
+                  return 'weasyprint'
+              except Exception as e:
+                  print(f'[PDF] WeasyPrint 不可用: {e}')
+                  try:
+                      from playwright.sync_api import sync_playwright
+                      print('[PDF] Playwright 可用 ✅（回退）')
+                      return 'playwright'
+                  except Exception:
+                      print('[PDF] ❌ 无可用 PDF 后端')
+                      return 'none'
+          check_backend()
+          "
+
+          # 查找最新报告
           LATEST_STOCKS=$(ls -t data/summary/*stocks*.md 2>/dev/null | head -1)
 
           if [ -z "$LATEST_STOCKS" ]; then
             echo "⚠️  未找到股票报告文件"
             LATEST_SUMMARY=$(ls -t data/summary/*summary*.md 2>/dev/null | head -1)
             if [ -n "$LATEST_SUMMARY" ]; then
-              echo "使用总结报告作为替代: $LATEST_SUMMARY"
+              echo "使用总结报告: $LATEST_SUMMARY"
               python pdf_generator.py "$LATEST_SUMMARY" data/summary/report.pdf
               echo "pdf_path=data/summary/report.pdf" >> $GITHUB_OUTPUT
+              echo "md_path=$LATEST_SUMMARY" >> $GITHUB_OUTPUT
             else
               echo "❌ 没有任何报告文件"
-              exit 1
+              echo "no_report=true" >> $GITHUB_OUTPUT
             fi
           else
             echo "股票报告: $LATEST_STOCKS"
             python pdf_generator.py "$LATEST_STOCKS" data/summary/daily_stock_report.pdf
             echo "pdf_path=data/summary/daily_stock_report.pdf" >> $GITHUB_OUTPUT
+            echo "md_path=$LATEST_STOCKS" >> $GITHUB_OUTPUT
           fi
 
-      # ── 7. 发送邮件 ──
-      - name: 发送邮件
+      # ═══════════════════════════════════════════════════════════
+      # 7. 发送邮件
+      # ═══════════════════════════════════════════════════════════
+      - name: 发送成功报告邮件
         if: steps.pdf.outputs.pdf_path != ''
+        env:
+          TOTAL_POSTS: ${{ steps.crawl.outputs.total_posts }}
+          NEW_STOCKS: ${{ steps.crawl.outputs.new_stocks }}
+          COOKIE_EXPIRED: ${{ steps.cookie_check.outputs.cookie_expired }}
+          COOKIE_WARNING: ${{ steps.cookie_check.outputs.cookie_warning }}
+          COOKIE_DAYS: ${{ steps.cookie_check.outputs.cookie_days }}
+          COOKIE_EXPIRES: ${{ steps.cookie_check.outputs.cookie_expires }}
+        shell: python3 {0}
         run: |
-          python email_sender.py "${{ steps.pdf.outputs.pdf_path }}" "$TO_EMAIL"
+          import os, json, sys
+          sys.path.insert(0, '.')
+          from email_sender import send_report_notification
 
-      # ── 8. 归档报告到仓库 ──
+          extra = {}
+          if os.environ.get('TOTAL_POSTS'):
+              extra['total_posts'] = int(os.environ['TOTAL_POSTS'])
+          if os.environ.get('NEW_STOCKS'):
+              extra['new_stocks'] = int(os.environ['NEW_STOCKS'])
+          if os.environ.get('COOKIE_EXPIRED'):
+              extra['cookie_expired'] = True
+          if os.environ.get('COOKIE_WARNING'):
+              extra['cookie_warning'] = True
+              extra['cookie_days'] = os.environ.get('COOKIE_DAYS', '')
+              extra['cookie_expires'] = os.environ.get('COOKIE_EXPIRES', '')
+
+          pdf = os.environ.get('PDF_PATH', 'data/summary/daily_stock_report.pdf')
+          md = os.environ.get('MD_PATH', '')
+
+          send_report_notification(
+              pdf_path=pdf,
+              to_email=os.environ.get('TO_EMAIL', ''),
+              extra_info=extra,
+              markdown_path=md,
+          )
+          print("✅ 邮件已发送")
+        env:
+          PDF_PATH: ${{ steps.pdf.outputs.pdf_path }}
+          MD_PATH: ${{ steps.pdf.outputs.md_path }}
+
+      - name: 发送失败通知邮件
+        if: steps.pdf.outputs.no_report == 'true'
+        shell: python3 {0}
+        run: |
+          import sys
+          sys.path.insert(0, '.')
+          from email_sender import send_error_email
+
+          # 读取爬取错误日志
+          try:
+              with open('/tmp/crawl_error.txt', 'r') as f:
+                  error_msg = f.read()
+          except Exception:
+              error_msg = '未知错误（无日志）'
+
+          send_error_email(
+              error_msg=error_msg,
+              to_email=os.environ.get('TO_EMAIL', ''),
+              step='爬取/股票提取',
+          )
+          print("✅ 错误通知已发送")
+
+      # ═══════════════════════════════════════════════════════════
+      # 8. 归档报告到仓库
+      # ═══════════════════════════════════════════════════════════
       - name: 归档报告
         if: success()
         run: |
