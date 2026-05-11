@@ -1,0 +1,165 @@
+name: 每日股票报告
+
+on:
+  schedule:
+    # 北京时间 8:30（UTC 0:30），周一至周五
+    - cron: '30 0 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      max_posts:
+        description: '首次运行最大帖子数'
+        required: false
+        default: '0'
+      force:
+        description: '强制执行（忽略交易日检查）'
+        type: boolean
+        required: false
+        default: false
+
+env:
+  PYTHONUNBUFFERED: 1
+
+jobs:
+  daily-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      # ── 1. 环境准备 ──
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: 安装系统依赖（中文字体 + WeasyPrint 运行时）
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq fonts-noto-cjk libpango-1.0-0 libpangocairo-1.0-0
+
+      - name: 安装 Python 依赖
+        run: |
+          pip install --upgrade pip -q
+          pip install -r requirements.txt -q
+          pip install weasyprint markdown chinese_calendar -q
+
+      # ── 2. 交易日检查 ──
+      - name: 检查交易日
+        if: ${{ !inputs.force }}
+        shell: python3 {0}
+        run: |
+          import datetime
+          try:
+              from chinese_calendar import is_workday, is_holiday
+              today = datetime.date.today()
+              if not is_workday(today) or is_holiday(today):
+                  print(f"⏭ 跳过：{today} 非 A 股交易日（周末或中国法定节假日）")
+                  exit(0)
+              print(f"✅ {today} 是 A 股交易日，继续执行...")
+          except ImportError:
+              # 回退：仅跳过周末
+              today = datetime.date.today()
+              if today.weekday() >= 5:
+                  print(f"⏭ 跳过：{today} 是周末")
+                  exit(0)
+              print(f"⚠️  chinese_calendar 未安装，仅检测周末，无法排除节假日")
+
+      # ── 3. 注入凭证 ──
+      - name: 写入 cookies.json
+        env:
+          ZSXQ_COOKIES: ${{ secrets.ZSXQ_COOKIES }}
+        run: |
+          if [ -n "$ZSXQ_COOKIES" ]; then
+            echo "$ZSXQ_COOKIES" > cookies.json
+            echo "✅ cookies.json 已写入"
+          else
+            echo "⚠️  ZSXQ_COOKIES secret 未设置，爬取可能失败"
+          fi
+
+      - name: 写入环境变量
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          TO_EMAIL: ${{ secrets.TO_EMAIL }}
+        run: |
+          echo "DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}" >> $GITHUB_ENV
+          echo "SMTP_USER=${SMTP_USER}" >> $GITHUB_ENV
+          echo "SMTP_PASS=${SMTP_PASS}" >> $GITHUB_ENV
+          echo "TO_EMAIL=${TO_EMAIL:-470337944@qq.com}" >> $GITHUB_ENV
+
+      # ── 4. 执行主流程 ──
+      - name: 运行爬取 + 股票提取
+        id: crawl
+        env:
+          ZSXQ_GROUP_URL: ${{ secrets.ZSXQ_GROUP_URL }}
+        run: |
+          GROUP_URL="${ZSXQ_GROUP_URL}"
+          if [ -z "$GROUP_URL" ]; then
+            echo "❌ ZSXQ_GROUP_URL secret 未设置"
+            exit 1
+          fi
+
+          MAX_POSTS="${{ inputs.max_posts || '0' }}"
+          echo "专栏 URL: $GROUP_URL"
+
+          # 运行完整流程（crawl + stocks），出错继续（可能只是无新内容）
+          python main.py all "$GROUP_URL" || {
+            EXIT_CODE=$?
+            echo "⚠️  main.py 退出码: $EXIT_CODE"
+            # 1059 错误 = cookie 过期，标记后继续
+            echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+          }
+
+      # ── 5. 查找最新报告并生成 PDF ──
+      - name: 生成 PDF
+        id: pdf
+        run: |
+          # 查找最新的股票报告
+          LATEST_STOCKS=$(ls -t data/summary/*stocks*.md 2>/dev/null | head -1)
+
+          if [ -z "$LATEST_STOCKS" ]; then
+            echo "⚠️  未找到股票报告文件"
+            # 检查是否有总结报告
+            LATEST_SUMMARY=$(ls -t data/summary/*summary*.md 2>/dev/null | head -1)
+            if [ -n "$LATEST_SUMMARY" ]; then
+              echo "使用总结报告作为替代: $LATEST_SUMMARY"
+              python pdf_generator.py "$LATEST_SUMMARY" data/summary/report.pdf
+              echo "pdf_path=data/summary/report.pdf" >> $GITHUB_OUTPUT
+            else
+              echo "❌ 没有任何报告文件"
+              exit 1
+            fi
+          else
+            echo "股票报告: $LATEST_STOCKS"
+            python pdf_generator.py "$LATEST_STOCKS" data/summary/daily_stock_report.pdf
+            echo "pdf_path=data/summary/daily_stock_report.pdf" >> $GITHUB_OUTPUT
+          fi
+
+      # ── 6. 发送邮件 ──
+      - name: 发送邮件
+        if: steps.pdf.outputs.pdf_path != ''
+        run: |
+          python email_sender.py "${{ steps.pdf.outputs.pdf_path }}" "$TO_EMAIL"
+
+      # ── 7. 提交报告回仓库（可选） ──
+      - name: 归档报告
+        if: success()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # 只添加报告文件
+          git add data/summary/*.md data/summary/*.pdf data/raw/*.json data/state/*.json 2>/dev/null || true
+          git add cookies.json 2>/dev/null || true
+
+          if git diff --staged --quiet; then
+            echo "没有新内容需要提交"
+          else
+            git commit -m "📊 $(date +%Y-%m-%d) 自动报告"
+            git push
+            echo "✅ 报告已提交到仓库"
+          fi

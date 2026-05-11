@@ -1,0 +1,181 @@
+"""数据持久化模块。
+
+负责将原始内容和总结报告保存到本地文件系统。
+"""
+
+import json
+from datetime import datetime
+from pathlib import Path
+
+import yaml
+
+
+def _load_config() -> dict:
+    config_path = Path(__file__).parent / "config.yaml"
+    if config_path.exists():
+        with open(config_path, "r") as f:
+            return yaml.safe_load(f) or {}
+    return {}
+
+
+def _get_dirs() -> tuple[Path, Path]:
+    config = _load_config()
+    storage_config = config.get("storage", {})
+    base = Path(__file__).parent
+    raw_dir = base / storage_config.get("raw_dir", "data/raw")
+    summary_dir = base / storage_config.get("summary_dir", "data/summary")
+    return raw_dir, summary_dir
+
+
+def save_raw_data(posts: list[dict], group_name: str = "") -> str:
+    """保存原始帖子数据为 JSON 文件。
+
+    Args:
+        posts: 清洗后的帖子列表。
+        group_name: 专栏名称，用于生成文件名。
+
+    Returns:
+        保存的文件路径。
+    """
+    raw_dir, _ = _get_dirs()
+    raw_dir.mkdir(parents=True, exist_ok=True)
+
+    date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    if group_name:
+        filename = f"{group_name}_{date_str}.json"
+    else:
+        filename = f"posts_{date_str}.json"
+
+    filepath = raw_dir / filename
+    filepath.write_text(
+        json.dumps(posts, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    print(f"原始数据已保存到: {filepath} ({len(posts)} 篇)")
+    return str(filepath)
+
+
+def save_summary(report: str, group_name: str = "") -> str:
+    """保存总结报告为 Markdown 文件。
+
+    Args:
+        report: Markdown 格式的总结报告。
+        group_name: 专栏名称。
+
+    Returns:
+        保存的文件路径。
+    """
+    _, summary_dir = _get_dirs()
+    summary_dir.mkdir(parents=True, exist_ok=True)
+
+    date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    if group_name:
+        filename = f"{group_name}_summary_{date_str}.md"
+    else:
+        filename = f"summary_{date_str}.md"
+
+    filepath = summary_dir / filename
+    filepath.write_text(report, encoding="utf-8")
+    print(f"总结报告已保存到: {filepath}")
+    return str(filepath)
+
+
+def save_stock_report(report: str, group_name: str = "") -> str:
+    """保存股票机会提取报告为 Markdown 文件。
+
+    Args:
+        report: Markdown 格式的股票机会报告。
+        group_name: 专栏名称。
+
+    Returns:
+        保存的文件路径。
+    """
+    _, summary_dir = _get_dirs()
+    summary_dir.mkdir(parents=True, exist_ok=True)
+
+    date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    if group_name:
+        filename = f"{group_name}_stocks_{date_str}.md"
+    else:
+        filename = f"stocks_{date_str}.md"
+
+    filepath = summary_dir / filename
+    filepath.write_text(report, encoding="utf-8")
+    _log(f"股票机会报告已保存到: {filepath}")
+    return str(filepath)
+
+
+def load_latest_raw(group_id: str = "") -> tuple[list[dict], str]:
+    """加载最近一次保存的原始数据。
+
+    Args:
+        group_id: 专栏 ID，传入时只匹配该专栏的文件。
+
+    Returns:
+        (posts, filepath) 元组。
+    """
+    raw_dir, _ = _get_dirs()
+    if not raw_dir.exists():
+        return [], ""
+
+    if group_id:
+        json_files = sorted(
+            raw_dir.glob(f"{group_id}_*.json"),
+            key=lambda p: p.stat().st_mtime, reverse=True,
+        )
+    else:
+        json_files = sorted(raw_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not json_files:
+        return [], ""
+
+    filepath = json_files[0]
+    posts = json.loads(filepath.read_text(encoding="utf-8"))
+    print(f"已加载原始数据: {filepath} ({len(posts)} 篇)")
+    return posts, str(filepath)
+
+
+# ── 增量爬取状态管理 ──
+
+def _get_state_dir() -> Path:
+    base = Path(__file__).parent
+    return base / "data" / "state"
+
+
+def load_crawl_state(group_id: str) -> dict:
+    """加载专栏的上次爬取状态。
+
+    Returns:
+        dict: {last_url: str, last_time: str, crawled_at: str, total: int}
+        如果没有历史记录返回空 dict。
+    """
+    state_file = _get_state_dir() / f"{group_id}.json"
+    if state_file.exists():
+        return json.loads(state_file.read_text(encoding="utf-8"))
+    return {}
+
+
+def save_crawl_state(group_id: str, latest_post: dict, total_new: int) -> None:
+    """保存本次爬取状态，记录最新一篇帖子的标识。
+
+    Args:
+        group_id: 专栏 ID。
+        latest_post: 本次爬取到的最新（第一篇）帖子。
+        total_new: 本次新增帖子数。
+    """
+    state_dir = _get_state_dir()
+    state_dir.mkdir(parents=True, exist_ok=True)
+
+    state = {
+        "last_topic_id": latest_post.get("topic_id", ""),
+        "last_title": latest_post.get("title", ""),
+        "last_time": latest_post.get("time", ""),
+        "crawled_at": datetime.now().isoformat(),
+        "total_new": total_new,
+    }
+    state_file = state_dir / f"{group_id}.json"
+    state_file.write_text(json.dumps(state, ensure_ascii=False, indent=2))
+    _log(f"爬取状态已更新: {state_file}")
+
+
+def _log(msg: str) -> None:
+    print(msg, flush=True)

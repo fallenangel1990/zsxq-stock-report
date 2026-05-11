@@ -1,0 +1,737 @@
+{
+  "version": 1,
+  "created_at": "2026-05-09T14:32:31.266Z",
+  "lifetime": {
+    "total_tokens_estimated": 78215,
+    "total_reads": 65,
+    "total_writes": 42,
+    "total_sessions": 2,
+    "anatomy_hits": 43,
+    "anatomy_misses": 8,
+    "repeated_reads_blocked": 37,
+    "estimated_savings_vs_bare_cli": 55920
+  },
+  "sessions": [
+    {
+      "id": "session-2026-05-11-0929",
+      "started": "2026-05-11T01:29:03.832Z",
+      "ended": "2026-05-11T01:30:01.290Z",
+      "reads": [
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/config.yaml",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/main.py",
+          "tokens_estimated": 1277,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        }
+      ],
+      "writes": [],
+      "totals": {
+        "input_tokens_estimated": 1277,
+        "output_tokens_estimated": 0,
+        "reads_count": 2,
+        "writes_count": 0,
+        "repeated_reads_blocked": 0,
+        "anatomy_lookups": 1
+      }
+    },
+    {
+      "id": "session-2026-05-11-0929",
+      "started": "2026-05-11T01:29:03.832Z",
+      "ended": "2026-05-11T02:04:45.369Z",
+      "reads": [
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/config.yaml",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/main.py",
+          "tokens_estimated": 1277,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/cookies.json",
+          "tokens_estimated": 132,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/auth.py",
+          "tokens_estimated": 922,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/crawler.py",
+          "tokens_estimated": 2062,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/data/state/88888142214212.json",
+          "tokens_estimated": 66,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/extractor.py",
+          "tokens_estimated": 1290,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        }
+      ],
+      "writes": [],
+      "totals": {
+        "input_tokens_estimated": 5749,
+        "output_tokens_estimated": 0,
+        "reads_count": 7,
+        "writes_count": 0,
+        "repeated_reads_blocked": 1,
+        "anatomy_lookups": 6
+      }
+    },
+    {
+      "id": "session-2026-05-11-0929",
+      "started": "2026-05-11T01:29:03.832Z",
+      "ended": "2026-05-11T02:11:52.706Z",
+      "reads": [
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/config.yaml",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/main.py",
+          "tokens_estimated": 1277,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/cookies.json",
+          "tokens_estimated": 132,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/auth.py",
+          "tokens_estimated": 922,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/crawler.py",
+          "tokens_estimated": 2062,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/data/state/88888142214212.json",
+          "tokens_estimated": 66,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/extractor.py",
+          "tokens_estimated": 1290,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/storage.py",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/summarizer.py",
+          "tokens_estimated": 2463,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/data/summary/88888142214212_summary_20260511_101130.md",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        }
+      ],
+      "writes": [],
+      "totals": {
+        "input_tokens_estimated": 8212,
+        "output_tokens_estimated": 0,
+        "reads_count": 10,
+        "writes_count": 0,
+        "repeated_reads_blocked": 1,
+        "anatomy_lookups": 7
+      }
+    },
+    {
+      "id": "session-2026-05-11-0929",
+      "started": "2026-05-11T01:29:03.832Z",
+      "ended": "2026-05-11T06:48:26.220Z",
+      "reads": [
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/config.yaml",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/main.py",
+          "tokens_estimated": 1277,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/cookies.json",
+          "tokens_estimated": 132,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/auth.py",
+          "tokens_estimated": 922,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/crawler.py",
+          "tokens_estimated": 2062,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/data/state/88888142214212.json",
+          "tokens_estimated": 66,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/extractor.py",
+          "tokens_estimated": 1290,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/storage.py",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/summarizer.py",
+          "tokens_estimated": 2463,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/data/summary/88888142214212_summary_20260511_101130.md",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        }
+      ],
+      "writes": [],
+      "totals": {
+        "input_tokens_estimated": 8212,
+        "output_tokens_estimated": 0,
+        "reads_count": 10,
+        "writes_count": 0,
+        "repeated_reads_blocked": 1,
+        "anatomy_lookups": 7
+      }
+    },
+    {
+      "id": "session-2026-05-11-0929",
+      "started": "2026-05-11T01:29:03.832Z",
+      "ended": "2026-05-11T07:12:48.750Z",
+      "reads": [
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/config.yaml",
+          "tokens_estimated": 212,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/main.py",
+          "tokens_estimated": 1277,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/cookies.json",
+          "tokens_estimated": 132,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/auth.py",
+          "tokens_estimated": 922,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/crawler.py",
+          "tokens_estimated": 2062,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/data/state/88888142214212.json",
+          "tokens_estimated": 66,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/extractor.py",
+          "tokens_estimated": 1290,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/storage.py",
+          "tokens_estimated": 1136,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/summarizer.py",
+          "tokens_estimated": 2463,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/data/summary/88888142214212_summary_20260511_101130.md",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/CLAUDE.md",
+          "tokens_estimated": 57,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/requirements.txt",
+          "tokens_estimated": 22,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/data/raw/88888142214212_20260511_100422.json",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/.gitignore",
+          "tokens_estimated": 15,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        }
+      ],
+      "writes": [
+        {
+          "file": "/Users/chenlin/.claude/plans/piped-chasing-sky.md",
+          "tokens_estimated": 583,
+          "action": "create"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/summarizer.py",
+          "tokens_estimated": 5,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/summarizer.py",
+          "tokens_estimated": 4,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/storage.py",
+          "tokens_estimated": 199,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/stock_extractor.py",
+          "tokens_estimated": 1349,
+          "action": "create"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/main.py",
+          "tokens_estimated": 99,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/main.py",
+          "tokens_estimated": 248,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/main.py",
+          "tokens_estimated": 320,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/main.py",
+          "tokens_estimated": 71,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/main.py",
+          "tokens_estimated": 54,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/main.py",
+          "tokens_estimated": 42,
+          "action": "edit"
+        }
+      ],
+      "totals": {
+        "input_tokens_estimated": 9654,
+        "output_tokens_estimated": 2974,
+        "reads_count": 14,
+        "writes_count": 11,
+        "repeated_reads_blocked": 14,
+        "anatomy_lookups": 9
+      }
+    },
+    {
+      "id": "session-2026-05-11-0929",
+      "started": "2026-05-11T01:29:03.832Z",
+      "ended": "2026-05-11T08:06:57.748Z",
+      "reads": [
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/config.yaml",
+          "tokens_estimated": 212,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/main.py",
+          "tokens_estimated": 1686,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/cookies.json",
+          "tokens_estimated": 132,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/auth.py",
+          "tokens_estimated": 922,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/crawler.py",
+          "tokens_estimated": 2062,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/data/state/88888142214212.json",
+          "tokens_estimated": 66,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/extractor.py",
+          "tokens_estimated": 1290,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/storage.py",
+          "tokens_estimated": 1316,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/summarizer.py",
+          "tokens_estimated": 2462,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/data/summary/88888142214212_summary_20260511_101130.md",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/CLAUDE.md",
+          "tokens_estimated": 57,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/requirements.txt",
+          "tokens_estimated": 22,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/data/raw/88888142214212_20260511_100422.json",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/.gitignore",
+          "tokens_estimated": 15,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/stock_extractor.py",
+          "tokens_estimated": 1290,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        }
+      ],
+      "writes": [
+        {
+          "file": "/Users/chenlin/.claude/plans/piped-chasing-sky.md",
+          "tokens_estimated": 583,
+          "action": "create"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/summarizer.py",
+          "tokens_estimated": 5,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/summarizer.py",
+          "tokens_estimated": 4,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/storage.py",
+          "tokens_estimated": 199,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/stock_extractor.py",
+          "tokens_estimated": 1349,
+          "action": "create"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/main.py",
+          "tokens_estimated": 99,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/main.py",
+          "tokens_estimated": 248,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/main.py",
+          "tokens_estimated": 320,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/main.py",
+          "tokens_estimated": 71,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/main.py",
+          "tokens_estimated": 54,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/main.py",
+          "tokens_estimated": 42,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/chenlin/.claude/plans/piped-chasing-sky.md",
+          "tokens_estimated": 1253,
+          "action": "create"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/price_fetcher.py",
+          "tokens_estimated": 1087,
+          "action": "create"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/config.yaml",
+          "tokens_estimated": 90,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/stock_extractor.py",
+          "tokens_estimated": 5913,
+          "action": "create"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/stock_extractor.py",
+          "tokens_estimated": 649,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/stock_extractor.py",
+          "tokens_estimated": 347,
+          "action": "edit"
+        }
+      ],
+      "totals": {
+        "input_tokens_estimated": 11532,
+        "output_tokens_estimated": 12313,
+        "reads_count": 15,
+        "writes_count": 17,
+        "repeated_reads_blocked": 18,
+        "anatomy_lookups": 10
+      }
+    },
+    {
+      "id": "session-2026-05-11-1623",
+      "started": "2026-05-11T08:23:54.493Z",
+      "ended": "2026-05-11T08:49:30.713Z",
+      "reads": [
+        {
+          "file": "/Users/chenlin/.claude/plans/piped-chasing-sky.md",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/main.py",
+          "tokens_estimated": 1686,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/auth.py",
+          "tokens_estimated": 922,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/storage.py",
+          "tokens_estimated": 1316,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/pdf_generator.py",
+          "tokens_estimated": 2806,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/email_sender.py",
+          "tokens_estimated": 1674,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/data/summary/test_output.pdf",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        }
+      ],
+      "writes": [
+        {
+          "file": "/Users/chenlin/.claude/plans/piped-chasing-sky.md",
+          "tokens_estimated": 1270,
+          "action": "create"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/pdf_generator.py",
+          "tokens_estimated": 2163,
+          "action": "create"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/email_sender.py",
+          "tokens_estimated": 1673,
+          "action": "create"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/.github/workflows/daily-report.yml",
+          "tokens_estimated": 1435,
+          "action": "create"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/auth.py",
+          "tokens_estimated": 220,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/requirements.txt",
+          "tokens_estimated": 40,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/pdf_generator.py",
+          "tokens_estimated": 2797,
+          "action": "create"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/pdf_generator.py",
+          "tokens_estimated": 39,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/pdf_generator.py",
+          "tokens_estimated": 59,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/email_sender.py",
+          "tokens_estimated": 11,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/email_sender.py",
+          "tokens_estimated": 15,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/pdf_generator.py",
+          "tokens_estimated": 30,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/pdf_generator.py",
+          "tokens_estimated": 131,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/chenlin/Desktop/claud-code/practise/pdf_generator.py",
+          "tokens_estimated": 5,
+          "action": "edit"
+        }
+      ],
+      "totals": {
+        "input_tokens_estimated": 8404,
+        "output_tokens_estimated": 9888,
+        "reads_count": 7,
+        "writes_count": 14,
+        "repeated_reads_blocked": 2,
+        "anatomy_lookups": 3
+      }
+    }
+  ],
+  "daemon_usage": [],
+  "waste_flags": [],
+  "optimization_report": {
+    "last_generated": null,
+    "patterns": []
+  }
+}

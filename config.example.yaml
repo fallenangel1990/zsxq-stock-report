@@ -1,0 +1,46 @@
+# 知识星球爬取工具配置文件
+# 复制此文件为 config.yaml 并填入真实密钥
+
+# 知识星球专栏配置
+zsxq:
+  # 专栏 URL（也可通过命令行传入）
+  group_url: ""
+  # 知识星球网页版地址
+  base_url: "https://wx.zsxq.com"
+
+# AI 总结配置
+# provider 可选: deepseek | claude
+ai:
+  provider: "deepseek"
+
+  # DeepSeek API 配置（provider=deepseek 时生效）
+  # API Key 也可通过环境变量 DEEPSEEK_API_KEY 设置
+  deepseek:
+    api_key: ""  # 请在此填入 API Key，或设置环境变量 DEEPSEEK_API_KEY
+    model: "deepseek-chat"
+    base_url: "https://api.deepseek.com"
+
+  # Claude API 配置（provider=claude 时生效）
+  # API Key 也可通过环境变量 ANTHROPIC_API_KEY 设置
+  claude:
+    api_key: ""
+    model: "claude-sonnet-4-6"
+
+# 爬取配置
+crawler:
+  scroll_delay: 2
+  max_posts: 0
+  fetch_comments: true
+
+# 存储配置
+storage:
+  raw_dir: "data/raw"
+  summary_dir: "data/summary"
+
+# 股票机会提取配置
+stocks:
+  scoring:
+    upside_weight: 0.4
+    quality_weight: 0.25
+    consensus_weight: 0.2
+    sector_weight: 0.15

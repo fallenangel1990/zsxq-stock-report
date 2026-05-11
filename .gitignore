@@ -1,0 +1,6 @@
+cookies.json
+config.yaml
+data/
+__pycache__/
+*.pyc
+.env
