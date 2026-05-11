@@ -25,6 +25,54 @@ def _load_scoring_config() -> dict:
     return {}
 
 
+# ── 投资相关关键词（用于预过滤，减少无关帖子送入 AI） ──
+_INVEST_KEYWORDS = [
+    # 交易动作
+    "买入", "卖出", "持有", "加仓", "减仓", "建仓", "清仓", "止盈", "止损",
+    # 目标/观点
+    "目标价", "目标市值", "看到", "看高", "看多", "看空", "看好", "看涨", "看跌",
+    "推荐", "关注", "机会", "弹性", "空间", "潜力",
+    # 评级
+    "买入评级", "增持", "中性", "减持", "强推", "强烈推荐",
+    # 财务指标
+    "业绩", "增速", "利润", "营收", "PE", "PB", "EPS", "ROE", "毛利率", "净利率",
+    # 行情描述
+    "涨停", "跌停", "突破", "反弹", "回调", "龙头", "黑马", "白马", "牛股",
+    # 估值
+    "低估", "高估", "估值", "市值",
+    # 赛道/板块
+    "赛道", "板块", "概念", "产业链", "景气",
+]
+
+
+def _filter_investment_posts(posts: list[dict]) -> tuple[list[dict], list[dict]]:
+    """预过滤帖子：只保留包含投资关键词的帖子，减少 AI token 消耗。
+
+    对每篇帖子的标题+内容做关键词匹配，命中任意关键词则保留。
+    不区分大小写。
+
+    Args:
+        posts: 结构化帖子列表。
+
+    Returns:
+        (relevant_posts, skipped_posts): 相关帖子列表和被跳过的帖子列表。
+    """
+    relevant = []
+    skipped = []
+    for post in posts:
+        text = (post.get("title", "") + " " + post.get("content", "")).lower()
+        # 检查是否包含 6 位股票代码（强信号，直接保留）
+        if re.search(r"\b\d{6}\b", text):
+            relevant.append(post)
+            continue
+        # 关键词匹配
+        if any(kw.lower() in text for kw in _INVEST_KEYWORDS):
+            relevant.append(post)
+        else:
+            skipped.append(post)
+    return relevant, skipped
+
+
 def extract_stock_opportunities(
     posts: list[dict],
     batch_size: int = 30,
@@ -42,25 +90,42 @@ def extract_stock_opportunities(
     if not posts:
         return _empty_report()
 
+    # ── 预过滤：仅保留含投资关键词的帖子，减少 AI token 消耗 ──
+    relevant_posts, skipped_posts = _filter_investment_posts(posts)
+    if verbose:
+        skip_pct = len(skipped_posts) / len(posts) * 100 if posts else 0
+        print(
+            f"帖子预过滤: {len(posts)} → {len(relevant_posts)} "
+            f"（跳过 {len(skipped_posts)} 篇无关，{skip_pct:.0f}%）",
+            flush=True,
+        )
+
+    if not relevant_posts:
+        return _empty_report()
+
     from summarizer import get_client
     client, model, provider = get_client()
     if verbose:
         print(f"股票提取 AI: {provider} ({model})", flush=True)
 
-    total_batches = (len(posts) + batch_size - 1) // batch_size
+    total_batches = (len(relevant_posts) + batch_size - 1) // batch_size
     batch_reports = []
     all_stocks_json = {"quantitative": [], "elastic": [], "sectors": [], "risks": []}
 
     if verbose:
-        print(f"从 {len(posts)} 篇帖子中提取股票机会，分 {total_batches} 批，并发执行...", flush=True)
+        print(
+            f"从 {len(relevant_posts)} 篇帖子中提取股票机会，"
+            f"分 {total_batches} 批，并发执行...",
+            flush=True,
+        )
 
     # 准备所有批次
     batches = []
-    for i in range(0, len(posts), batch_size):
+    for i in range(0, len(relevant_posts), batch_size):
         batch_num = i // batch_size + 1
         batches.append((
             client,
-            posts[i : i + batch_size],
+            relevant_posts[i : i + batch_size],
             batch_num,
             total_batches,
         ))
@@ -456,12 +521,16 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> list[dict]:
         print(f"  获取 {len(valid_codes)} 只 A 股实时行情...", flush=True)
 
     prices = {}
+    changes_5d = {}
     if valid_codes:
-        from price_fetcher import fetch_prices
+        from price_fetcher import fetch_prices, fetch_5day_changes
         prices = fetch_prices(valid_codes)
+        changes_5d = fetch_5day_changes(valid_codes)
 
     if verbose and prices:
         print(f"  成功获取 {len(prices)} 只股票行情", flush=True)
+    if verbose and changes_5d:
+        print(f"  成功获取 {len(changes_5d)} 只股票 5 日涨跌幅", flush=True)
 
     # 计算板块热度（sectors 中的 stocks 字符串被提及的总字符数作为代理）
     sector_heat = {}
@@ -487,6 +556,7 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> list[dict]:
         current_price = price_info["price"] if price_info else None
         pe = price_info["pe"] if price_info else None
         market_cap = price_info["market_cap_yi"] if price_info else None
+        change_5d = changes_5d.get(code) if code else None
 
         # 上涨空间计算
         upside_pct = None
@@ -538,6 +608,7 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> list[dict]:
             "current_price": current_price,
             "pe": pe,
             "market_cap_yi": market_cap,
+            "change_5d": change_5d,
             "upside_pct": upside_pct,
             "score": total_score,
             "stars": stars,
@@ -579,6 +650,13 @@ def _assess_quality(target_str: str) -> float:
     return score
 
 
+def _fmt_change(change_pct) -> str:
+    """格式化涨跌幅，正数带 + 号，无数据显示 -。"""
+    if change_pct is None:
+        return "-"
+    return f"{change_pct:+.2f}%"
+
+
 def _score_to_stars(score: float) -> str:
     """将 1-10 分数映射为星级。"""
     if score >= 9:
@@ -618,11 +696,11 @@ def _rebuild_report(enriched: list[dict], original_markdown: str) -> str:
     parts.append("## 优先级排序总览（按推荐指数降序）\n")
     parts.append(
         "| 推荐 | 股票名称 | 代码 | 当前股价 | PE | "
-        "目标参考 | 上涨空间 | 推荐指数 | 核心逻辑 |"
+        "5日涨跌 | 目标参考 | 上涨空间 | 推荐指数 | 核心逻辑 |"
     )
     parts.append(
         "|------|----------|------|----------|-----|"
-        "----------|----------|----------|----------|"
+        "--------|----------|----------|----------|----------|"
     )
 
     for stock in enriched:
@@ -630,13 +708,14 @@ def _rebuild_report(enriched: list[dict], original_markdown: str) -> str:
         code = stock["code"] or "-"
         price_str = f"{stock['current_price']:.2f}" if stock["current_price"] else "N/A"
         pe_str = f"{stock['pe']:.1f}" if stock["pe"] else "-"
+        change_5d_str = _fmt_change(stock.get("change_5d"))
         target_str = stock["target_str"] or "-"
         upside_str = f"{stock['upside_pct']:+.1f}%" if stock["upside_pct"] is not None else "N/A"
         logic = stock["logic"][:50] if stock["logic"] else "-"
 
         parts.append(
             f"| {stock['stars']} | {name} | {code} | {price_str} | {pe_str} | "
-            f"{target_str} | {upside_str} | **{stock['score']}** | {logic} |"
+            f"{change_5d_str} | {target_str} | {upside_str} | **{stock['score']}** | {logic} |"
         )
 
     parts.append("")
@@ -647,19 +726,20 @@ def _rebuild_report(enriched: list[dict], original_markdown: str) -> str:
         parts.append("## 一、有明确量化目标的股票（增强）\n")
         parts.append(
             "| 序号 | 股票名称 | 代码 | 当前股价 | PE | "
-            "上涨空间 | 投资逻辑 | 量化参考 | 推荐指数 | 来源 |"
+            "5日涨跌 | 上涨空间 | 投资逻辑 | 量化参考 | 推荐指数 | 来源 |"
         )
         parts.append(
             "|------|----------|------|----------|-----|"
-            "----------|----------|----------|----------|------|"
+            "--------|----------|----------|----------|----------|------|"
         )
         for i, s in enumerate(q_stocks, 1):
             price_str = f"{s['current_price']:.2f}" if s["current_price"] else "N/A"
             pe_str = f"{s['pe']:.1f}" if s["pe"] else "-"
+            change_5d_str = _fmt_change(s.get("change_5d"))
             upside_str = f"{s['upside_pct']:+.1f}%" if s["upside_pct"] is not None else "N/A"
             parts.append(
                 f"| {i} | {s['name']} | {s['code'] or '-'} | {price_str} | {pe_str} | "
-                f"{upside_str} | {s['logic'][:60]} | {s['target_str']} | "
+                f"{change_5d_str} | {upside_str} | {s['logic'][:60]} | {s['target_str']} | "
                 f"**{s['score']}** {s['stars']} | {s['source']} |"
             )
         parts.append("")
@@ -670,18 +750,19 @@ def _rebuild_report(enriched: list[dict], original_markdown: str) -> str:
         parts.append("## 二、产业趋势中弹性最大的标的（增强）\n")
         parts.append(
             "| 序号 | 股票名称 | 代码 | 当前股价 | PE | "
-            "所属赛道 | 核心逻辑 | 推荐指数 | 来源 |"
+            "5日涨跌 | 所属赛道 | 核心逻辑 | 推荐指数 | 来源 |"
         )
         parts.append(
             "|------|----------|------|----------|-----|"
-            "----------|----------|----------|------|"
+            "--------|----------|----------|----------|------|"
         )
         for i, s in enumerate(e_stocks, 1):
             price_str = f"{s['current_price']:.2f}" if s["current_price"] else "N/A"
             pe_str = f"{s['pe']:.1f}" if s["pe"] else "-"
+            change_5d_str = _fmt_change(s.get("change_5d"))
             parts.append(
                 f"| {i} | {s['name']} | {s['code'] or '-'} | {price_str} | {pe_str} | "
-                f"{s['sector']} | {s['logic'][:60]} | "
+                f"{change_5d_str} | {s['sector']} | {s['logic'][:60]} | "
                 f"**{s['score']}** {s['stars']} | {s['source']} |"
             )
         parts.append("")
