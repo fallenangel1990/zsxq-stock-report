@@ -594,8 +594,15 @@ def _score_to_stars(score: float) -> str:
 
 
 def _strip_json_block(markdown: str) -> str:
-    """从 Markdown 中移除 ```json ... ``` 代码块。"""
-    return re.sub(r"```json\s*\n.*?\n```", "", markdown, flags=re.DOTALL).strip()
+    """从 Markdown 中移除 ```json ... ``` 代码块。
+
+    分两步：先匹配标准的多行 JSON 块，再处理无换行的边界情况。
+    """
+    # 移除 ```json ... ``` 代码块（不要求闭合前必须有换行）
+    cleaned = re.sub(r"```json\s*\n.*?```", "", markdown, flags=re.DOTALL)
+    # 移除可能残留的独立 ``` 标记
+    cleaned = re.sub(r"\n?```\s*\n?", "\n", cleaned)
+    return cleaned.strip()
 
 
 def _rebuild_report(enriched: list[dict], original_markdown: str) -> str:
@@ -685,11 +692,16 @@ def _rebuild_report(enriched: list[dict], original_markdown: str) -> str:
     section4 = _extract_section(original_markdown, "四、", None)
 
     if section3:
-        parts.append(section3.strip())
-        parts.append("")
+        # 二次清理，防止 JSON 残留
+        section3 = _strip_json_block(section3)
+        if section3.strip():
+            parts.append(section3.strip())
+            parts.append("")
     if section4:
-        parts.append(section4.strip())
-        parts.append("")
+        section4 = _strip_json_block(section4)
+        if section4.strip():
+            parts.append(section4.strip())
+            parts.append("")
 
     return "\n".join(parts)
 
@@ -709,6 +721,8 @@ def _extract_section(markdown: str, start_marker: str, end_marker: Optional[str]
 
 def _build_stock_report(merged: str, post_count: int) -> str:
     """包装最终的股票机会报告。"""
+    # 最终防线：确保 JSON 已被移除
+    merged = _strip_json_block(merged)
     lines = [
         "# 知识星球股票投资机会提取（增强版）",
         "",
