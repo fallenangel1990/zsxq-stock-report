@@ -575,11 +575,18 @@ def _score_to_stars(score: float) -> str:
         return "★☆☆☆☆"
 
 
+def _strip_json_block(markdown: str) -> str:
+    """从 Markdown 中移除 ```json ... ``` 代码块。"""
+    return re.sub(r"```json\s*\n.*?\n```", "", markdown, flags=re.DOTALL).strip()
+
+
 def _rebuild_report(enriched: list[dict], original_markdown: str) -> str:
     """用增强后的股票数据重建 Markdown 报告。
 
     新增：优先级排序总览表，并在前两部分添加价格/上涨空间/推荐指数列。
     """
+    # 先移除 JSON 代码块，避免泄露到最终输出
+    original_markdown = _strip_json_block(original_markdown)
     parts = []
 
     # ── 0. 优先级排序总览 ──
