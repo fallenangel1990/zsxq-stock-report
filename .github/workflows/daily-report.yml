@@ -224,6 +224,8 @@ jobs:
           COOKIE_WARNING: ${{ steps.cookie_check.outputs.cookie_warning }}
           COOKIE_DAYS: ${{ steps.cookie_check.outputs.cookie_days }}
           COOKIE_EXPIRES: ${{ steps.cookie_check.outputs.cookie_expires }}
+          PDF_PATH: ${{ steps.pdf.outputs.pdf_path }}
+          MD_PATH: ${{ steps.pdf.outputs.md_path }}
         shell: python3 {0}
         run: |
           import os, json, sys
@@ -252,9 +254,6 @@ jobs:
               markdown_path=md,
           )
           print("✅ 邮件已发送")
-        env:
-          PDF_PATH: ${{ steps.pdf.outputs.pdf_path }}
-          MD_PATH: ${{ steps.pdf.outputs.md_path }}
 
       - name: 发送失败通知邮件
         if: steps.pdf.outputs.no_report == 'true'
