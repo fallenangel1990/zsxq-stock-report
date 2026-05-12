@@ -1,0 +1,81 @@
+# 知识星球爬取工具配置文件
+
+# 知识星球专栏配置
+zsxq:
+  # 专栏 URL（也可通过命令行传入）
+  group_url: ""
+  # 知识星球网页版地址
+  base_url: "https://wx.zsxq.com"
+
+# AI 总结配置
+# provider 可选: deepseek | claude
+ai:
+  provider: "deepseek"
+
+  # DeepSeek API 配置（provider=deepseek 时生效）
+  # API Key 也可通过环境变量 DEEPSEEK_API_KEY 设置
+  deepseek:
+    api_key: "sk-568197bacbf045a8ae55df1f7df39f82"
+    model: "deepseek-chat"
+    base_url: "https://api.deepseek.com"
+
+  # Claude API 配置（provider=claude 时生效）
+  # API Key 也可通过环境变量 ANTHROPIC_API_KEY 设置
+  claude:
+    api_key: ""
+    model: "claude-sonnet-4-6"
+
+# 爬取配置
+crawler:
+  # 页面滚动间隔（秒），避免被限流
+  scroll_delay: 2
+  # 最大爬取帖子数（0 表示不限制）
+  max_posts: 0
+  # 是否爬取评论
+  fetch_comments: true
+
+# 存储配置
+storage:
+  raw_dir: "data/raw"
+  summary_dir: "data/summary"
+
+# 股票机会提取配置
+stocks:
+  # 推荐指数评分权重（合计 = 1.0）
+  scoring:
+    upside_weight: 0.35      # 上涨空间（目标价 vs 当前价）
+    quality_weight: 0.22     # 信息质量（有明确目标价 > 定性描述）
+    consensus_weight: 0.18   # 分析师共识（被多篇帖子提及）
+    sector_weight: 0.15      # 板块热度（所属板块被讨论程度）
+    trend_weight: 0.10       # 行业趋势加成（集体改善信号）
+
+    # 行业趋势检测参数
+    trend:
+      min_stocks_for_trend: 2      # 板块至少 N 只标的才算趋势
+      max_trend_score: 10          # 趋势因子分数上限
+      momentum_weight: 0.35        # 价格动量权重（平均5日涨跌幅）
+      size_weight: 0.25            # 板块规模权重（标的数量）
+      discussion_weight: 0.25      # 讨论强度权重（板块被讨论热度）
+      logic_weight: 0.15           # 逻辑情感权重（AI 板块逻辑正负面）
+
+    # 板块名称标准化别名（AI自由文本 → 规范名称）
+    sector_aliases:
+      "人工智能": "AI/人工智能"
+      "AI": "AI/人工智能"
+      "ai": "AI/人工智能"
+      "大模型": "AI/人工智能"
+      "算力": "AI/人工智能"
+      "算力租赁": "AI/人工智能"
+      "新能源": "新能源"
+      "光伏": "新能源"
+      "锂电": "新能源"
+      "锂电材料": "新能源"
+      "储能": "新能源"
+      "风电": "新能源"
+      "半导体": "半导体/芯片"
+      "芯片": "半导体/芯片"
+      "半导体设备": "半导体/芯片"
+      "机器人": "机器人/自动化"
+      "自动化": "机器人/自动化"
+      "汽车": "汽车/新能源车"
+      "新能源车": "汽车/新能源车"

@@ -16,13 +16,25 @@ import yaml
 
 
 def _load_scoring_config() -> dict:
-    """加载评分配置权重。"""
+    """加载评分配置权重（含向后兼容默认值）。"""
     config_path = Path(__file__).parent / "config.yaml"
+    scoring = {}
     if config_path.exists():
         with open(config_path, "r") as f:
             config = yaml.safe_load(f) or {}
-        return config.get("stocks", {}).get("scoring", {})
-    return {}
+        scoring = config.get("stocks", {}).get("scoring", {})
+    # 向后兼容默认值：config.yaml 缺少新键时静默关闭趋势功能
+    scoring.setdefault("trend_weight", 0.0)
+    scoring.setdefault("sector_aliases", {})
+    scoring.setdefault("trend", {
+        "min_stocks_for_trend": 2,
+        "max_trend_score": 10,
+        "momentum_weight": 0.35,
+        "size_weight": 0.25,
+        "discussion_weight": 0.25,
+        "logic_weight": 0.15,
+    })
+    return scoring
 
 
 # ── 投资相关关键词（用于预过滤，减少无关帖子送入 AI） ──
@@ -172,8 +184,8 @@ def extract_stock_opportunities(
     # ── 增强步骤：获取价格 → 计算评分 → 排序重建 ──
     if verbose:
         print("获取实时股价并计算推荐指数...", flush=True)
-    enriched = _enrich_and_score(all_stocks_json, verbose=verbose)
-    merged = _rebuild_report(enriched, merged_md)
+    enriched, trend_data = _enrich_and_score(all_stocks_json, verbose=verbose)
+    merged = _rebuild_report(enriched, merged_md, trend_data)
 
     return _build_stock_report(merged, len(posts))
 
@@ -542,10 +554,25 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> list[dict]:
 
     # 加载评分配置权重
     scoring = _load_scoring_config()
-    w_upside = scoring.get("upside_weight", 0.4)
-    w_quality = scoring.get("quality_weight", 0.25)
-    w_consensus = scoring.get("consensus_weight", 0.2)
+    w_upside = scoring.get("upside_weight", 0.35)
+    w_quality = scoring.get("quality_weight", 0.22)
+    w_consensus = scoring.get("consensus_weight", 0.18)
     w_sector = scoring.get("sector_weight", 0.15)
+    w_trend = scoring.get("trend_weight", 0.10)
+
+    # 行业趋势检测
+    sector_aliases = scoring.get("sector_aliases", {})
+    trend_config = scoring.get("trend", {})
+    trend_scores, sector_groups, sector_logic_map = _detect_sector_trends(
+        all_stocks, stocks_json.get("sectors", []),
+        sector_heat, sector_aliases, trend_config,
+    )
+    if verbose and trend_scores:
+        trending = [(s, ts) for s, ts in trend_scores.items() if ts >= 5.0]
+        if trending:
+            trending.sort(key=lambda x: x[1], reverse=True)
+            names = ", ".join(f"{s}({ts})" for s, ts in trending)
+            print(f"  行业趋势检测: {names}", flush=True)
 
     # 计算评分
     enriched = []
@@ -591,11 +618,18 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> list[dict]:
             heat = sector_heat.get(stock["sector"], 0)
             sector_score = min(10, heat / 20)  # 200 字符 = 满分
 
+        # 5. 行业趋势得分（0-10）
+        trend_score = 0.0
+        norm_sec = _normalize_sector_name(stock.get("sector", ""), sector_aliases)
+        if norm_sec and norm_sec in trend_scores:
+            trend_score = trend_scores[norm_sec]
+
         total_score = (
             w_upside * upside_score
             + w_quality * quality_score
             + w_consensus * consensus_score
             + w_sector * sector_score
+            + w_trend * trend_score
         )
         # 映射到 1-10
         total_score = round(max(1.0, min(10.0, total_score)), 1)
@@ -618,13 +652,22 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> list[dict]:
                 "quality": round(quality_score, 1),
                 "consensus": round(consensus_score, 1),
                 "sector": round(sector_score, 1),
+                "trend": round(trend_score, 1),
             },
+            "trend_score": round(trend_score, 1),
+            "trending_sector": norm_sec if trend_score >= 5.0 else "",
         })
 
     # 按推荐指数降序排列
     enriched.sort(key=lambda x: x["score"], reverse=True)
 
-    return enriched
+    # 构建趋势数据供报告层使用
+    trend_data = {
+        "scores": trend_scores,
+        "groups": sector_groups,
+        "logic_map": sector_logic_map,
+    }
+    return enriched, trend_data
 
 
 def _assess_quality(target_str: str) -> float:
@@ -648,6 +691,193 @@ def _assess_quality(target_str: str) -> float:
     if re.search(r"(?:增速|增长|利润|营收|收入)\s*\d+", target_str):
         score = max(score, 0.6)
     return score
+
+
+# ── 行业趋势检测：关键词 ──
+
+_POSITIVE_LOGIC_KW = [
+    "景气", "向好", "拐点", "反转", "超预期", "加速", "爆发",
+    "政策支持", "国产替代", "需求旺盛", "供不应求", "涨价",
+    "上行", "增长", "利好", "催化", "高景气", "确定性",
+    "底部", "估值修复", "戴维斯双击", "双击",
+]
+_NEGATIVE_LOGIC_KW = [
+    "下行", "衰退", "过剩", "内卷", "降价", "利空",
+    "政策风险", "不确定性", "需求疲软", "库存高企",
+    "景气度下降", "见顶", "泡沫", "炒作",
+]
+
+
+def _normalize_sector_name(raw_sector: str, aliases: dict) -> str:
+    """将 AI 自由文本板块名标准化为规范名称。
+
+    匹配策略（按优先级）：
+      1. 精确匹配
+      2. 大小写不敏感精确匹配
+      3. 去除括号内容后匹配（如 "锂电材料（铁锂正极）" → "锂电材料"）
+      4. 关键字包含匹配（别名 key 出现在原文中）
+      5. 返回原文
+    """
+    if not raw_sector or not raw_sector.strip():
+        return ""
+    raw_sector = raw_sector.strip()
+    # 1. 精确匹配
+    if raw_sector in aliases:
+        return aliases[raw_sector]
+    # 2. 大小写不敏感
+    raw_lower = raw_sector.lower()
+    for key, canonical in aliases.items():
+        if key.lower() == raw_lower:
+            return canonical
+    # 3. 去除中文/英文括号内容后再匹配
+    import re as _re
+    stripped = _re.sub(r"[（(][^)）]*[)）]", "", raw_sector).strip()
+    if stripped and stripped != raw_sector:
+        result = _normalize_sector_name(stripped, aliases)
+        if result != stripped:
+            return result
+    # 4. 关键字包含匹配（别名 key 长度 >= 2 且出现在原文中）
+    for key, canonical in sorted(aliases.items(), key=lambda x: -len(x[0])):
+        if len(key) >= 2 and key in raw_sector:
+            return canonical
+    return raw_sector
+
+
+def _sentiment_score(logic_text: str) -> float:
+    """基于关键词分析板块逻辑文本的情感倾向。
+
+    起始 5 分（中性），每个正面关键词 +0.8，负面 -0.8，结果截断至 [0, 10]。
+    """
+    if not logic_text:
+        return 5.0
+    score = 5.0
+    text_lower = logic_text.lower()
+    for kw in _POSITIVE_LOGIC_KW:
+        if kw in text_lower:
+            score += 0.8
+    for kw in _NEGATIVE_LOGIC_KW:
+        if kw in text_lower:
+            score -= 0.8
+    return max(0.0, min(10.0, score))
+
+
+def _detect_sector_trends(
+    all_stocks: dict,
+    sectors_list: list[dict],
+    sector_heat_raw: dict,
+    sector_aliases: dict,
+    trend_config: dict,
+) -> dict:
+    """检测行业趋势：按标准化板块分组，计算 0-10 趋势分数。
+
+    四个信号加权：
+      1. 价格动量 — 板块内股票平均 5 日涨跌幅
+      2. 板块规模 — 板块内标的数量
+      3. 讨论强度 — 板块在"细分板块机会"中被讨论的热度
+      4. 逻辑情感 — AI 对板块逻辑的正负面描述
+
+    板块内股票数 < min_stocks_for_trend 时返回 0（不构成趋势）。
+    返回 (trend_scores, sector_groups, sector_logic_map) 三元组。
+    """
+    min_stocks = trend_config.get("min_stocks_for_trend", 2)
+    w_momentum = trend_config.get("momentum_weight", 0.35)
+    w_size = trend_config.get("size_weight", 0.25)
+    w_discussion = trend_config.get("discussion_weight", 0.25)
+    w_logic = trend_config.get("logic_weight", 0.15)
+    max_score = trend_config.get("max_trend_score", 10)
+
+    # 1. 按标准化板块名分组股票
+    sector_groups: dict[str, list] = {}
+    for key, stock in all_stocks.items():
+        raw_sector = stock.get("sector", "")
+        norm = _normalize_sector_name(raw_sector, sector_aliases)
+        if not norm:
+            continue
+        if norm not in sector_groups:
+            sector_groups[norm] = []
+        sector_groups[norm].append(stock)
+
+    # 2. 标准化板块热度键名
+    norm_heat: dict[str, int] = {}
+    for raw_name, heat_val in sector_heat_raw.items():
+        norm = _normalize_sector_name(raw_name, sector_aliases)
+        if norm:
+            norm_heat[norm] = norm_heat.get(norm, 0) + heat_val
+
+    # 3. 构建板块逻辑映射（标准化 + 合并同板块逻辑文本）
+    sector_logic_map: dict[str, str] = {}
+    for entry in sectors_list:
+        raw = entry.get("sector", "")
+        norm = _normalize_sector_name(raw, sector_aliases)
+        if norm:
+            new_logic = entry.get("logic", "")
+            if new_logic:
+                existing = sector_logic_map.get(norm, "")
+                sector_logic_map[norm] = (
+                    existing + "; " + new_logic if existing else new_logic
+                )
+
+    # 4. 计算每个板块的趋势分数
+    trend_scores: dict[str, float] = {}
+    for sector_name, stocks in sector_groups.items():
+        if len(stocks) < min_stocks:
+            trend_scores[sector_name] = 0.0
+            continue
+
+        # 4a. 价格动量：平均 5 日涨跌幅缩放至 0-10
+        changes = [
+            s.get("change_5d") for s in stocks
+            if s.get("change_5d") is not None
+        ]
+        if changes:
+            avg_change = sum(changes) / len(changes)
+            # 5% 平均涨幅 → 10 分, 0% → 5 分, -2.5% → 0 分
+            momentum_score = min(max_score, max(0, (avg_change + 2.5) * 1.33))
+        else:
+            momentum_score = 0
+
+        # 4b. 板块规模：3 只 → 10 分
+        size_score = min(max_score, len(stocks) * 3.33)
+
+        # 4c. 讨论强度：200 字符 → 10 分
+        heat_val = norm_heat.get(sector_name, 0)
+        discussion_score = min(max_score, heat_val / 20)
+
+        # 4d. 逻辑情感
+        logic_text = sector_logic_map.get(sector_name, "")
+        logic_score = _sentiment_score(logic_text)
+
+        trend_score = (
+            w_momentum * momentum_score
+            + w_size * size_score
+            + w_discussion * discussion_score
+            + w_logic * logic_score
+        )
+        trend_scores[sector_name] = round(min(max_score, trend_score), 1)
+
+    return trend_scores, sector_groups, sector_logic_map
+
+
+def _trend_signal_desc(trend_score: float, changes, stock_count: int) -> str:
+    """生成趋势信号的人类可读解读。"""
+    if isinstance(changes, list) and changes:
+        avg = sum(changes) / len(changes)
+    else:
+        avg = 0
+    parts = []
+    if avg > 2:
+        parts.append("集体上涨")
+    elif avg > 0:
+        parts.append("温和上行")
+    elif avg < -2:
+        parts.append("短期回调")
+    else:
+        parts.append("横盘整理")
+    if stock_count >= 3:
+        parts.append(f"{stock_count}只标的受关注")
+    if trend_score >= 8:
+        parts.append("多重信号共振")
+    return "，".join(parts) if parts else "关注中"
 
 
 def _fmt_change(change_pct) -> str:
@@ -683,11 +913,29 @@ def _strip_json_block(markdown: str) -> str:
     return cleaned.strip()
 
 
-def _rebuild_report(enriched: list[dict], original_markdown: str) -> str:
+def _trend_badge(stock: dict) -> str:
+    """根据趋势分数返回视觉标记。"""
+    ts = stock.get("trend_score", 0)
+    sec = stock.get("trending_sector", "")
+    if ts >= 7 and sec:
+        return f"🔥 {sec}"
+    elif ts >= 5 and sec:
+        return f"📈 {sec}"
+    elif ts >= 3:
+        return "📈"
+    return "-"
+
+
+def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: dict = None) -> str:
     """用增强后的股票数据重建 Markdown 报告。
 
-    新增：优先级排序总览表，并在前两部分添加价格/上涨空间/推荐指数列。
+    新增：优先级排序总览表、行业趋势概览，并在前两部分添加价格/上涨空间/推荐指数列。
     """
+    if trend_data is None:
+        trend_data = {}
+    trend_scores = trend_data.get("scores", {})
+    sector_groups = trend_data.get("groups", {})
+    sector_logic_map = trend_data.get("logic_map", {})
     # 先移除 JSON 代码块，避免泄露到最终输出
     original_markdown = _strip_json_block(original_markdown)
     parts = []
@@ -696,11 +944,11 @@ def _rebuild_report(enriched: list[dict], original_markdown: str) -> str:
     parts.append("## 优先级排序总览（按推荐指数降序）\n")
     parts.append(
         "| 推荐 | 股票名称 | 代码 | 当前股价 | PE | "
-        "5日涨跌 | 目标参考 | 上涨空间 | 推荐指数 | 核心逻辑 |"
+        "5日涨跌 | 目标参考 | 上涨空间 | 推荐指数 | 趋势 | 核心逻辑 |"
     )
     parts.append(
         "|------|----------|------|----------|-----|"
-        "--------|----------|----------|----------|----------|"
+        "--------|----------|----------|----------|------|----------|"
     )
 
     for stock in enriched:
@@ -712,13 +960,44 @@ def _rebuild_report(enriched: list[dict], original_markdown: str) -> str:
         target_str = stock["target_str"] or "-"
         upside_str = f"{stock['upside_pct']:+.1f}%" if stock["upside_pct"] is not None else "N/A"
         logic = stock["logic"][:50] if stock["logic"] else "-"
+        # 趋势标记
+        trend_badge = _trend_badge(stock)
 
         parts.append(
             f"| {stock['stars']} | {name} | {code} | {price_str} | {pe_str} | "
-            f"{change_5d_str} | {target_str} | {upside_str} | **{stock['score']}** | {logic} |"
+            f"{change_5d_str} | {target_str} | {upside_str} | **{stock['score']}** | "
+            f"{trend_badge} | {logic} |"
         )
 
     parts.append("")
+
+    # ── 0.5. 行业趋势概览 ──
+    trending = [(s, ts) for s, ts in trend_scores.items() if ts >= 5.0]
+    if trending:
+        trending.sort(key=lambda x: x[1], reverse=True)
+        parts.append("## 🔥 行业趋势概览\n")
+        parts.append(
+            "| 行业板块 | 趋势强度 | 涉及标的数 | 平均5日涨跌 | 信号解读 |"
+        )
+        parts.append(
+            "|----------|----------|------------|-------------|----------|"
+        )
+        for sector_name, ts in trending:
+            stocks_in = sector_groups.get(sector_name, [])
+            n = len(stocks_in)
+            changes = [
+                s.get("change_5d") for s in stocks_in
+                if s.get("change_5d") is not None
+            ]
+            avg_chg_str = f"{sum(changes)/len(changes):+.1f}%" if changes else "-"
+            logic = sector_logic_map.get(sector_name, "")
+            desc = _trend_signal_desc(ts, changes, n)
+            stars_trend = "🔥" * min(3, max(1, int(ts / 3.3)))
+            parts.append(
+                f"| {stars_trend} {sector_name} | **{ts:.1f}** | {n} | "
+                f"{avg_chg_str} | {desc} |"
+            )
+        parts.append("")
 
     # ── 1. 量化目标（增强） ──
     q_stocks = [s for s in enriched if s["category"] == "quantitative"]
@@ -726,21 +1005,22 @@ def _rebuild_report(enriched: list[dict], original_markdown: str) -> str:
         parts.append("## 一、有明确量化目标的股票（增强）\n")
         parts.append(
             "| 序号 | 股票名称 | 代码 | 当前股价 | PE | "
-            "5日涨跌 | 上涨空间 | 投资逻辑 | 量化参考 | 推荐指数 | 来源 |"
+            "5日涨跌 | 上涨空间 | 投资逻辑 | 量化参考 | 推荐指数 | 趋势 | 来源 |"
         )
         parts.append(
             "|------|----------|------|----------|-----|"
-            "--------|----------|----------|----------|----------|------|"
+            "--------|----------|----------|----------|----------|------|------|"
         )
         for i, s in enumerate(q_stocks, 1):
             price_str = f"{s['current_price']:.2f}" if s["current_price"] else "N/A"
             pe_str = f"{s['pe']:.1f}" if s["pe"] else "-"
             change_5d_str = _fmt_change(s.get("change_5d"))
             upside_str = f"{s['upside_pct']:+.1f}%" if s["upside_pct"] is not None else "N/A"
+            trend_badge = _trend_badge(s)
             parts.append(
                 f"| {i} | {s['name']} | {s['code'] or '-'} | {price_str} | {pe_str} | "
                 f"{change_5d_str} | {upside_str} | {s['logic'][:60]} | {s['target_str']} | "
-                f"**{s['score']}** {s['stars']} | {s['source']} |"
+                f"**{s['score']}** {s['stars']} | {trend_badge} | {s['source']} |"
             )
         parts.append("")
 
@@ -750,20 +1030,21 @@ def _rebuild_report(enriched: list[dict], original_markdown: str) -> str:
         parts.append("## 二、产业趋势中弹性最大的标的（增强）\n")
         parts.append(
             "| 序号 | 股票名称 | 代码 | 当前股价 | PE | "
-            "5日涨跌 | 所属赛道 | 核心逻辑 | 推荐指数 | 来源 |"
+            "5日涨跌 | 所属赛道 | 核心逻辑 | 推荐指数 | 趋势 | 来源 |"
         )
         parts.append(
             "|------|----------|------|----------|-----|"
-            "--------|----------|----------|----------|------|"
+            "--------|----------|----------|----------|------|------|"
         )
         for i, s in enumerate(e_stocks, 1):
             price_str = f"{s['current_price']:.2f}" if s["current_price"] else "N/A"
             pe_str = f"{s['pe']:.1f}" if s["pe"] else "-"
             change_5d_str = _fmt_change(s.get("change_5d"))
+            trend_badge = _trend_badge(s)
             parts.append(
                 f"| {i} | {s['name']} | {s['code'] or '-'} | {price_str} | {pe_str} | "
                 f"{change_5d_str} | {s['sector']} | {s['logic'][:60]} | "
-                f"**{s['score']}** {s['stars']} | {s['source']} |"
+                f"**{s['score']}** {s['stars']} | {trend_badge} | {s['source']} |"
             )
         parts.append("")
 

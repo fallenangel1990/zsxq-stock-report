@@ -40,7 +40,31 @@ storage:
 # 股票机会提取配置
 stocks:
   scoring:
-    upside_weight: 0.4
-    quality_weight: 0.25
-    consensus_weight: 0.2
+    upside_weight: 0.35
+    quality_weight: 0.22
+    consensus_weight: 0.18
     sector_weight: 0.15
+    trend_weight: 0.10
+
+    trend:
+      min_stocks_for_trend: 2
+      max_trend_score: 10
+      momentum_weight: 0.35
+      size_weight: 0.25
+      discussion_weight: 0.25
+      logic_weight: 0.15
+
+    sector_aliases:
+      "人工智能": "AI/人工智能"
+      "AI": "AI/人工智能"
+      "大模型": "AI/人工智能"
+      "算力": "AI/人工智能"
+      "新能源": "新能源"
+      "光伏": "新能源"
+      "锂电": "新能源"
+      "储能": "新能源"
+      "半导体": "半导体/芯片"
+      "芯片": "半导体/芯片"
+      "机器人": "机器人/自动化"
+      "汽车": "汽车/新能源车"
+      "新能源车": "汽车/新能源车"
