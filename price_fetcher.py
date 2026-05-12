@@ -165,7 +165,7 @@ def _fetch_one_5day_change(tc: str, code: str, timeout: int) -> Optional[float]:
     """
     try:
         url = (
-            f"http://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
+            f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
             f"?param={tc},day,,,10,qfq"
         )
         resp = requests.get(url, timeout=timeout)
