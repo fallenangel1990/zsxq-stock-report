@@ -40,11 +40,12 @@ storage:
 # 股票机会提取配置
 stocks:
   scoring:
-    upside_weight: 0.35
-    quality_weight: 0.22
-    consensus_weight: 0.18
-    sector_weight: 0.15
+    upside_weight: 0.30
+    quality_weight: 0.20
+    consensus_weight: 0.16
+    sector_weight: 0.14
     trend_weight: 0.10
+    fundamentals_weight: 0.10
 
     trend:
       min_stocks_for_trend: 2

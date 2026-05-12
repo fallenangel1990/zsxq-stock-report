@@ -554,11 +554,12 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> list[dict]:
 
     # 加载评分配置权重
     scoring = _load_scoring_config()
-    w_upside = scoring.get("upside_weight", 0.35)
-    w_quality = scoring.get("quality_weight", 0.22)
-    w_consensus = scoring.get("consensus_weight", 0.18)
-    w_sector = scoring.get("sector_weight", 0.15)
+    w_upside = scoring.get("upside_weight", 0.30)
+    w_quality = scoring.get("quality_weight", 0.20)
+    w_consensus = scoring.get("consensus_weight", 0.16)
+    w_sector = scoring.get("sector_weight", 0.14)
     w_trend = scoring.get("trend_weight", 0.10)
+    w_fundamentals = scoring.get("fundamentals_weight", 0.10)
 
     # 行业趋势检测
     sector_aliases = scoring.get("sector_aliases", {})
@@ -582,6 +583,7 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> list[dict]:
 
         current_price = price_info["price"] if price_info else None
         pe = price_info["pe"] if price_info else None
+        pb = price_info["pb"] if price_info else None
         market_cap = price_info["market_cap_yi"] if price_info else None
         change_5d = changes_5d.get(code) if code else None
 
@@ -624,12 +626,16 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> list[dict]:
         if norm_sec and norm_sec in trend_scores:
             trend_score = trend_scores[norm_sec]
 
+        # 6. 公司基本面得分（0-10）
+        fundamentals_score = _fundamentals_score(pe, pb, market_cap)
+
         total_score = (
             w_upside * upside_score
             + w_quality * quality_score
             + w_consensus * consensus_score
             + w_sector * sector_score
             + w_trend * trend_score
+            + w_fundamentals * fundamentals_score
         )
         # 映射到 1-10
         total_score = round(max(1.0, min(10.0, total_score)), 1)
@@ -641,6 +647,7 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> list[dict]:
             **stock,
             "current_price": current_price,
             "pe": pe,
+            "pb": pb,
             "market_cap_yi": market_cap,
             "change_5d": change_5d,
             "upside_pct": upside_pct,
@@ -653,9 +660,11 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> list[dict]:
                 "consensus": round(consensus_score, 1),
                 "sector": round(sector_score, 1),
                 "trend": round(trend_score, 1),
+                "fundamentals": round(fundamentals_score, 1),
             },
             "trend_score": round(trend_score, 1),
             "trending_sector": norm_sec if trend_score >= 5.0 else "",
+            "fundamentals_score": round(fundamentals_score, 1),
         })
 
     # 按推荐指数降序排列
@@ -668,6 +677,72 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> list[dict]:
         "logic_map": sector_logic_map,
     }
     return enriched, trend_data
+
+
+def _fundamentals_score(pe, pb, market_cap_yi) -> float:
+    """基于 PE / PB / 市值 计算公司基本面得分（0-10）。
+
+    PE 估值（0-5 分）：
+      - PE < 0（亏损）→ 1 分
+      - 0 < PE ≤ 15 → 5 分（便宜）
+      - 15 < PE ≤ 25 → 4 分
+      - 25 < PE ≤ 40 → 3 分
+      - 40 < PE ≤ 60 → 2 分
+      - PE > 60 → 1 分
+
+    PB 估值（0-3 分）：
+      - PB ≤ 1.5 → 3 分（破净或低PB）
+      - 1.5 < PB ≤ 3 → 2 分
+      - PB > 3 → 1 分
+
+    市值稳定性（0-2 分）：
+      - ≥ 500 亿 → 2 分（大盘蓝筹）
+      - 100-500 亿 → 1 分
+      - < 100 亿 → 0 分
+
+    总分 = PE + PB + 市值，缺数据时对应项给中间分。
+    """
+    score = 0.0
+
+    # PE 估值分（0-5）
+    if pe is not None:
+        if pe <= 0:
+            score += 1.0
+        elif pe <= 15:
+            score += 5.0
+        elif pe <= 25:
+            score += 4.0
+        elif pe <= 40:
+            score += 3.0
+        elif pe <= 60:
+            score += 2.0
+        else:
+            score += 1.0
+    else:
+        score += 2.5  # 缺数据给中间分
+
+    # PB 估值分（0-3）
+    if pb is not None:
+        if pb <= 1.5:
+            score += 3.0
+        elif pb <= 3:
+            score += 2.0
+        else:
+            score += 1.0
+    else:
+        score += 1.5
+
+    # 市值稳定性分（0-2）
+    if market_cap_yi is not None:
+        if market_cap_yi >= 500:
+            score += 2.0
+        elif market_cap_yi >= 100:
+            score += 1.0
+        # < 100 亿不加分
+    else:
+        score += 1.0
+
+    return score
 
 
 def _assess_quality(target_str: str) -> float:

@@ -43,11 +43,12 @@ storage:
 stocks:
   # 推荐指数评分权重（合计 = 1.0）
   scoring:
-    upside_weight: 0.35      # 上涨空间（目标价 vs 当前价）
-    quality_weight: 0.22     # 信息质量（有明确目标价 > 定性描述）
-    consensus_weight: 0.18   # 分析师共识（被多篇帖子提及）
-    sector_weight: 0.15      # 板块热度（所属板块被讨论程度）
-    trend_weight: 0.10       # 行业趋势加成（集体改善信号）
+    upside_weight: 0.30        # 上涨空间（目标价 vs 当前价）
+    quality_weight: 0.20       # 信息质量（有明确目标价 > 定性描述）
+    consensus_weight: 0.16     # 分析师共识（被多篇帖子提及）
+    sector_weight: 0.14        # 板块热度（所属板块被讨论程度）
+    trend_weight: 0.10         # 行业趋势加成（集体改善信号）
+    fundamentals_weight: 0.10  # 公司基本面（PE/PB/市值估值）
 
     # 行业趋势检测参数
     trend:
