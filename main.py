@@ -65,6 +65,29 @@ def cmd_crawl(group_url: str, max_posts: int = 0) -> list[dict]:
     return cleaned
 
 
+def _crawl_recent_for_report(group_url: str, group_id: str, limit: int = 100) -> list[dict]:
+    """无新增内容时抓取最近 N 篇，用于定时报告兜底总结。"""
+    from crawler import crawl_group
+    from extractor import extract_structured_content, generate_stats
+    from storage import save_raw_data
+
+    _log(f"[无新增兜底] 抓取最近 {limit} 篇帖子用于本次总结")
+    posts = crawl_group(group_url, max_posts=limit, since_topic_id="")
+    if not posts:
+        _log("错误：未能抓取到最近帖子。")
+        return []
+
+    cleaned = extract_structured_content(posts)
+    save_raw_data(cleaned, group_name=group_id)
+
+    stats = generate_stats(cleaned)
+    _log(
+        f"\n兜底抓取完成！最近 {stats['total']} 篇，"
+        f"总赞 {stats['total_likes']}，总评论 {stats['total_comments']}"
+    )
+    return cleaned
+
+
 def cmd_summary() -> None:
     from storage import load_latest_raw
     posts, filepath = load_latest_raw()
@@ -135,13 +158,18 @@ def cmd_all(group_url: str) -> None:
 
     _log("\n[2/4] 爬取最新内容...")
     posts = cmd_crawl(group_url)
+    report_scope = "新内容"
 
     if not posts:
-        _log("\n没有新内容，流程结束。")
-        return
+        _log("\n没有新内容，将改为提取最近 100 篇帖子生成报告。")
+        posts = _crawl_recent_for_report(group_url, group_id, limit=100)
+        report_scope = "最近内容"
+        if not posts:
+            _log("\n没有可用于总结的内容，流程结束。")
+            return
 
     # ── 第 3 步：提取股票机会 ──
-    _log(f"\n[3/4] 对新内容 ({len(posts)} 篇) 提取股票机会...")
+    _log(f"\n[3/4] 对{report_scope} ({len(posts)} 篇) 提取股票机会...")
     from stock_extractor import extract_stock_opportunities
     from storage import save_stock_report
 
@@ -153,7 +181,7 @@ def cmd_all(group_url: str) -> None:
     save_stock_report(stock_report, group_name=group_id)
 
     # ── 第 4 步：完整 AI 总结 ──
-    _log(f"\n[4/4] 生成完整 AI 总结...")
+    _log(f"\n[4/4] 对{report_scope} ({len(posts)} 篇) 生成完整 AI 总结...")
     from summarizer import summarize_posts
     from storage import save_summary
 

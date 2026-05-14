@@ -157,18 +157,21 @@ jobs:
             tail -30 /tmp/crawl.log > /tmp/crawl_error.txt
           }
 
-          # 提取帖子数（从日志）
-          if grep -q "爬取完成" /tmp/crawl.log; then
-            POST_COUNT=$(grep -oP '爬取完成.*?共 \K\d+' /tmp/crawl.log | tail -1 || echo "0")
-            echo "total_posts=$POST_COUNT" >> $GITHUB_OUTPUT
-          fi
+          # 提取本次处理帖子数：有新增时为新增数量，无新增兜底时为最近 100 篇以内
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import re
 
-          # 提取发现标的总数（从日志）
-          if grep -q "JSON 合并完成" /tmp/crawl.log; then
-            Q_COUNT=$(grep -oP '量化 \K\d+' /tmp/crawl.log | tail -1 || echo "0")
-            E_COUNT=$(grep -oP '弹性 \K\d+' /tmp/crawl.log | tail -1 || echo "0")
-            echo "new_stocks=$((Q_COUNT + E_COUNT))" >> $GITHUB_OUTPUT
-          fi
+          text = open("/tmp/crawl.log", encoding="utf-8").read()
+
+          post_counts = re.findall(r"\[3/4\]\s*对.*?\((\d+)\s*篇\)", text)
+          if post_counts:
+              print(f"total_posts={post_counts[-1]}")
+
+          stock_counts = re.findall(r"JSON 合并完成:\s*量化\s*(\d+)\s*只,\s*弹性\s*(\d+)\s*只", text)
+          if stock_counts:
+              q_count, e_count = map(int, stock_counts[-1])
+              print(f"new_stocks={q_count + e_count}")
+          PY
 
       # ═══════════════════════════════════════════════════════════
       # 6. 生成 PDF

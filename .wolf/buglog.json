@@ -444,6 +444,57 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-05-15T00:48:10+08:00"
+    },
+    {
+      "id": "bug-028",
+      "timestamp": "2026-05-15T01:00:04+08:00",
+      "error_message": "无新增内容时定时流程直接结束，没有生成最近 100 条帖子总结；有新增内容时也需要只总结新增条数",
+      "file": "main.py",
+      "root_cause": "cmd_all() 在 cmd_crawl() 返回空列表时直接 return，导致无新增内容时不生成报告；邮件统计也只按新增帖子语义展示。",
+      "fix": "cmd_all() 无新增时调用兜底抓取最近 100 条并继续生成股票报告和总结；有新增时沿用新增列表；workflow 从 [3/4] 日志提取本次处理帖子数；邮件统计改为处理帖子。",
+      "tags": [
+        "fallback",
+        "summary",
+        "incremental",
+        "scheduled-report"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-05-15T01:00:04+08:00"
+    },
+    {
+      "id": "bug-029",
+      "timestamp": "2026-05-15T01:00:57+08:00",
+      "error_message": "grep: invalid option -- P",
+      "file": ".github/workflows/daily-report.yml",
+      "root_cause": "本地 macOS grep 不支持 GNU grep 的 -P 参数，导致 workflow 日志解析命令无法本地校验。",
+      "fix": "将处理帖子数和发现标的数的日志解析从 grep -oP 改为 Python 正则，兼容本地和 CI。",
+      "tags": [
+        "grep",
+        "macos",
+        "workflow",
+        "log-parsing"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-05-15T01:00:57+08:00"
+    },
+    {
+      "id": "bug-030",
+      "timestamp": "2026-05-15T01:02:34+08:00",
+      "error_message": "TypeError: unsupported operand type(s) for |: 'type' and 'NoneType'",
+      "file": "crawler.py",
+      "root_cause": "crawler.py 使用 Python 3.10+ 的 PEP 604 注解 dict | None，本地 python3 为 3.9 时导入模块失败。",
+      "fix": "将返回类型注解改为 Optional[dict]，复用已有 typing.Optional 导入，兼容 Python 3.9+。",
+      "tags": [
+        "python39",
+        "typing",
+        "compatibility",
+        "crawler"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-05-15T01:02:34+08:00"
     }
   ]
 }

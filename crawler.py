@@ -68,7 +68,7 @@ def _fetch_topics_page(
     cookies: list[dict],
     end_time: str = "",
     count: int = 20,
-) -> dict | None:
+) -> Optional[dict]:
     """请求一页 topics 数据。
 
     Args:

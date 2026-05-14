@@ -184,3 +184,7 @@
 | 00:48 | 调整 GitHub Actions A 股开盘日定时 | daily-report.yml | 改为北京时间 08:30/12:00 对应 UTC cron，并用 Asia/Shanghai 做交易日检查 | ~1800 |
 | 00:48 | 更新定时任务项目记忆 | .wolf/cerebrum.md, .wolf/buglog.json | 记录北京时间 cron 和交易日检查修复 | ~400 |
 | 00:48 | 修正 GitHub Actions YAML 校验方式 | .wolf/cerebrum.md, .wolf/buglog.json | 记录 PyYAML safe_load 会把 on 当布尔值，改用 BaseLoader 校验 | ~300 |
+| 01:00 | 调整定时报告内容范围 | main.py, daily-report.yml, email_sender.py | 有新增总结新增条数；无新增兜底抓最近100条，邮件显示处理帖子数 | ~5200 |
+| 01:00 | 更新报告范围偏好和 buglog | .wolf/cerebrum.md, .wolf/buglog.json | 记录无新增兜底最近100条的规则 | ~350 |
+| 01:00 | 替换 workflow 日志解析方式 | daily-report.yml, .wolf/cerebrum.md, .wolf/buglog.json | macOS grep 不支持 -P，改用 Python 正则解析处理帖子数和发现标的数 | ~700 |
+| 01:02 | 修复本地 Python 3.9 导入兼容性 | crawler.py, .wolf/cerebrum.md, .wolf/buglog.json | dict\|None 改为 Optional[dict]，本地 py_compile 可通过 | ~300 |

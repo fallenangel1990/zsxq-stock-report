@@ -187,7 +187,7 @@ def send_report_notification(
         markdown_path: Markdown 报告文件路径。
         to_email: 收件人邮箱。
         extra_info: 额外信息字典：
-            - total_posts: 新增帖子数
+            - total_posts: 本次处理帖子数（有新增时为新增数，无新增时为兜底总结数）
             - new_stocks: 新发现股票数
             - cookie_expired: cookie 是否过期
             - cookie_warning: cookie 是否即将过期
@@ -217,7 +217,7 @@ def send_report_notification(
     # 统计条
     stats_parts = []
     if extra_info.get("total_posts"):
-        stats_parts.append(f'📬 新增帖子：<strong>{extra_info["total_posts"]}</strong> 篇')
+        stats_parts.append(f'📬 处理帖子：<strong>{extra_info["total_posts"]}</strong> 篇')
     if extra_info.get("new_stocks"):
         stats_parts.append(f'🎯 发现标的：<strong>{extra_info["new_stocks"]}</strong> 只')
     if stats_parts:
