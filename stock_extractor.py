@@ -468,7 +468,7 @@ def _parse_target_value(target_str: str) -> Optional[float]:
     return None
 
 
-def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> list[dict]:
+def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dict], dict]:
     """增强股票数据：获取实时价格，计算上涨空间和推荐指数。
 
     Returns:
@@ -525,7 +525,7 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> list[dict]:
                     all_stocks[key]["sector"] = sector
 
     if not all_stocks:
-        return []
+        return [], {}
 
     # 批量获取价格
     valid_codes = [s["code"] for s in all_stocks.values() if s["code"] and s["code"].isdigit() and len(s["code"]) == 6]
