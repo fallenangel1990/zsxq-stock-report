@@ -213,8 +213,8 @@ jobs:
             fi
           else
             echo "股票报告: $LATEST_STOCKS"
-            python pdf_generator.py "$LATEST_STOCKS" data/summary/daily_stock_report.pdf
-            echo "pdf_path=data/summary/daily_stock_report.pdf" >> $GITHUB_OUTPUT
+            python pdf_generator.py "$LATEST_STOCKS" data/summary/daily_report.pdf
+            echo "pdf_path=data/summary/daily_report.pdf" >> $GITHUB_OUTPUT
             echo "md_path=$LATEST_STOCKS" >> $GITHUB_OUTPUT
           fi
 
@@ -250,7 +250,7 @@ jobs:
               extra['cookie_days'] = os.environ.get('COOKIE_DAYS', '')
               extra['cookie_expires'] = os.environ.get('COOKIE_EXPIRES', '')
 
-          pdf = os.environ.get('PDF_PATH', 'data/summary/daily_stock_report.pdf')
+          pdf = os.environ.get('PDF_PATH', 'data/summary/daily_report.pdf')
           md = os.environ.get('MD_PATH', '')
 
           send_report_notification(

@@ -107,7 +107,7 @@ def send_email(
     today = datetime.now().strftime("%Y-%m-%d")
 
     if not subject:
-        subject = f"每日股票机会报告 {today}"
+        subject = f"每日报告 {today}"
 
     if not body_html:
         body_html = f"""\
@@ -273,7 +273,9 @@ def send_report_notification(
     )
     lines.append("</div>")
 
-    subject = f"📊 每日股票机会报告 {today}"
+    # 邮件主题 = 附件文件名（不含扩展名）
+    attachment_name = Path(pdf_path).stem
+    subject = f"📊 {attachment_name} {today}"
     if extra_info.get("cookie_expired"):
         subject = f"[需重新登录] {subject}"
     elif extra_info.get("cookie_warning"):
@@ -316,7 +318,7 @@ def send_error_email(
 </body>
 </html>"""
 
-    subject = f"❌ 股票报告异常 {step_info}"
+    subject = f"❌ 报告异常 {step_info}"
     return send_email(to_email=to_email, subject=subject, body_html=body, attachment_path="")
 
 
