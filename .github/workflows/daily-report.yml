@@ -222,7 +222,7 @@ jobs:
       # 7. 发送邮件
       # ═══════════════════════════════════════════════════════════
       - name: 发送成功报告邮件
-        if: steps.pdf.outputs.pdf_path != ''
+        if: steps.pdf.outputs.md_path != ''
         env:
           TOTAL_POSTS: ${{ steps.crawl.outputs.total_posts }}
           NEW_STOCKS: ${{ steps.crawl.outputs.new_stocks }}
@@ -230,7 +230,6 @@ jobs:
           COOKIE_WARNING: ${{ steps.cookie_check.outputs.cookie_warning }}
           COOKIE_DAYS: ${{ steps.cookie_check.outputs.cookie_days }}
           COOKIE_EXPIRES: ${{ steps.cookie_check.outputs.cookie_expires }}
-          PDF_PATH: ${{ steps.pdf.outputs.pdf_path }}
           MD_PATH: ${{ steps.pdf.outputs.md_path }}
         shell: python3 {0}
         run: |
@@ -250,16 +249,22 @@ jobs:
               extra['cookie_days'] = os.environ.get('COOKIE_DAYS', '')
               extra['cookie_expires'] = os.environ.get('COOKIE_EXPIRES', '')
 
-          pdf = os.environ.get('PDF_PATH', 'data/summary/daily_report.pdf')
           md = os.environ.get('MD_PATH', '')
+          if not md:
+              # 回退：查找最新的 stocks markdown
+              import glob
+              files = sorted(glob.glob('data/summary/*stocks*.md'))
+              md = files[-1] if files else ''
 
-          send_report_notification(
-              pdf_path=pdf,
-              to_email=os.environ.get('TO_EMAIL', ''),
-              extra_info=extra,
-              markdown_path=md,
-          )
-          print("✅ 邮件已发送")
+          if md:
+              send_report_notification(
+                  markdown_path=md,
+                  to_email=os.environ.get('TO_EMAIL', ''),
+                  extra_info=extra,
+              )
+              print("✅ 邮件已发送")
+          else:
+              print("❌ 未找到报告 Markdown 文件")
 
       - name: 发送失败通知邮件
         if: steps.pdf.outputs.no_report == 'true'
