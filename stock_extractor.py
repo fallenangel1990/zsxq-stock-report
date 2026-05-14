@@ -1,7 +1,7 @@
 """股票机会提取模块。
 
 从知识星球帖子中提取股票投资机会，使用 AI 进行分类整理，
-增强实时价格、计算上涨空间和推荐指数，按优先级排序输出。
+增强行情数据、计算推荐指数，按优先级排序输出。
 """
 
 import json
@@ -90,14 +90,14 @@ def extract_stock_opportunities(
     batch_size: int = 30,
     verbose: bool = True,
 ) -> str:
-    """从帖子列表中提取股票投资机会，增强实时价格和推荐指数。
+    """从帖子列表中提取股票投资机会，增强行情数据和推荐指数。
 
     Args:
         posts: 清洗后的结构化帖子列表。
         batch_size: 每批处理的帖子数。
 
     Returns:
-        Markdown 格式的增强股票机会报告（含价格、上涨空间、推荐指数、排序）。
+        Markdown 格式的增强股票机会报告（含市值、推荐指数、排序）。
     """
     if not posts:
         return _empty_report()
@@ -183,7 +183,7 @@ def extract_stock_opportunities(
 
     # ── 增强步骤：获取价格 → 计算评分 → 排序重建 ──
     if verbose:
-        print("获取实时股价并计算推荐指数...", flush=True)
+        print("获取行情数据并计算推荐指数...", flush=True)
     enriched, trend_data = _enrich_and_score(all_stocks_json, verbose=verbose)
     merged = _rebuild_report(enriched, merged_md, trend_data)
 
@@ -227,6 +227,7 @@ def _extract_stocks_batch(
 - 区分"投资建议"和"背景提及"——只在表格中包含有明确投资逻辑的股票
 - 如果有股票代码（6位A股代码或境外代码），请务必包含
 - 如果同一只股票出现在多个帖子中，合并为一条最完整的记录
+- 尽量提取该股票对应的风险点/潜在利空；若原文没有明确提及，JSON 中 risk 写空字符串，不要编造确定性风险
 
 按以下四个部分输出：
 
@@ -261,10 +262,10 @@ def _extract_stocks_batch(
 ```json
 {{
   "quantitative": [
-    {{"name": "股票名称", "code": "股票代码或空字符串", "logic": "投资逻辑简述", "target": "量化参考原文", "source": "帖子X"}}
+    {{"name": "股票名称", "code": "股票代码或空字符串", "logic": "投资逻辑简述", "target": "量化参考原文", "risk": "风险点/潜在利空或空字符串", "source": "帖子X"}}
   ],
   "elastic": [
-    {{"name": "股票名称", "code": "股票代码或空字符串", "sector": "所属赛道", "logic": "核心逻辑简述", "source": "帖子X"}}
+    {{"name": "股票名称", "code": "股票代码或空字符串", "sector": "所属赛道", "logic": "核心逻辑简述", "risk": "风险点/潜在利空或空字符串", "source": "帖子X"}}
   ],
   "sectors": [
     {{"sector": "板块名称", "stocks": "核心标的名称列表", "logic": "板块逻辑", "source": "帖子X"}}
@@ -338,6 +339,19 @@ def _parse_stock_json(markdown: str) -> dict:
     return _fallback_parse_tables(markdown)
 
 
+def _merge_text(existing: str, new: str, sep: str = "；") -> str:
+    """合并短文本，避免重复片段。"""
+    existing = (existing or "").strip()
+    new = (new or "").strip()
+    if not new:
+        return existing
+    if not existing:
+        return new
+    if new in existing:
+        return existing
+    return f"{existing}{sep}{new}"
+
+
 def _merge_json(target: dict, source: dict) -> None:
     """将 source 中的股票数据合并到 target，按股票名称去重。
 
@@ -345,12 +359,21 @@ def _merge_json(target: dict, source: dict) -> None:
     """
     # 合并 quantitative 和 elastic — 按 name 去重
     for category in ("quantitative", "elastic"):
-        existing_names = {s.get("name", "") for s in target[category]}
+        existing_by_name = {s.get("name", ""): s for s in target[category]}
         for stock in source.get(category, []):
             name = stock.get("name", "")
-            if name and name not in existing_names:
+            if not name:
+                continue
+            if name not in existing_by_name:
                 target[category].append(stock)
-                existing_names.add(name)
+                existing_by_name[name] = stock
+            else:
+                existing = existing_by_name[name]
+                for field in ("code", "sector", "target"):
+                    if not existing.get(field) and stock.get(field):
+                        existing[field] = stock.get(field)
+                for field in ("logic", "risk", "source"):
+                    existing[field] = _merge_text(existing.get(field, ""), stock.get(field, ""))
 
     # 合并 sectors — 按 sector 名去重
     existing_sectors = {s.get("sector", "") for s in target["sectors"]}
@@ -360,13 +383,16 @@ def _merge_json(target: dict, source: dict) -> None:
             target["sectors"].append(sector)
             existing_sectors.add(s_name)
 
-    # 合并 risks — 按 type 名去重
-    existing_risks = {r.get("type", "") for r in target["risks"]}
+    # 合并 risks — 按 type + target 去重，避免同一风险类型下不同标的被吞掉
+    existing_risks = {
+        (r.get("type", ""), r.get("target", ""))
+        for r in target["risks"]
+    }
     for risk in source.get("risks", []):
-        r_type = risk.get("type", "")
-        if r_type and r_type not in existing_risks:
+        r_key = (risk.get("type", ""), risk.get("target", ""))
+        if r_key[0] and r_key not in existing_risks:
             target["risks"].append(risk)
-            existing_risks.add(r_type)
+            existing_risks.add(r_key)
 
 
 def _fallback_parse_tables(markdown: str) -> dict:
@@ -398,6 +424,7 @@ def _fallback_parse_tables(markdown: str) -> dict:
                     "code": _extract_code(cols[1]) if len(cols) > 1 else "",
                     "logic": cols[2] if len(cols) > 2 else "",
                     "target": cols[3] if len(cols) > 3 else "",
+                    "risk": "",
                     "source": cols[4] if len(cols) > 4 else "",
                 })
             elif key == "elastic" and len(cols) >= 5:
@@ -406,6 +433,7 @@ def _fallback_parse_tables(markdown: str) -> dict:
                     "code": _extract_code(cols[1]) if len(cols) > 1 else "",
                     "sector": cols[2] if len(cols) > 2 else "",
                     "logic": cols[3] if len(cols) > 3 else "",
+                    "risk": "",
                     "source": cols[4] if len(cols) > 4 else "",
                 })
             elif key == "sectors" and len(cols) >= 4:
@@ -469,7 +497,7 @@ def _parse_target_value(target_str: str) -> Optional[float]:
 
 
 def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dict], dict]:
-    """增强股票数据：获取实时价格，计算上涨空间和推荐指数。
+    """增强股票数据：获取实时行情，计算推荐指数。
 
     Returns:
         按推荐指数降序排列的增强股票列表。
@@ -487,6 +515,7 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
                     "logic": entry.get("logic", ""),
                     "target_str": entry.get("target", ""),
                     "target_value": _parse_target_value(entry.get("target", "")),
+                    "risk_str": entry.get("risk", ""),
                     "source": entry.get("source", ""),
                     "category": "quantitative",
                     "sector": "",
@@ -501,6 +530,9 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
                     existing["target_str"] = entry.get("target", "")
                     existing["target_value"] = _parse_target_value(entry.get("target", ""))
                     existing["quality"] = _assess_quality(entry.get("target", ""))
+                existing["risk_str"] = _merge_text(
+                    existing.get("risk_str", ""), entry.get("risk", "")
+                )
 
     for entry in stocks_json.get("elastic", []):
         code = entry.get("code", "").strip()
@@ -513,6 +545,7 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
                     "name": name, "code": code,
                     "logic": entry.get("logic", ""),
                     "target_str": "", "target_value": None,
+                    "risk_str": entry.get("risk", ""),
                     "source": entry.get("source", ""),
                     "category": "elastic",
                     "sector": sector,
@@ -523,6 +556,19 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
                 all_stocks[key]["post_count"] += 1
                 if sector and not all_stocks[key]["sector"]:
                     all_stocks[key]["sector"] = sector
+                all_stocks[key]["risk_str"] = _merge_text(
+                    all_stocks[key].get("risk_str", ""), entry.get("risk", "")
+                )
+
+    # 用细分板块表回填量化标的的赛道，便于趋势评分和板块风险匹配
+    for sector_entry in stocks_json.get("sectors", []):
+        sector_name = sector_entry.get("sector", "")
+        stocks_text = sector_entry.get("stocks", "")
+        if not sector_name or not stocks_text:
+            continue
+        for stock in all_stocks.values():
+            if not stock.get("sector") and stock.get("name") in stocks_text:
+                stock["sector"] = sector_name
 
     if not all_stocks:
         return [], {}
@@ -543,6 +589,10 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
         print(f"  成功获取 {len(prices)} 只股票行情", flush=True)
     if verbose and changes_5d:
         print(f"  成功获取 {len(changes_5d)} 只股票 5 日涨跌幅", flush=True)
+
+    for stock in all_stocks.values():
+        code = stock.get("code", "")
+        stock["change_5d"] = changes_5d.get(code) if code else None
 
     # 计算板块热度（sectors 中的 stocks 字符串被提及的总字符数作为代理）
     sector_heat = {}
@@ -602,23 +652,23 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
                 upside_pct = round((target / current_price - 1) * 100, 1)
 
         # 推荐指数计算（1-10 分制）
-        # 1. 上涨空间得分（0-10）
+        # 1. 目标弹性得分（0-10）：目标价/目标市值只参与内部评分，不在报告中直接展示上涨空间。
         upside_score = 0
         if upside_pct is not None:
-            # 上涨空间映射到 0-10 分（30%+ = 10 分，0% = 0 分）
-            upside_score = min(10, max(0, upside_pct / 3))
+            # 采用非线性映射，避免 30% 以上全部挤到满分。
+            upside_score = min(10, max(0, 10 * (1 - math.exp(-upside_pct / 45))))
 
         # 2. 信息质量得分（0-10）
         quality_score = stock["quality"] * 10
 
         # 3. 分析师共识得分（0-10）
-        consensus_score = min(10, stock["post_count"] * 2.5)  # 4 篇帖子 = 满分
+        consensus_score = min(10, 2.0 + math.log1p(stock["post_count"]) * 3.0)
 
         # 4. 板块热度得分（0-10）
         sector_score = 0
         if stock["sector"]:
             heat = sector_heat.get(stock["sector"], 0)
-            sector_score = min(10, heat / 20)  # 200 字符 = 满分
+            sector_score = min(10, 1.5 + math.sqrt(max(0, heat)) / 1.8)
 
         # 5. 行业趋势得分（0-10）
         trend_score = 0.0
@@ -629,7 +679,10 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
         # 6. 公司基本面得分（0-10）
         fundamentals_score = _fundamentals_score(pe, pb, market_cap)
 
-        total_score = (
+        logic_score = _sentiment_score(stock.get("logic", ""))
+        target_precision = _target_precision_score(stock.get("target_str", ""))
+
+        base_score = (
             w_upside * upside_score
             + w_quality * quality_score
             + w_consensus * consensus_score
@@ -637,13 +690,18 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
             + w_trend * trend_score
             + w_fundamentals * fundamentals_score
         )
-        # 映射到 1-10
-        total_score = round(max(1.0, min(10.0, total_score)), 1)
+        total_score = _calibrate_recommendation_score(
+            base_score=base_score,
+            logic_score=logic_score,
+            target_precision=target_precision,
+            post_count=stock["post_count"],
+            category=stock["category"],
+        )
 
         # 生成星级
         stars = _score_to_stars(total_score)
-
-        enriched.append({
+        price_available = price_info is not None
+        stock_view = {
             **stock,
             "current_price": current_price,
             "pe": pe,
@@ -653,7 +711,20 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
             "upside_pct": upside_pct,
             "score": total_score,
             "stars": stars,
-            "price_available": price_info is not None,
+            "price_available": price_available,
+            "trend_score": round(trend_score, 1),
+            "trending_sector": norm_sec if trend_score >= 5.0 else "",
+            "fundamentals_score": round(fundamentals_score, 1),
+        }
+        risk_display = _build_stock_risk(
+            stock_view, stocks_json.get("risks", []), sector_aliases
+        )
+        stock_view["risk_display"] = risk_display
+        stock_view["entry_ref"] = _entry_reference(stock_view)
+        stock_view["action"] = _selection_action(stock_view)
+
+        enriched.append({
+            **stock_view,
             "score_detail": {
                 "upside": round(upside_score, 1),
                 "quality": round(quality_score, 1),
@@ -661,10 +732,9 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
                 "sector": round(sector_score, 1),
                 "trend": round(trend_score, 1),
                 "fundamentals": round(fundamentals_score, 1),
+                "logic": round(logic_score, 1),
+                "target": round(target_precision, 1),
             },
-            "trend_score": round(trend_score, 1),
-            "trending_sector": norm_sec if trend_score >= 5.0 else "",
-            "fundamentals_score": round(fundamentals_score, 1),
         })
 
     # 按推荐指数降序排列
@@ -962,6 +1032,214 @@ def _fmt_change(change_pct) -> str:
     return f"{change_pct:+.2f}%"
 
 
+def _fmt_market_cap(market_cap_yi) -> str:
+    """格式化当前市值（单位：亿元）。"""
+    if market_cap_yi is None:
+        return "-"
+    if market_cap_yi >= 10000:
+        return f"{market_cap_yi / 10000:.2f}万亿"
+    if market_cap_yi >= 1000:
+        return f"{market_cap_yi:.0f}亿"
+    if market_cap_yi >= 100:
+        return f"{market_cap_yi:.1f}亿"
+    return f"{market_cap_yi:.2f}亿"
+
+
+def _target_precision_score(target_str: str) -> float:
+    """评估目标参考的可执行程度（0-10）。"""
+    if not target_str:
+        return 2.0
+    score = 2.0
+    if re.search(r"\d+[\.\d]*\s*(?:元|块)", target_str):
+        score += 3.5
+    if re.search(r"\d+[\.\d]*\s*(?:亿|[eE]\b)", target_str):
+        score += 3.0
+    if re.search(r"(?:PE|PB|PS|估值|倍)", target_str, re.IGNORECASE):
+        score += 1.5
+    if re.search(r"(?:增速|增长|利润|营收|收入|EPS|业绩)", target_str, re.IGNORECASE):
+        score += 1.0
+    return min(10.0, score)
+
+
+def _calibrate_recommendation_score(
+    base_score: float,
+    logic_score: float,
+    target_precision: float,
+    post_count: int,
+    category: str,
+) -> float:
+    """把原始加权分映射为更有区分度的推荐指数。"""
+    category_bonus = 0.25 if category == "quantitative" else 0.0
+    consensus_nudge = min(0.45, max(0, post_count - 1) * 0.15)
+    logic_delta = (logic_score - 5.0) * 0.10
+    target_delta = (target_precision - 5.0) * 0.08
+    calibrated = base_score + category_bonus + consensus_nudge + logic_delta + target_delta
+    return round(max(1.0, min(10.0, calibrated)), 1)
+
+
+def _score_label(score: float) -> str:
+    """推荐指数分层标签，比星级更细。"""
+    if score >= 9.2:
+        return "S级/重点跟踪"
+    if score >= 8.5:
+        return "A+/强优先"
+    if score >= 7.8:
+        return "A/优先"
+    if score >= 7.0:
+        return "B+/积极观察"
+    if score >= 6.2:
+        return "B/观察"
+    if score >= 5.4:
+        return "C+/等待催化"
+    if score >= 4.6:
+        return "C/低优先"
+    return "D/谨慎"
+
+
+def _format_score_display(stock: dict) -> str:
+    """展示推荐指数和关键驱动项。"""
+    detail = stock.get("score_detail", {})
+    drivers = [
+        ("目标", detail.get("target", 0)),
+        ("逻辑", detail.get("logic", 0)),
+        ("趋势", detail.get("trend", 0)),
+        ("共识", detail.get("consensus", 0)),
+    ]
+    top_drivers = sorted(drivers, key=lambda x: x[1], reverse=True)[:2]
+    driver_str = " / ".join(f"{name}{value:.1f}" for name, value in top_drivers if value)
+    suffix = f"<br><small>{driver_str}</small>" if driver_str else ""
+    return f"**{stock['score']:.1f}** · {_score_label(stock['score'])}{suffix}"
+
+
+def _fmt_price(value) -> str:
+    """格式化价格区间中的单价。"""
+    if value is None:
+        return "-"
+    return f"{value:.1f}元" if value >= 100 else f"{value:.2f}元"
+
+
+def _entry_reference(stock: dict) -> str:
+    """根据当前行情和评分生成买入参考，不单列当前价。"""
+    current = stock.get("current_price")
+    score = stock.get("score", 0)
+    change_5d = stock.get("change_5d")
+    target = stock.get("target_value")
+    target_str = stock.get("target_str", "")
+
+    if current and current > 0:
+        if score >= 8.5:
+            if change_5d is not None and change_5d > 8:
+                return f"不追高；回踩 {_fmt_price(current * 0.94)}-{_fmt_price(current * 0.97)} 再评估"
+            return f"分批关注 {_fmt_price(current * 0.97)}-{_fmt_price(current)}；回撤 {_fmt_price(current * 0.94)} 附近加观察"
+        if score >= 7.0:
+            return f"等回踩 {_fmt_price(current * 0.92)}-{_fmt_price(current * 0.96)} 或催化确认"
+        if score >= 5.4:
+            return f"仅低吸观察 {_fmt_price(current * 0.88)}-{_fmt_price(current * 0.93)}"
+        return "暂不主动买入，等风险释放后再看"
+
+    if target and ("元" in target_str or "块" in target_str):
+        return f"无实时行情；目标价倒推 {_fmt_price(target * 0.65)}-{_fmt_price(target * 0.75)} 优先"
+
+    return "缺少行情或价格目标，先做逻辑观察"
+
+
+def _selection_action(stock: dict) -> str:
+    """给快速选股表使用的动作标签。"""
+    score = stock.get("score", 0)
+    risk_text = stock.get("risk_display", "")
+    if any(kw in risk_text for kw in ("回避", "看空", "退市", "重大利空")):
+        return "暂缓/排雷"
+    if score >= 8.5:
+        return "重点候选"
+    if score >= 7.8:
+        return "优先跟踪"
+    if score >= 7.0:
+        return "等买点"
+    if score >= 6.2:
+        return "备选观察"
+    return "暂缓"
+
+
+def _build_stock_risk(stock: dict, risks_list: list[dict], sector_aliases: dict) -> str:
+    """汇总个股风险：AI 提取风险 + 全局风险匹配 + 规则兜底。"""
+    parts = []
+
+    def add(text: str) -> None:
+        text = (text or "").strip("；; \n")
+        if text and all(text not in p and p not in text for p in parts):
+            parts.append(text)
+
+    add(stock.get("risk_str", ""))
+
+    name = stock.get("name", "")
+    raw_sector = stock.get("sector", "")
+    norm_sector = _normalize_sector_name(raw_sector, sector_aliases)
+    for risk in risks_list:
+        target = risk.get("target", "")
+        desc = risk.get("desc", "")
+        r_type = risk.get("type", "")
+        matched_name = name and name in target
+        matched_sector = raw_sector and raw_sector in target
+        matched_norm_sector = norm_sector and (norm_sector in target or target in norm_sector)
+        if matched_name or matched_sector or matched_norm_sector:
+            add(f"{r_type}: {desc}" if r_type and desc else desc or r_type)
+
+    for inferred in _infer_stock_risks(stock, norm_sector):
+        add(inferred)
+
+    if not parts:
+        add("未见明确利空；重点跟踪业绩兑现和板块波动")
+    return "；".join(parts[:3])
+
+
+def _infer_stock_risks(stock: dict, norm_sector: str) -> list[str]:
+    """用行情和文本信号补充潜在利空，作为没有明确风险时的兜底。"""
+    risks = []
+    if not stock.get("target_str"):
+        risks.append("缺少量化目标，买点需等待催化确认")
+    if not stock.get("price_available"):
+        risks.append("缺少行情数据，买入区间需人工核验")
+
+    pe = stock.get("pe")
+    if pe is not None:
+        if pe <= 0:
+            risks.append("盈利尚不稳定，业绩兑现风险较高")
+        elif pe > 60:
+            risks.append("估值偏高，业绩不及预期可能压制估值")
+
+    market_cap = stock.get("market_cap_yi")
+    if market_cap is not None and market_cap < 80:
+        risks.append("小市值波动和流动性风险")
+
+    change_5d = stock.get("change_5d")
+    if change_5d is not None:
+        if change_5d > 8:
+            risks.append("短期涨幅偏大，追高风险")
+        elif change_5d < -8:
+            risks.append("短期走势偏弱，需防继续回撤")
+
+    upside_pct = stock.get("upside_pct")
+    if upside_pct is not None and upside_pct < 10:
+        risks.append("目标弹性有限，赔率不足")
+
+    if "新能源" in norm_sector:
+        risks.append("产业链价格和政策节奏波动")
+    elif "半导体" in norm_sector or "芯片" in norm_sector:
+        risks.append("订单周期和国产替代进度不及预期")
+    elif "AI" in norm_sector or "人工智能" in norm_sector:
+        risks.append("算力投入节奏和应用兑现不及预期")
+
+    return risks
+
+
+def _emphasize_cell(text: str, fallback: str = "-") -> str:
+    """突出核心逻辑和目标参考。"""
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return fallback
+    return f"**{cleaned}**"
+
+
 def _score_to_stars(score: float) -> str:
     """将 1-10 分数映射为星级。"""
     if score >= 9:
@@ -1004,7 +1282,7 @@ def _trend_badge(stock: dict) -> str:
 def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: dict = None) -> str:
     """用增强后的股票数据重建 Markdown 报告。
 
-    新增：优先级排序总览表、行业趋势概览，并在前两部分添加价格/上涨空间/推荐指数列。
+    新增：快速选股清单、行业趋势概览，并突出买入参考、风险点、核心逻辑和目标参考。
     """
     if trend_data is None:
         trend_data = {}
@@ -1015,33 +1293,29 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
     original_markdown = _strip_json_block(original_markdown)
     parts = []
 
-    # ── 0. 优先级排序总览 ──
-    parts.append("## 优先级排序总览（按推荐指数降序）\n")
+    # ── 0. 快速选股总览 ──
+    parts.append("## 快速选股清单（按推荐指数降序）\n")
     parts.append(
-        "| 推荐 | 股票名称 | 代码 | 当前股价 | PE | "
-        "5日涨跌 | 目标参考 | 上涨空间 | 推荐指数 | 趋势 | 核心逻辑 |"
+        "| 操作 | 股票名称 | 当前市值 | 买入参考 | 核心逻辑 | 目标参考 | 风险点/潜在利空 | 推荐指数 | 趋势 |"
     )
     parts.append(
-        "|------|----------|------|----------|-----|"
-        "--------|----------|----------|----------|------|----------|"
+        "|------|----------|----------|----------|----------|----------|----------------|----------|------|"
     )
 
     for stock in enriched:
         name = stock["name"]
-        code = stock["code"] or "-"
-        price_str = f"{stock['current_price']:.2f}" if stock["current_price"] else "N/A"
-        pe_str = f"{stock['pe']:.1f}" if stock["pe"] else "-"
-        change_5d_str = _fmt_change(stock.get("change_5d"))
-        target_str = stock["target_str"] or "-"
-        upside_str = f"{stock['upside_pct']:+.1f}%" if stock["upside_pct"] is not None else "N/A"
-        logic = stock["logic"][:50] if stock["logic"] else "-"
+        market_cap_str = _fmt_market_cap(stock.get("market_cap_yi"))
+        target_str = _emphasize_cell(stock["target_str"])
+        logic = _emphasize_cell(stock["logic"][:70] if stock["logic"] else "")
+        risk = stock.get("risk_display", "-")[:90]
+        score_str = _format_score_display(stock)
         # 趋势标记
         trend_badge = _trend_badge(stock)
 
         parts.append(
-            f"| {stock['stars']} | {name} | {code} | {price_str} | {pe_str} | "
-            f"{change_5d_str} | {target_str} | {upside_str} | **{stock['score']}** | "
-            f"{trend_badge} | {logic} |"
+            f"| {stock.get('action', '-')} | {name} | {market_cap_str} | "
+            f"{stock.get('entry_ref', '-')} | {logic} | {target_str} | "
+            f"{risk} | {score_str} | {trend_badge} |"
         )
 
     parts.append("")
@@ -1052,7 +1326,7 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
         trending.sort(key=lambda x: x[1], reverse=True)
         parts.append("## 🔥 行业趋势概览\n")
         parts.append(
-            "| 行业板块 | 趋势强度 | 涉及标的数 | 平均5日涨跌 | 信号解读 |"
+            "| 行业板块 | 趋势强度 | 涉及标的数 | 核心逻辑 | 信号解读 |"
         )
         parts.append(
             "|----------|----------|------------|-------------|----------|"
@@ -1064,13 +1338,12 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
                 s.get("change_5d") for s in stocks_in
                 if s.get("change_5d") is not None
             ]
-            avg_chg_str = f"{sum(changes)/len(changes):+.1f}%" if changes else "-"
             logic = sector_logic_map.get(sector_name, "")
             desc = _trend_signal_desc(ts, changes, n)
             stars_trend = "🔥" * min(3, max(1, int(ts / 3.3)))
             parts.append(
                 f"| {stars_trend} {sector_name} | **{ts:.1f}** | {n} | "
-                f"{avg_chg_str} | {desc} |"
+                f"{_emphasize_cell(logic[:70] if logic else '')} | {desc} |"
             )
         parts.append("")
 
@@ -1079,23 +1352,19 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
     if q_stocks:
         parts.append("## 一、有明确量化目标的股票（增强）\n")
         parts.append(
-            "| 序号 | 股票名称 | 代码 | 当前股价 | PE | "
-            "5日涨跌 | 上涨空间 | 投资逻辑 | 量化参考 | 推荐指数 | 趋势 | 来源 |"
+            "| 序号 | 股票名称 | 当前市值 | 买入参考 | 核心逻辑 | 目标参考 | 风险点/潜在利空 | 推荐指数 | 趋势 | 来源 |"
         )
         parts.append(
-            "|------|----------|------|----------|-----|"
-            "--------|----------|----------|----------|----------|------|------|"
+            "|------|----------|----------|----------|----------|----------|----------------|----------|------|------|"
         )
         for i, s in enumerate(q_stocks, 1):
-            price_str = f"{s['current_price']:.2f}" if s["current_price"] else "N/A"
-            pe_str = f"{s['pe']:.1f}" if s["pe"] else "-"
-            change_5d_str = _fmt_change(s.get("change_5d"))
-            upside_str = f"{s['upside_pct']:+.1f}%" if s["upside_pct"] is not None else "N/A"
             trend_badge = _trend_badge(s)
             parts.append(
-                f"| {i} | {s['name']} | {s['code'] or '-'} | {price_str} | {pe_str} | "
-                f"{change_5d_str} | {upside_str} | {s['logic'][:60]} | {s['target_str']} | "
-                f"**{s['score']}** {s['stars']} | {trend_badge} | {s['source']} |"
+                f"| {i} | {s['name']} | {_fmt_market_cap(s.get('market_cap_yi'))} | "
+                f"{s.get('entry_ref', '-')} | "
+                f"{_emphasize_cell(s['logic'][:80] if s['logic'] else '')} | "
+                f"{_emphasize_cell(s['target_str'])} | {s.get('risk_display', '-')[:90]} | {_format_score_display(s)} | "
+                f"{trend_badge} | {s['source']} |"
             )
         parts.append("")
 
@@ -1104,22 +1373,18 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
     if e_stocks:
         parts.append("## 二、产业趋势中弹性最大的标的（增强）\n")
         parts.append(
-            "| 序号 | 股票名称 | 代码 | 当前股价 | PE | "
-            "5日涨跌 | 所属赛道 | 核心逻辑 | 推荐指数 | 趋势 | 来源 |"
+            "| 序号 | 股票名称 | 当前市值 | 买入参考 | 所属赛道 | 核心逻辑 | 目标参考 | 风险点/潜在利空 | 推荐指数 | 趋势 | 来源 |"
         )
         parts.append(
-            "|------|----------|------|----------|-----|"
-            "--------|----------|----------|----------|------|------|"
+            "|------|----------|----------|----------|----------|----------|----------|----------------|----------|------|------|"
         )
         for i, s in enumerate(e_stocks, 1):
-            price_str = f"{s['current_price']:.2f}" if s["current_price"] else "N/A"
-            pe_str = f"{s['pe']:.1f}" if s["pe"] else "-"
-            change_5d_str = _fmt_change(s.get("change_5d"))
             trend_badge = _trend_badge(s)
             parts.append(
-                f"| {i} | {s['name']} | {s['code'] or '-'} | {price_str} | {pe_str} | "
-                f"{change_5d_str} | {s['sector']} | {s['logic'][:60]} | "
-                f"**{s['score']}** {s['stars']} | {trend_badge} | {s['source']} |"
+                f"| {i} | {s['name']} | {_fmt_market_cap(s.get('market_cap_yi'))} | "
+                f"{s.get('entry_ref', '-')} | {s['sector'] or '-'} | {_emphasize_cell(s['logic'][:80] if s['logic'] else '')} | "
+                f"{_emphasize_cell(s['target_str'])} | {s.get('risk_display', '-')[:90]} | {_format_score_display(s)} | "
+                f"{trend_badge} | {s['source']} |"
             )
         parts.append("")
 
@@ -1165,7 +1430,7 @@ def _build_stock_report(merged: str, post_count: int) -> str:
         "",
         f"> 分析帖子数: {post_count} 篇",
         f"> 生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-        f"> 数据来源: 腾讯行情 API（实时股价）",
+        f"> 数据来源: 腾讯行情 API（市值等行情数据）",
         "",
         merged,
         "",
