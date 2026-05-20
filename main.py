@@ -120,6 +120,99 @@ def cmd_stocks() -> None:
     save_stock_report(report, group_name=group_name)
     _log("\n股票机会提取完成！")
 
+    # 如果启用了同花顺同步，自动执行
+    _try_thssync_auto()
+
+
+def _try_thssync_auto() -> None:
+    """如果配置启用了同花顺同步，自动执行同步。"""
+    try:
+        config = _load_thssync_config()
+        if not config.get("enabled", False):
+            return
+        _log("\n[同花顺同步] 配置已启用，开始同步...")
+        from ths_sync import THSClient, format_sync_result, resolve_group_name
+        from storage import load_latest_stock_data
+        stocks, _ = load_latest_stock_data()
+        if not stocks:
+            _log("[同花顺同步] 无股票数据，跳过")
+            return
+
+        group_name = resolve_group_name(
+            config.get("group_name_prefix", "知识星球"),
+            config.get("group_name", "auto"),
+        )
+        client = THSClient(
+            cookies_path=config.get("cookies_path", "cookies_ths.json"),
+            score_threshold=config.get("score_threshold", 3.0),
+            request_delay=config.get("request_delay", 0.3),
+            group_name=group_name,
+            create_group_if_missing=config.get("create_group_if_missing", True),
+            also_add_to_watchlist=config.get("also_add_to_watchlist", False),
+        )
+        result = client.sync_stocks(stocks)
+        _log("\n" + "=" * 50)
+        _log("同花顺同步结果：")
+        _log("=" * 50)
+        print(format_sync_result(result))
+    except Exception as e:
+        _log(f"[同花顺同步] 自动同步失败（不影响主流程）: {e}")
+
+
+def cmd_thssync(args) -> None:
+    """将评分达标的股票同步到同花顺自选或指定分组。"""
+    from ths_sync import THSClient, format_sync_result
+
+    from storage import load_latest_stock_data
+    stocks, _ = load_latest_stock_data()
+    if not stocks:
+        _log("错误：没有找到已提取的股票数据。请先运行 stocks 或 all 命令。")
+        sys.exit(1)
+
+    ths_config = _load_thssync_config()
+    score_threshold = (
+        args.score if args.score is not None
+        else ths_config.get("score_threshold", 3.0)
+    )
+    from ths_sync import resolve_group_name
+    group_name = resolve_group_name(
+        ths_config.get("group_name_prefix", "知识星球"),
+        ths_config.get("group_name", "auto"),
+    )
+    target = group_name if group_name else "默认自选股"
+
+    _log(f"共 {len(stocks)} 只股票，评分阈值: >={score_threshold}，目标: {target}")
+    _log("正在同步到同花顺...")
+
+    client = THSClient(
+        cookies_path=ths_config.get("cookies_path", "cookies_ths.json"),
+        score_threshold=score_threshold,
+        request_delay=ths_config.get("request_delay", 0.3),
+        group_name=group_name,
+        create_group_if_missing=ths_config.get("create_group_if_missing", True),
+        also_add_to_watchlist=ths_config.get("also_add_to_watchlist", False),
+    )
+    result = client.sync_stocks(stocks)
+
+    _log("\n" + "=" * 50)
+    _log("同花顺同步结果：")
+    _log("=" * 50)
+    print(format_sync_result(result))
+
+    return result
+
+
+def _load_thssync_config() -> dict:
+    """加载同花顺同步配置。"""
+    import yaml
+    from pathlib import Path
+    config_path = Path(__file__).parent / "config.yaml"
+    if config_path.exists():
+        with open(config_path, "r") as f:
+            config = yaml.safe_load(f) or {}
+        return config.get("ths", {})
+    return {}
+
 
 def cmd_all(group_url: str) -> None:
     _log("=" * 50)
@@ -137,7 +230,8 @@ def cmd_all(group_url: str) -> None:
     posts = cmd_crawl(group_url)
 
     if not posts:
-        _log("\n没有新内容，流程结束。")
+        _log("\n没有新内容，跳过提取流程，尝试同步已有股票数据...")
+        _try_thssync_auto()
         return
 
     # ── 第 3 步：提取股票机会 ──
@@ -159,6 +253,9 @@ def cmd_all(group_url: str) -> None:
 
     report = summarize_posts(posts)
     save_summary(report, group_name=group_id)
+
+    # ── 第 5 步：同花顺同步（可选，根据配置） ──
+    _try_thssync_auto()
 
     _log("\n" + "=" * 50)
     _log("全部完成！请查看 data/ 目录下的输出文件。")
@@ -190,6 +287,12 @@ def main():
 
     subparsers.add_parser("stocks", help="对最近爬取的内容提取股票投资机会")
 
+    thssync_parser = subparsers.add_parser("thssync", help="将重点推荐股票同步到同花顺自选股")
+    thssync_parser.add_argument(
+        "-s", "--score", type=float, default=None,
+        help="推荐指数阈值（覆盖 config.yaml 设置）",
+    )
+
     all_parser = subparsers.add_parser("all", help="一键执行完整流程")
     all_parser.add_argument("url", help="专栏 URL")
 
@@ -203,6 +306,8 @@ def main():
         cmd_summary()
     elif args.command == "stocks":
         cmd_stocks()
+    elif args.command == "thssync":
+        cmd_thssync(args)
     elif args.command == "all":
         cmd_all(args.url)
     else:

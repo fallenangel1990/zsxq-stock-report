@@ -81,6 +81,482 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-05-11T08:48:14.310Z"
+    },
+    {
+      "id": "bug-006",
+      "timestamp": "2026-05-11T10:46:22.348Z",
+      "error_message": "Incorrect value in code",
+      "file": "crawler.py",
+      "root_cause": "Had \"{ZSXQ_API_BASE}/groups/{group_id}/topics?{urlenco",
+      "fix": "Changed to \"{ZSXQ_API_BASE}/groups/{group_id}/topics?{urlenco",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-05-11T10:46:22.348Z"
+    },
+    {
+      "id": "bug-007",
+      "timestamp": "2026-05-11T15:20:14.227Z",
+      "error_message": "Wrong reference: jinja2 should be Jinja2",
+      "file": "requirements.txt",
+      "root_cause": "Used \"jinja2\" instead of \"Jinja2\"",
+      "fix": "Changed jinja2 → Jinja2",
+      "tags": [
+        "auto-detected",
+        "wrong-reference",
+        "txt"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-05-11T15:20:14.227Z"
+    },
+    {
+      "id": "bug-008",
+      "timestamp": "2026-05-11T15:38:45.961Z",
+      "error_message": "Significant refactor of ",
+      "file": "auth.py",
+      "root_cause": "2 lines replaced/restructured",
+      "fix": "Rewrote 6→4 lines (2 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-05-11T15:38:45.961Z"
+    },
+    {
+      "id": "bug-009",
+      "timestamp": "2026-05-11T15:39:19.799Z",
+      "error_message": "Significant refactor of ",
+      "file": "stock_extractor.py",
+      "root_cause": "8 lines replaced/restructured",
+      "fix": "Rewrote 22→39 lines (8 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-05-11T15:39:19.799Z"
+    },
+    {
+      "id": "bug-011",
+      "timestamp": "2026-05-11T16:20:55.000Z",
+      "error_message": "BrowserType.launch: Executable doesn't exist at /home/runner/.cache/ms-playwright/chromium_headless_shell-1217/chrome-headless-shell-linux64/chrome-headless-shell",
+      "file": ".github/workflows/daily-report.yml",
+      "root_cause": "CI workflow 安装了 playwright Python 包但未执行 playwright install 下载浏览器二进制文件",
+      "fix": "在 pip install 之后添加 playwright install --with-deps chromium 步骤",
+      "tags": [
+        "playwright",
+        "ci",
+        "missing-binary",
+        "github-actions"
+      ],
+      "related_bugs": [
+        "bug-003"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-05-11T16:20:55.000Z"
+    },
+    {
+      "id": "bug-010",
+      "timestamp": "2026-05-11T15:40:48.711Z",
+      "error_message": "Significant refactor of ",
+      "file": "email_sender.py",
+      "root_cause": "5 lines replaced/restructured",
+      "fix": "Rewrote 57→177 lines (5 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-05-11T15:40:48.711Z"
+    },
+    {
+      "id": "bug-012",
+      "timestamp": "2026-05-11T16:54:18.383Z",
+      "error_message": "Significant refactor of ",
+      "file": "stock_extractor.py",
+      "root_cause": "2 lines replaced/restructured",
+      "fix": "Rewrote 14→31 lines (2 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-05-11T16:54:18.383Z"
+    },
+    {
+      "id": "bug-013",
+      "timestamp": "2026-05-11T16:54:25.986Z",
+      "error_message": "Wrong reference: posts should be relevant_posts",
+      "file": "stock_extractor.py",
+      "root_cause": "Used \"posts\" instead of \"relevant_posts\"",
+      "fix": "Changed posts → relevant_posts",
+      "tags": [
+        "auto-detected",
+        "wrong-reference",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 2,
+      "last_seen": "2026-05-11T16:54:34.413Z"
+    },
+    {
+      "id": "bug-014",
+      "timestamp": "2026-05-12T01:20:00.000Z",
+      "error_message": "PDF 报告中没有最近 5 日涨跌幅数据",
+      "file": "price_fetcher.py",
+      "root_cause": "fetch_5day_changes() 和 _rebuild_report() 中的 5日涨跌 列仅存在于工作区未提交修改中，已提交代码无此功能。同时 fetch_prices() 重构缓存时遗漏了 result = {} 初始化（NameError bug）",
+      "fix": "1) 补回 result = {} 初始化；2) 提交 price_fetcher.py（fetch_5day_changes 功能）和 stock_extractor.py（5日涨跌列表格列）",
+      "tags": [
+        "missing-feature",
+        "5day-change",
+        "pdf",
+        "NameError",
+        "uncommitted"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-05-12T01:20:00.000Z"
+    },
+    {
+      "id": "bug-015",
+      "timestamp": "2026-05-12T02:05:35.958Z",
+      "error_message": "Significant refactor of ",
+      "file": "config.yaml",
+      "root_cause": "3 lines replaced/restructured",
+      "fix": "Rewrote 6→35 lines (3 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "yaml"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-05-12T02:05:35.958Z"
+    },
+    {
+      "id": "bug-016",
+      "timestamp": "2026-05-12T02:05:49.778Z",
+      "error_message": "Significant refactor of ",
+      "file": "config.example.yaml",
+      "root_cause": "3 lines replaced/restructured",
+      "fix": "Rewrote 6→30 lines (3 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "yaml"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-05-12T02:05:49.778Z"
+    },
+    {
+      "id": "bug-017",
+      "timestamp": "2026-05-12T02:06:49.155Z",
+      "error_message": "Significant refactor of ",
+      "file": "stock_extractor.py",
+      "root_cause": "3 lines replaced/restructured",
+      "fix": "Rewrote 8→20 lines (3 removed) | Also: w_upside = scoring.get(\"upside_weight\", 0.4); w_quality = scoring.get(\"quality_weight\", 0.25) | Also: def _rebuild_report(enriched: list[dict], original; 新增：优先级排序总览表，并在前两部分添加价格/上涨空间/推荐指数列。",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 3,
+      "last_seen": "2026-05-12T02:11:09.866Z"
+    },
+    {
+      "id": "bug-018",
+      "timestamp": "2026-05-12T02:09:28.173Z",
+      "error_message": "Wrong return value",
+      "file": "stock_extractor.py",
+      "root_cause": "Was returning: trend_scores",
+      "fix": "Now returns: trend_scores, sector_groups, sector_logic_map",
+      "tags": [
+        "auto-detected",
+        "return-value",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-05-12T02:09:28.173Z"
+    },
+    {
+      "id": "bug-019",
+      "timestamp": "2026-05-14T01:15:00.000Z",
+      "error_message": "ValueError: not enough values to unpack (expected 2, got 0) at line 187 — _enrich_and_score returned [] instead of ([], {})",
+      "file": "stock_extractor.py",
+      "root_cause": "_enrich_and_score() 提前返回 return []（只有一个值），但调用方 expect 解包 (enriched, trend_data)。当 100 篇帖子提取出 0 只股票时触发。",
+      "fix": "1) 第 528 行 return [] → return [], {}；2) 第 471 行返回类型标注 list[dict] → tuple[list[dict], dict]",
+      "tags": [
+        "value-error",
+        "unpacking",
+        "empty-data",
+        "ci",
+        "early-return"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-05-14T01:15:00.000Z"
+    },
+    {
+      "id": "bug-020",
+      "timestamp": "2026-05-14T06:42:45.992Z",
+      "error_message": "Incorrect value in code",
+      "file": ".github/workflows/daily-report.yml",
+      "root_cause": "Had '30 0 * * 1-5'",
+      "fix": "Changed to '30 20 * * 0-4'",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "yml"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-05-14T06:42:45.992Z"
+    },
+    {
+      "id": "bug-021",
+      "timestamp": "2026-05-14T06:45:59.881Z",
+      "error_message": "Incorrect value in code",
+      "file": "email_sender.py",
+      "root_cause": "Had \"每日股票机会报告 {today}\"",
+      "fix": "Changed to \"每日报告 {today}\"",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 2,
+      "last_seen": "2026-05-14T06:46:07.280Z"
+    },
+    {
+      "id": "bug-022",
+      "timestamp": "2026-05-14T06:46:15.079Z",
+      "error_message": "Wrong reference: daily_stock_report should be daily_report",
+      "file": ".github/workflows/daily-report.yml",
+      "root_cause": "Used \"daily_stock_report\" instead of \"daily_report\"",
+      "fix": "Changed daily_stock_report → daily_report",
+      "tags": [
+        "auto-detected",
+        "wrong-reference",
+        "yml"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-05-14T06:46:15.079Z"
+    },
+    {
+      "id": "bug-023",
+      "timestamp": "2026-05-14T15:36:42.040Z",
+      "error_message": "Significant refactor of ",
+      "file": "email_sender.py",
+      "root_cause": "16 lines replaced/restructured",
+      "fix": "Rewrote 39→25 lines (16 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-05-14T15:36:42.040Z"
+    },
+    {
+      "id": "bug-024",
+      "timestamp": "2026-05-15T23:26:26.185Z",
+      "error_message": "Significant refactor of ",
+      "file": ".github/workflows/daily-report.yml",
+      "root_cause": "4 lines replaced/restructured",
+      "fix": "Rewrote 5→7 lines (4 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "yml"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-05-15T23:26:26.185Z"
+    },
+    {
+      "id": "bug-007",
+      "timestamp": "2026-05-16T07:26:00+08:00",
+      "error_message": "定时任务存在3个小时的时差，要求12点触发，实际15点触发",
+      "file": ".github/workflows/daily-report.yml",
+      "root_cause": "cron 偏移补偿假设为 +4h，但 GitHub Actions 实际执行延迟约 +7h，导致补偿不足",
+      "fix": "将 12:00 cron 从 0 0 * * 1-5 调整为 0 21 * * 0-4（提前3小时），8:30 cron 同步调整为 30 17 * * 0-4",
+      "tags": [
+        "cron",
+        "timezone",
+        "github-actions",
+        "scheduling"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-05-16T07:26:00+08:00"
+    },
+    {
+      "id": "bug-026",
+      "timestamp": "2026-05-18T08:11:32.381Z",
+      "error_message": "Significant refactor of ",
+      "file": ".github/workflows/daily-report.yml",
+      "root_cause": "7 lines replaced/restructured",
+      "fix": "Rewrote 8→5 lines (7 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "yml"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-05-18T08:11:32.381Z"
+    },
+    {
+      "id": "bug-027",
+      "timestamp": "2026-05-19T07:28:00.575Z",
+      "error_message": "Significant refactor of ",
+      "file": "main.py",
+      "root_cause": "5 lines replaced/restructured",
+      "fix": "Rewrote 10→5 lines (5 removed) | Also: thssync_parser = subparsers.add_parser(\"thssync\", ; \"--playwright\", action=\"store_true\",",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 2,
+      "last_seen": "2026-05-19T07:28:46.657Z"
+    },
+    {
+      "id": "bug-028",
+      "timestamp": "2026-05-19T07:29:23.183Z",
+      "error_message": "Significant refactor of ",
+      "file": "config.yaml",
+      "root_cause": "3 lines replaced/restructured",
+      "fix": "Rewrote 8→5 lines (3 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "yaml"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-05-19T07:29:23.183Z"
+    },
+    {
+      "id": "bug-029",
+      "timestamp": "2026-05-19T07:29:31.719Z",
+      "error_message": "Significant refactor of ",
+      "file": "config.example.yaml",
+      "root_cause": "3 lines replaced/restructured",
+      "fix": "Rewrote 10→7 lines (3 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "yaml"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-05-19T07:29:31.719Z"
+    },
+    {
+      "id": "bug-030",
+      "timestamp": "2026-05-20T01:10:05.890Z",
+      "error_message": "Incorrect value in code",
+      "file": ".github/workflows/daily-report.yml",
+      "root_cause": "Had '30 0 * * 1-5'",
+      "fix": "Changed to '0 1 * * 1-5'",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "yml"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-05-20T01:10:05.890Z"
+    },
+    {
+      "id": "bug-031",
+      "timestamp": "2026-05-20T01:16:10.763Z",
+      "error_message": "Wrong reference: false should be true",
+      "file": "config.yaml",
+      "root_cause": "Used \"false\" instead of \"true\"",
+      "fix": "Changed false → true",
+      "tags": [
+        "auto-detected",
+        "wrong-reference",
+        "yaml"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-05-20T01:16:10.763Z"
+    },
+    {
+      "id": "bug-032",
+      "timestamp": "2026-05-20T01:23:39.640Z",
+      "error_message": "Significant refactor of ",
+      "file": "stock_extractor.py",
+      "root_cause": "6 lines replaced/restructured",
+      "fix": "Rewrote 10→17 lines (6 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-05-20T01:23:39.640Z"
+    },
+    {
+      "id": "bug-033",
+      "timestamp": "2026-05-20T09:27:00+08:00",
+      "error_message": "AttributeError: 'NoneType' object has no attribute 'group' — re.search() returned None in _parse_topic() hashtag parsing",
+      "file": "crawler.py",
+      "root_cause": "re.findall() 找到了 hashtag title，但后续 re.search() 在特定文本格式下匹配不到对应标签，.group(0) 在 None 上调用",
+      "fix": "添加 if tag_match: 保护判断，避免对 None 调用 .group()",
+      "tags": ["crawler", "hashtag", "AttributeError", "regex"],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-05-20T09:27:00+08:00"
+    },
+    {
+      "id": "bug-034",
+      "timestamp": "2026-05-20T09:28:38+08:00",
+      "error_message": "邮件正文末尾包含 AI 输出的原始 JSON 数据",
+      "file": "stock_extractor.py",
+      "root_cause": "AI 有时输出裸 json\\n{...} 格式（无 ``` 围栏标记），_strip_json_block 的正则 r'```json...```' 无法匹配",
+      "fix": "在 _strip_json_block 中添加 r'\\njson\\s*\\n\\{.*' 正则，并在 email_sender.py 中新增 _remove_code_blocks() 作为双保险",
+      "tags": ["json", "email", "strip", "regex"],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-05-20T09:28:38+08:00"
+    },
+    {
+      "id": "bug-035",
+      "timestamp": "2026-05-20T09:27:43+08:00",
+      "error_message": "TypeError: unsupported operand type(s) for |: 'type' and 'NoneType' — Python 3.9 不支持 dict | None 语法",
+      "file": "crawler.py",
+      "root_cause": "使用了 Python 3.10+ 的联合类型语法 dict | None，但本地环境是 Python 3.9",
+      "fix": "将 dict | None 改为 Optional[dict]",
+      "tags": ["python-version", "type-hint", "compatibility"],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-05-20T09:27:43+08:00"
     }
   ]
 }

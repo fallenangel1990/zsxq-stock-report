@@ -185,6 +185,15 @@ def extract_stock_opportunities(
     if verbose:
         print("获取实时股价并计算推荐指数...", flush=True)
     enriched, trend_data = _enrich_and_score(all_stocks_json, verbose=verbose)
+
+    # 保存增强后的股票数据到 JSON（供 ths_sync 等模块使用）
+    if enriched:
+        try:
+            from storage import save_enriched_stocks
+            save_enriched_stocks(enriched, group_name="latest")
+        except Exception:
+            pass  # 保存失败不影响主流程
+
     merged = _rebuild_report(enriched, merged_md, trend_data)
 
     return _build_stock_report(merged, len(posts))
@@ -977,14 +986,24 @@ def _score_to_stars(score: float) -> str:
 
 
 def _strip_json_block(markdown: str) -> str:
-    """从 Markdown 中移除 ```json ... ``` 代码块。
+    """从 Markdown 中移除所有围栏代码块及其内容。
 
-    分两步：先匹配标准的多行 JSON 块，再处理无换行的边界情况。
+    覆盖多种格式：
+    - ```json ... ```
+    - ``` ... ```（无语言标识）
+    - ```json{...}```（同一行无换行）
+    - 裸 json\n{...}（AI 有时不输出代码围栏标记）
     """
-    # 移除 ```json ... ``` 代码块（不要求闭合前必须有换行）
-    cleaned = re.sub(r"```json\s*\n.*?```", "", markdown, flags=re.DOTALL)
-    # 移除可能残留的独立 ``` 标记
-    cleaned = re.sub(r"\n?```\s*\n?", "\n", cleaned)
+    # 移除 ```json ... ``` 多行代码块
+    cleaned = re.sub(r"```[a-zA-Z]*\s*\n.*?```", "", markdown, flags=re.DOTALL)
+    # 移除 ```json{...}``` 同一行无换行的代码块
+    cleaned = re.sub(r"```[a-zA-Z]*\{.*?}```", "", cleaned, flags=re.DOTALL)
+    # 移除裸 JSON 块：独占一行的 "json" 后跟 JSON 对象
+    cleaned = re.sub(r"\njson\s*\n\{.*", "", cleaned, flags=re.DOTALL)
+    # 移除可能残留的独立 ``` 及周围空白
+    cleaned = re.sub(r"\n?\s*```\s*\n?", "\n", cleaned)
+    # 移除 JSON 数据输出等无关章节标题
+    cleaned = re.sub(r"^##?\s*JSON\s.*?\n", "", cleaned, flags=re.MULTILINE | re.IGNORECASE)
     return cleaned.strip()
 
 

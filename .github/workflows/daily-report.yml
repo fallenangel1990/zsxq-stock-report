@@ -2,11 +2,10 @@ name: 每日股票报告
 
 on:
   schedule:
-    # 目标北京时间 8:30，周一至周五
-    # 实际触发相比 cron 时间有 +4h 偏移，故提前至 UTC 20:30（前一日）
-    - cron: '30 20 * * 0-4'
-    # 目标北京时间 12:00，周一至周五（+4h 偏移补偿后为 UTC 0:00）
-    - cron: '0 0 * * 1-5'
+    # 目标北京时间 09:00（UTC 1:00），周一至周五
+    - cron: '0 1 * * 1-5'
+    # 目标北京时间 12:00（UTC 4:00），周一至周五
+    - cron: '0 4 * * 1-5'
   workflow_dispatch:
     inputs:
       max_posts:
@@ -32,10 +31,10 @@ jobs:
       # 1. 环境准备
       # ═══════════════════════════════════════════════════════════
       - name: 检出代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: 设置 Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
           cache: pip
@@ -99,6 +98,17 @@ jobs:
             echo "✅ cookies.json 已写入"
           else
             echo "⚠️  ZSXQ_COOKIES secret 未设置"
+          fi
+
+      - name: 写入同花顺 cookies（可选）
+        env:
+          THS_COOKIES: ${{ secrets.THS_COOKIES }}
+        run: |
+          if [ -n "$THS_COOKIES" ]; then
+            echo "$THS_COOKIES" > cookies_ths.json
+            echo "✅ cookies_ths.json 已写入"
+          else
+            echo "ℹ️  THS_COOKIES secret 未设置，同花顺同步将跳过"
           fi
 
       - name: 检查 Cookie 状态

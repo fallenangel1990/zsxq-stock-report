@@ -105,6 +105,58 @@ def save_stock_report(report: str, group_name: str = "") -> str:
     return str(filepath)
 
 
+def save_enriched_stocks(stocks: list[dict], group_name: str = "") -> str:
+    """保存增强后的股票数据为 JSON 文件（供 ths_sync 使用）。
+
+    Args:
+        stocks: 增强后的股票列表（含 score/code/name 等字段）。
+        group_name: 专栏名称。
+
+    Returns:
+        保存的文件路径。
+    """
+    _, summary_dir = _get_dirs()
+    summary_dir.mkdir(parents=True, exist_ok=True)
+
+    date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    if group_name:
+        filename = f"{group_name}_enriched_{date_str}.json"
+    else:
+        filename = f"stocks_enriched_{date_str}.json"
+
+    filepath = summary_dir / filename
+    filepath.write_text(
+        json.dumps(stocks, ensure_ascii=False, indent=2, default=str),
+        encoding="utf-8",
+    )
+    _log(f"增强股票数据已保存到: {filepath} ({len(stocks)} 只)")
+    return str(filepath)
+
+
+def load_latest_stock_data() -> tuple[list[dict], str]:
+    """加载最近一次保存的增强股票数据。
+
+    Returns:
+        (stocks_list, filepath) 元组，无数据则返回 ([], "")。
+    """
+    _, summary_dir = _get_dirs()
+    if not summary_dir.exists():
+        return [], ""
+
+    # 查找最新的 enrich JSON 文件
+    enriched_files = sorted(
+        summary_dir.glob("*_enriched_*.json"),
+        key=lambda p: p.stat().st_mtime, reverse=True,
+    )
+    if not enriched_files:
+        return [], ""
+
+    filepath = enriched_files[0]
+    stocks = json.loads(filepath.read_text(encoding="utf-8"))
+    _log(f"已加载增强股票数据: {filepath} ({len(stocks)} 只)")
+    return stocks, str(filepath)
+
+
 def load_latest_raw(group_id: str = "") -> tuple[list[dict], str]:
     """加载最近一次保存的原始数据。
 

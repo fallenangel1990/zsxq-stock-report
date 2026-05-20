@@ -1,31 +1,46 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-05-11T09:24:41.500Z
-> Files: 26 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-05-20T01:30:06.313Z
+> Files: 33 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../../.claude/plans/
 
+- `indexed-percolating-thimble.md` — 行业趋势检测 & 优先推荐 (~761 tok)
 - `piped-chasing-sky.md` — 定时任务 + PDF 生成 + 邮件发送 (~1111 tok)
+
+## ../../../.cursor/projects/Users-chenlin-Desktop-claud-code-zsxq-stock/agent-tools/
+
+- `707a7088-9ff7-4e5e-9304-1e434635177f.txt` — Declares PortfolioManager (~4889 tok)
+- `a1170b5e-6fd8-4a71-96fb-a02e7c97b4ea.txt` — /*.tsx" (~6640 tok)
+
+## ../../../.cursor/rules/
+
+- `reply-in-chinese.mdc` (~50 tok)
+
+## ../../../Library/Application Support/Cursor/User/
+
+- `locale.json` (~7 tok)
 
 ## ./
 
 - `.DS_Store` (~2732 tok)
 - `.gitignore` — Git ignore rules (~15 tok)
-- `auth.py` — 知识星球登录与 Cookie 管理模块。 (~1063 tok)
+- `auth.py` — 知识星球登录与 Cookie 管理模块。 (~1473 tok)
 - `CLAUDE.md` — OpenWolf (~57 tok)
-- `config.example.yaml` — 知识星球爬取工具配置文件 (~244 tok)
-- `config.yaml` — 知识星球爬取工具配置文件 (~282 tok)
+- `config.example.yaml` — 知识星球爬取工具配置文件 (~495 tok)
+- `config.yaml` — 知识星球爬取工具配置文件 (~670 tok)
 - `cookies.json` (~132 tok)
-- `crawler.py` — 知识星球专栏内容爬取模块。 (~2062 tok)
-- `email_sender.py` — 邮件发送模块。 (~1682 tok)
+- `crawler.py` — 知识星球专栏内容爬取模块。 (~3380 tok)
+- `email_sender.py` — 邮件发送模块。 (~2844 tok)
 - `extractor.py` — 内容解析与清洗模块。 (~1290 tok)
-- `main.py` — 知识星球内容爬取与总结工具 — CLI 入口。 (~1686 tok)
+- `main.py` — 知识星球内容爬取与总结工具 — CLI 入口。 (~2658 tok)
 - `pdf_generator.py` — 报告 PDF 生成模块。 (~2809 tok)
-- `price_fetcher.py` — 实时股价获取模块。 (~1087 tok)
-- `requirements.txt` — Python dependencies (~35 tok)
-- `stock_extractor.py` — 股票机会提取模块。 (~6396 tok)
-- `storage.py` — 数据持久化模块。 (~1316 tok)
+- `price_fetcher.py` — 实时股价获取模块。 (~2347 tok)
+- `requirements.txt` — Python dependencies (~43 tok)
+- `stock_extractor.py` — 股票机会提取模块。 (~10823 tok)
+- `storage.py` — 数据持久化模块。 (~1721 tok)
 - `summarizer.py` — 内容总结模块。 (~2462 tok)
+- `ths_sync.py` — 同花顺账户自选股同步模块。 (~5803 tok)
 
 ## .claude/
 
@@ -36,9 +51,13 @@
 
 - `openwolf.md` (~313 tok)
 
+## .cursor/rules/
+
+- `reply-in-chinese.mdc` (~49 tok)
+
 ## .github/workflows/
 
-- `daily-report.yml` — CI: 每日股票报告 (~1435 tok)
+- `daily-report.yml` — CI: 每日股票报告 (~3201 tok)
 
 ## data/
 

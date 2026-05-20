@@ -80,3 +80,14 @@ stocks:
       "自动化": "机器人/自动化"
       "汽车": "汽车/新能源车"
       "新能源车": "汽车/新能源车"
+
+# 同花顺账户同步配置
+ths:
+  enabled: true                     # stocks/all 完成后自动同步
+  cookies_path: "cookies_ths.json"  # 同花顺 cookies 文件路径
+  score_threshold: 3.0              # 推荐指数阈值（>= 此值的股票会同步）
+  group_name_prefix: "知识星球"      # 分组名前缀，实际为「知识星球 MM-DD」
+  group_name: "auto"                 # auto=按当日日期建组；或写固定名称
+  create_group_if_missing: true     # 分组不存在时自动创建
+  also_add_to_watchlist: true      # 是否同时加入默认自选股
+  request_delay: 0.3                # 每次 API 请求间隔（秒）

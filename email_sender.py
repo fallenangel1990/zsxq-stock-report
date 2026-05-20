@@ -18,6 +18,16 @@ from typing import Optional
 import markdown as md_lib
 
 
+def _remove_code_blocks(text: str) -> str:
+    """移除文本中所有围栏代码块（最后的防线，避免 JSON 泄露到邮件）。"""
+    cleaned = re.sub(r"```[a-zA-Z]*\s*\n.*?```", "", text, flags=re.DOTALL)
+    cleaned = re.sub(r"```[a-zA-Z]*\{.*?}```", "", cleaned, flags=re.DOTALL)
+    cleaned = re.sub(r"\njson\s*\n\{.*", "", cleaned, flags=re.DOTALL)
+    cleaned = re.sub(r"\n?\s*```\s*\n?", "\n", cleaned)
+    cleaned = re.sub(r"^##?\s*JSON\s.*?\n", "", cleaned, flags=re.MULTILINE | re.IGNORECASE)
+    return cleaned.strip()
+
+
 # ── 默认配置 ──
 
 SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.qq.com")
@@ -196,10 +206,11 @@ def send_report_notification(
     today = datetime.now().strftime("%Y-%m-%d")
     extra_info = extra_info or {}
 
-    # 读取 Markdown 并转换为 HTML
+    # 读取 Markdown 并转换为 HTML（先移除代码块避免 JSON 泄露）
     md_path = markdown_path
     if Path(md_path).exists():
         md_text = Path(md_path).read_text(encoding="utf-8")
+        md_text = _remove_code_blocks(md_text)
         report_html = _md_to_html(md_text)
     else:
         report_html = '<p style="color:#dc2626;">报告文件不存在，请检查 GitHub Actions 运行日志。</p>'

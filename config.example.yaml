@@ -69,3 +69,15 @@ stocks:
       "机器人": "机器人/自动化"
       "汽车": "汽车/新能源车"
       "新能源车": "汽车/新能源车"
+
+# 同花顺账户同步配置（可选）
+# 启用后，自动将评分达标的股票同步到同花顺自选分组
+ths:
+  enabled: false
+  cookies_path: "cookies_ths.json"
+  score_threshold: 3.0              # >= 此值的股票会同步
+  group_name_prefix: "知识星球"      # 分组名前缀，实际为「知识星球 MM-DD」
+  group_name: "auto"                 # auto=按当日日期建组；或写固定名称
+  create_group_if_missing: true
+  also_add_to_watchlist: false
+  request_delay: 0.3

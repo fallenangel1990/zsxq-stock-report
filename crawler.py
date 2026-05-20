@@ -68,7 +68,7 @@ def _fetch_topics_page(
     cookies: list[dict],
     end_time: str = "",
     count: int = 20,
-) -> dict | None:
+) -> Optional[dict]:
     """请求一页 topics 数据。
 
     Args:
@@ -337,10 +337,9 @@ def _parse_topic(topic: dict) -> dict:
         from urllib.parse import unquote as _unquote
         hashtags = re.findall(r'<e type="hashtag"[^>]*title="([^"]*)"', text)
         for ht in hashtags:
-            text = text.replace(
-                re.search(rf'<e type="hashtag"[^>]*title="{re.escape(ht)}"[^>]*/>', text).group(0),
-                _unquote(ht)
-            )
+            tag_match = re.search(rf'<e type="hashtag"[^>]*title="{re.escape(ht)}"[^>]*/>', text)
+            if tag_match:
+                text = text.replace(tag_match.group(0), _unquote(ht))
         text = re.sub(r"<e\s[^>]*/>", "", text)
         content = text.strip()
 
