@@ -496,5 +496,17 @@
       "occurrences": 1,
       "last_seen": "2026-05-15T01:02:34+08:00"
     }
+    {
+      "id": "bug-031",
+      "timestamp": "2026-05-21T09:14:00+08:00",
+      "error_message": "定时任务触发后同花顺分组未创建、股票未添加",
+      "file": ".github/workflows/daily-report.yml",
+      "root_cause": "config.yaml 在 .gitignore 中，不会提交到仓库。CI 从 config.example.yaml 创建配置，其中 ths.enabled: false。_try_thssync_auto() 检查到 enabled=false 时静默返回。",
+      "fix": "1) daily-report.yml 创建 config.yaml 后添加 Python 脚本强制设置 ths.enabled=True 和 also_add_to_watchlist=True；2) main.py _try_thssync_auto() 禁用时加日志提示；3) ths_sync.py _parse_group_codes() 修复分组内容解析 bug（按 | 分割而非按 , 分割）。",
+      "tags": ["github-actions", "config", "ths-sync", "silent-skip", "gitignore"],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-05-21T09:14:00+08:00"
+    }
   ]
 }

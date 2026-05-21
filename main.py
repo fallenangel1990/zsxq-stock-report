@@ -6,6 +6,7 @@
   python3 main.py crawl <专栏URL>           # 增量爬取（首次最多100篇）
   python3 main.py summary                  # 对最近爬取的内容进行 AI 总结
   python3 main.py stocks                   # 对最近爬取的内容提取股票投资机会
+  python3 main.py research <股票名称>       # 个股深度研究（搜索专栏内所有相关信息）
   python3 main.py all <专栏URL>             # 一键执行：增量爬取 + 股票提取 + 总结
 """
 
@@ -152,6 +153,7 @@ def _try_thssync_auto() -> None:
     try:
         config = _load_thssync_config()
         if not config.get("enabled", False):
+            _log("[同花顺同步] 配置未启用，跳过（config.yaml ths.enabled = false）")
             return
         _log("\n[同花顺同步] 配置已启用，开始同步...")
         from ths_sync import THSClient, format_sync_result, resolve_group_name
@@ -237,6 +239,24 @@ def _load_thssync_config() -> dict:
     return {}
 
 
+def cmd_research(stock_name: str, stock_code: str = "", data_file: str = "") -> None:
+    """对指定个股生成深度研究报告。"""
+    from research import generate_deep_research
+    
+    posts = None
+    if data_file:
+        import json
+        from pathlib import Path
+        filepath = Path(data_file)
+        if not filepath.exists():
+            _log(f"错误：数据文件不存在: {data_file}")
+            sys.exit(1)
+        posts = json.loads(filepath.read_text(encoding="utf-8"))
+        _log(f"已加载数据文件: {data_file} ({len(posts)} 篇帖子)")
+    
+    generate_deep_research(stock_name, stock_code=stock_code, posts=posts, send_email=True)
+
+
 def cmd_all(group_url: str) -> None:
     _log("=" * 50)
     _log("知识星球内容爬取与总结工具（增量模式）")
@@ -299,6 +319,8 @@ def main():
   python3 main.py crawl https://wx.zsxq.com/dweb2/index/group/123456
   python3 main.py summary
   python3 main.py stocks
+  python3 main.py research 华亚智能
+  python3 main.py research 拓斯达 -c 300607
   python3 main.py all https://wx.zsxq.com/dweb2/index/group/123456
         """,
     )
@@ -313,6 +335,11 @@ def main():
     subparsers.add_parser("summary", help="对最近爬取的内容进行 AI 总结")
 
     subparsers.add_parser("stocks", help="对最近爬取的内容提取股票投资机会")
+
+    research_parser = subparsers.add_parser("research", help="个股深度研究：搜索专栏内所有关于该个股的信息")
+    research_parser.add_argument("name", help="股票名称（如 华亚智能）")
+    research_parser.add_argument("-c", "--code", default="", help="股票代码（可选，自动解析）")
+    research_parser.add_argument("-f", "--file", default="", help="数据文件路径（可选，不指定则使用最新爬取的数据）")
 
     thssync_parser = subparsers.add_parser("thssync", help="将重点推荐股票同步到同花顺自选股")
     thssync_parser.add_argument(
@@ -333,6 +360,8 @@ def main():
         cmd_summary()
     elif args.command == "stocks":
         cmd_stocks()
+    elif args.command == "research":
+        cmd_research(args.name, stock_code=args.code, data_file=args.file)
     elif args.command == "thssync":
         cmd_thssync(args)
     elif args.command == "all":

@@ -203,3 +203,19 @@
 | 01:00 | 更新报告范围偏好和 buglog | .wolf/cerebrum.md, .wolf/buglog.json | 记录无新增兜底最近100条的规则 | ~350 |
 | 01:00 | 替换 workflow 日志解析方式 | daily-report.yml, .wolf/cerebrum.md, .wolf/buglog.json | macOS grep 不支持 -P，改用 Python 正则解析处理帖子数和发现标的数 | ~700 |
 | 01:02 | 修复本地 Python 3.9 导入兼容性 | crawler.py, .wolf/cerebrum.md, .wolf/buglog.json | dict\|None 改为 Optional[dict]，本地 py_compile 可通过 | ~300 |
+| 09:50 | Session end: 12 writes across 6 files (daily-report.yml, config.yaml, main.py, stock_extractor.py, email_sender.py) | 11 reads | ~25407 tok |
+
+## Session: 2026-05-21 09:12
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 09:14 | Edited .github/workflows/daily-report.yml | expanded (+12 lines) | ~167 |
+| 09:14 | Edited main.py | modified _try_thssync_auto() | ~71 |
+| 09:14 | Edited ths_sync.py | modified _parse_group_codes() | ~100 |
+|
+| 09:15 | 修复 CI 同花顺不同步：config.yaml 被 gitignore 导致 CI 使用 config.example.yaml（ths.enabled: false） | daily-report.yml, main.py, ths_sync.py | 工作流添加 Python 覆写配置步骤，添加禁用日志提示，修复 _parse_group_codes 解析 bug | ~500 |
+| 09:15 | Session end: 3 writes across 3 files (daily-report.yml, main.py, ths_sync.py) | 8 reads | ~16317 tok |
+| 09:22 | Edited config.yaml | 4→4 lines | ~55 |
+| 09:22 | Edited config.example.yaml | 11→11 lines | ~106 |
+| 09:22 | Edited .github/workflows/daily-report.yml | 12→13 lines | ~108 |
+| 09:23 | Session end: 6 writes across 5 files (daily-report.yml, main.py, ths_sync.py, config.yaml, config.example.yaml) | 8 reads | ~16586 tok |

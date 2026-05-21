@@ -28,6 +28,7 @@
 - [2026-05-15] 校验 GitHub Actions YAML 时不要用 PyYAML `safe_load` 直接取 `on`，它会按 YAML 1.1 把 `on` 当布尔值；用 `yaml.BaseLoader` 或文本校验。
 - [2026-05-15] 不要在需要本地/CI 双端校验的脚本里依赖 `grep -P`；macOS grep 不支持 `-P`，日志解析优先用 Python 正则。
 - [2026-05-15] 本地 `python3` 可能是 3.9，不要在需要本地验证的模块里使用 PEP 604 `dict | None` 注解；用 `Optional[...]` 更稳。
+- [2026-05-21] CI 中 `config.yaml` 被 `.gitignore` 排除，不会从仓库检出；工作流从 `config.example.yaml` 复制时 `ths.enabled: false`。任何涉及 CI 配置变更，都不要依赖本地修改后的 `config.yaml`，必须在工作流步骤中显式覆写。
 
 - **GitHub Actions cron 直接使用 UTC 时间**：不要加"延迟补偿"。GitHub Actions 按 cron 表达式在 UTC 时间触发，不存在系统性 +7h 延迟。北京时间 = UTC + 8h，直接换算即可。之前的 +7h 补偿反而造成 4h 偏差。
 
