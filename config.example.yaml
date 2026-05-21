@@ -3,6 +3,8 @@
 
 # 知识星球专栏配置
 zsxq:
+  # 专栏 ID（可选；用于 research 命令直接调用搜索接口）
+  group_id: ""
   # 专栏 URL（也可通过命令行传入）
   group_url: ""
   # 知识星球网页版地址
@@ -81,3 +83,45 @@ ths:
   create_group_if_missing: true
   also_add_to_watchlist: false
   request_delay: 0.3
+
+# A股主流板块盘中异动 / 盘后复盘配置
+sector_monitor:
+  board_limit: 500
+  stock_limit: 30
+  min_change_pct: 0.8       # 板块涨幅达到该阈值才进入候选
+  min_main_net_yi: 0.5      # 或主力净流入达到该阈值（亿元）才进入候选
+  # market 命令会先评估大盘，再给板块打「加仓/建仓/观察/规避」动作标签
+  mainstream_keywords:
+    - "人工智能"
+    - "AI"
+    - "算力"
+    - "大模型"
+    - "机器人"
+    - "半导体"
+    - "芯片"
+    - "消费电子"
+    - "新能源"
+    - "储能"
+    - "锂电"
+    - "光伏"
+    - "风电"
+    - "电池"
+    - "汽车"
+    - "新能源车"
+    - "军工"
+    - "低空经济"
+    - "商业航天"
+    - "医药"
+    - "创新药"
+    - "白酒"
+    - "食品饮料"
+    - "证券"
+    - "银行"
+    - "有色"
+    - "黄金"
+    - "稀土"
+
+# GitHub Pages 股票信息聚合看板
+dashboard:
+  top_n: 10
+  board_type: "all"   # all | industry | concept

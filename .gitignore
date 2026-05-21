@@ -1,6 +1,10 @@
 cookies.json
+cookies_ths.json
 config.yaml
 data/
+site/
 __pycache__/
 *.pyc
 .env
+.codex/
+.cursor/

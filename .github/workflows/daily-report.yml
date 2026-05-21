@@ -64,18 +64,18 @@ jobs:
             echo "✅ config.yaml 已存在"
           fi
           # 启用同花顺同步（config.yaml 被 gitignore，必须在 CI 中手动启用）
-          python3 -c "
-import yaml
-with open('config.yaml') as f:
-    cfg = yaml.safe_load(f)
-ths = cfg.setdefault('ths', {})
-ths['enabled'] = True
-ths['also_add_to_watchlist'] = True
-ths['score_threshold'] = 1.5
-with open('config.yaml', 'w') as f:
-    yaml.dump(cfg, f, allow_unicode=True)
-print('✅ 已启用同花顺同步（阈值 1.5）')
-"
+          python3 - <<'PY'
+          import yaml
+          with open('config.yaml') as f:
+              cfg = yaml.safe_load(f)
+          ths = cfg.setdefault('ths', {})
+          ths['enabled'] = True
+          ths['also_add_to_watchlist'] = True
+          ths['score_threshold'] = 1.5
+          with open('config.yaml', 'w') as f:
+              yaml.dump(cfg, f, allow_unicode=True)
+          print('✅ 已启用同花顺同步（阈值 1.5）')
+          PY
 
       # ═══════════════════════════════════════════════════════════
       # 3. 交易日检查

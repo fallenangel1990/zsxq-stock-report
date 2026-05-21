@@ -1,0 +1,70 @@
+name: 股票信息聚合看板
+
+on:
+  schedule:
+    # A股交易时段附近每15分钟刷新一次：北京时间 09:00-15:45 ≈ UTC 01:00-07:45
+    - cron: '*/15 1-7 * * 1-5'
+    # 盘后复盘刷新：北京时间 16:10
+    - cron: '10 8 * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: stock-dashboard
+  cancel-in-progress: true
+
+jobs:
+  build-dashboard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v6
+
+      - name: 设置 Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: 安装依赖
+        run: |
+          pip install --upgrade pip -q
+          pip install -r requirements.txt -q
+
+      - name: 创建 config.yaml
+        run: |
+          cp config.example.yaml config.yaml
+          python3 - <<'PY'
+          import yaml
+          with open("config.yaml", encoding="utf-8") as f:
+              cfg = yaml.safe_load(f) or {}
+          dashboard = cfg.setdefault("dashboard", {})
+          dashboard.setdefault("top_n", 10)
+          dashboard.setdefault("board_type", "all")
+          # 看板刷新只依赖公开行情，不需要知识星球 Cookie，也不启用同花顺同步。
+          ths = cfg.setdefault("ths", {})
+          ths["enabled"] = False
+          with open("config.yaml", "w", encoding="utf-8") as f:
+              yaml.safe_dump(cfg, f, allow_unicode=True, sort_keys=False)
+          PY
+
+      - name: 构建静态看板
+        run: python3 scripts/build_dashboard.py
+
+      - name: 上传 Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+
+      - name: 部署到 GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

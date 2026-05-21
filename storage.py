@@ -4,6 +4,7 @@
 """
 
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -102,6 +103,38 @@ def save_stock_report(report: str, group_name: str = "") -> str:
     filepath = summary_dir / filename
     filepath.write_text(report, encoding="utf-8")
     _log(f"股票机会报告已保存到: {filepath}")
+    return str(filepath)
+
+
+def save_sector_report(report: str, mode: str = "review") -> str:
+    """保存板块异动/盘后复盘报告为 Markdown 文件。"""
+    _, summary_dir = _get_dirs()
+    sector_dir = summary_dir / "sectors"
+    sector_dir.mkdir(parents=True, exist_ok=True)
+
+    date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_mode = re.sub(r"[^\w\u4e00-\u9fff]", "_", mode or "review")
+    filename = f"sector_{safe_mode}_{date_str}.md"
+
+    filepath = sector_dir / filename
+    filepath.write_text(report, encoding="utf-8")
+    _log(f"板块复盘报告已保存到: {filepath}")
+    return str(filepath)
+
+
+def save_market_signal_report(report: str, mode: str = "intraday") -> str:
+    """保存大盘与板块建仓/加仓信号报告。"""
+    _, summary_dir = _get_dirs()
+    market_dir = summary_dir / "market"
+    market_dir.mkdir(parents=True, exist_ok=True)
+
+    date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_mode = re.sub(r"[^\w\u4e00-\u9fff]", "_", mode or "intraday")
+    filename = f"market_signals_{safe_mode}_{date_str}.md"
+
+    filepath = market_dir / filename
+    filepath.write_text(report, encoding="utf-8")
+    _log(f"大盘信号报告已保存到: {filepath}")
     return str(filepath)
 
 
@@ -227,6 +260,30 @@ def save_crawl_state(group_id: str, latest_post: dict, total_new: int) -> None:
     state_file = state_dir / f"{group_id}.json"
     state_file.write_text(json.dumps(state, ensure_ascii=False, indent=2))
     _log(f"爬取状态已更新: {state_file}")
+
+
+def save_research_report(report: str, stock_name: str = "") -> str:
+    """保存个股深度研究报告为 Markdown 文件。
+
+    Args:
+        report: Markdown 格式的深度研究报告。
+        stock_name: 股票名称。
+
+    Returns:
+        保存的文件路径。
+    """
+    _, summary_dir = _get_dirs()
+    research_dir = summary_dir / "research"
+    research_dir.mkdir(parents=True, exist_ok=True)
+
+    date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_name = re.sub(r"[^\w\u4e00-\u9fff]", "_", stock_name) if stock_name else "unknown"
+    filename = f"{safe_name}_research_{date_str}.md"
+
+    filepath = research_dir / filename
+    filepath.write_text(report, encoding="utf-8")
+    _log(f"深度研究报告已保存到: {filepath}")
+    return str(filepath)
 
 
 def _log(msg: str) -> None:

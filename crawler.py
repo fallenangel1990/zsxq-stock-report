@@ -10,7 +10,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
-from urllib.parse import quote, urlencode
+from urllib.parse import parse_qs, quote, urlencode, urlparse
 
 import requests
 import yaml
@@ -409,5 +409,10 @@ def _detect_type(content: str, images: list) -> str:
 
 
 def get_group_id_from_url(url: str) -> Optional[str]:
+    parsed = urlparse(url)
+    query_group_id = parse_qs(parsed.query).get("groupId", [""])[0]
+    if query_group_id:
+        return query_group_id
+
     match = re.search(r"/group/(\w+)", url)
     return match.group(1) if match else None

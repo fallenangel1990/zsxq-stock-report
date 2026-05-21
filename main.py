@@ -227,6 +227,82 @@ def cmd_thssync(args) -> None:
     return result
 
 
+def cmd_sectors(args) -> None:
+    """捕获 A 股主流板块异动并生成复盘报告。"""
+    from sector_monitor import capture_sector_signals
+    from storage import save_sector_report
+
+    _log(
+        f"开始捕获板块信号：mode={args.mode}, board_type={args.board_type}, "
+        f"top={args.top}, ai={not args.no_ai}"
+    )
+    report, signals = capture_sector_signals(
+        mode=args.mode,
+        top_n=args.top,
+        board_type=args.board_type,
+        with_ai=not args.no_ai,
+    )
+
+    _log("\n" + "=" * 60)
+    _log("板块异动/复盘结果：")
+    _log("=" * 60)
+    print(report)
+
+    filepath = save_sector_report(report, mode=args.mode)
+
+    if args.email:
+        try:
+            from email_sender import send_report_notification
+            subject = (
+                "📈 A股盘后板块主力建仓复盘"
+                if args.mode == "review"
+                else "⚡ A股盘中板块异动信号"
+            )
+            send_report_notification(filepath, subject_override=subject)
+            _log("邮件已发送")
+        except Exception as e:
+            _log(f"邮件发送失败（不影响报告）: {e}")
+
+    _log(f"\n捕获完成：{len(signals)} 个板块信号")
+
+
+def cmd_market(args) -> None:
+    """监控大盘和主流板块，生成建仓/加仓信号。"""
+    from sector_monitor import capture_market_signals
+    from storage import save_market_signal_report
+
+    _log(
+        f"开始监控大盘与主流板块：mode={args.mode}, board_type={args.board_type}, "
+        f"top={args.top}, ai={not args.no_ai}"
+    )
+    report, market, signals = capture_market_signals(
+        mode=args.mode,
+        top_n=args.top,
+        board_type=args.board_type,
+        with_ai=not args.no_ai,
+    )
+
+    _log("\n" + "=" * 60)
+    _log("大盘与板块建仓/加仓信号：")
+    _log("=" * 60)
+    print(report)
+
+    filepath = save_market_signal_report(report, mode=args.mode)
+
+    if args.email:
+        try:
+            from email_sender import send_report_notification
+            send_report_notification(
+                filepath,
+                subject_override=f"📊 A股大盘与板块信号：{market.get('level', '未知')}",
+            )
+            _log("邮件已发送")
+        except Exception as e:
+            _log(f"邮件发送失败（不影响报告）: {e}")
+
+    _log(f"\n监控完成：大盘={market.get('level')}，板块信号={len(signals)} 个")
+
+
 def _load_thssync_config() -> dict:
     """加载同花顺同步配置。"""
     import yaml
@@ -239,7 +315,12 @@ def _load_thssync_config() -> dict:
     return {}
 
 
-def cmd_research(stock_name: str, stock_code: str = "", data_file: str = "") -> None:
+def cmd_research(
+    stock_name: str,
+    stock_code: str = "",
+    data_file: str = "",
+    group_id: str = "",
+) -> None:
     """对指定个股生成深度研究报告。"""
     from research import generate_deep_research
     
@@ -254,7 +335,13 @@ def cmd_research(stock_name: str, stock_code: str = "", data_file: str = "") -> 
         posts = json.loads(filepath.read_text(encoding="utf-8"))
         _log(f"已加载数据文件: {data_file} ({len(posts)} 篇帖子)")
     
-    generate_deep_research(stock_name, stock_code=stock_code, posts=posts, send_email=True)
+    generate_deep_research(
+        stock_name,
+        stock_code=stock_code,
+        posts=posts,
+        send_email=True,
+        group_id=group_id,
+    )
 
 
 def cmd_all(group_url: str) -> None:
@@ -319,6 +406,9 @@ def main():
   python3 main.py crawl https://wx.zsxq.com/dweb2/index/group/123456
   python3 main.py summary
   python3 main.py stocks
+  python3 main.py sectors --mode review
+  python3 main.py sectors --mode intraday --no-ai
+  python3 main.py market --mode intraday
   python3 main.py research 华亚智能
   python3 main.py research 拓斯达 -c 300607
   python3 main.py all https://wx.zsxq.com/dweb2/index/group/123456
@@ -340,12 +430,57 @@ def main():
     research_parser.add_argument("name", help="股票名称（如 华亚智能）")
     research_parser.add_argument("-c", "--code", default="", help="股票代码（可选，自动解析）")
     research_parser.add_argument("-f", "--file", default="", help="数据文件路径（可选，不指定则使用最新爬取的数据）")
+    research_parser.add_argument("-g", "--group-id", default="", help="知识星球专栏ID或搜索URL（可选）")
 
     thssync_parser = subparsers.add_parser("thssync", help="将重点推荐股票同步到同花顺自选股")
     thssync_parser.add_argument(
         "-s", "--score", type=float, default=None,
         help="推荐指数阈值（覆盖 config.yaml 设置）",
     )
+
+    sectors_parser = subparsers.add_parser("sectors", help="捕获A股主流板块盘中异动/盘后建仓复盘")
+    sectors_parser.add_argument(
+        "-m", "--mode",
+        choices=["intraday", "review"],
+        default="review",
+        help="intraday=盘中异动，review=盘后复盘（默认）",
+    )
+    sectors_parser.add_argument(
+        "-t", "--top",
+        type=int,
+        default=12,
+        help="输出板块数量（默认12）",
+    )
+    sectors_parser.add_argument(
+        "--board-type",
+        choices=["all", "industry", "concept"],
+        default="all",
+        help="板块范围：行业/概念/全部（默认all）",
+    )
+    sectors_parser.add_argument("--no-ai", action="store_true", help="只输出规则模型报告，不调用AI解读")
+    sectors_parser.add_argument("--email", action="store_true", help="生成后发送邮件")
+
+    market_parser = subparsers.add_parser("market", help="监控大盘和主流板块，输出建仓/加仓信号")
+    market_parser.add_argument(
+        "-m", "--mode",
+        choices=["intraday", "review"],
+        default="intraday",
+        help="intraday=盘中监控，review=盘后复盘（默认intraday）",
+    )
+    market_parser.add_argument(
+        "-t", "--top",
+        type=int,
+        default=10,
+        help="输出板块信号数量（默认10）",
+    )
+    market_parser.add_argument(
+        "--board-type",
+        choices=["all", "industry", "concept"],
+        default="all",
+        help="板块范围：行业/概念/全部（默认all）",
+    )
+    market_parser.add_argument("--no-ai", action="store_true", help="只输出规则模型信号，不调用AI解读")
+    market_parser.add_argument("--email", action="store_true", help="生成后发送邮件")
 
     all_parser = subparsers.add_parser("all", help="一键执行完整流程")
     all_parser.add_argument("url", help="专栏 URL")
@@ -361,9 +496,13 @@ def main():
     elif args.command == "stocks":
         cmd_stocks()
     elif args.command == "research":
-        cmd_research(args.name, stock_code=args.code, data_file=args.file)
+        cmd_research(args.name, stock_code=args.code, data_file=args.file, group_id=args.group_id)
     elif args.command == "thssync":
         cmd_thssync(args)
+    elif args.command == "sectors":
+        cmd_sectors(args)
+    elif args.command == "market":
+        cmd_market(args)
     elif args.command == "all":
         cmd_all(args.url)
     else:
