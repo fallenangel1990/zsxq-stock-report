@@ -60,6 +60,9 @@ jobs:
       - name: 构建静态看板
         run: python3 scripts/build_dashboard.py
 
+      - name: 配置 GitHub Pages
+        uses: actions/configure-pages@v5
+
       - name: 上传 Pages artifact
         uses: actions/upload-pages-artifact@v4
         with:
