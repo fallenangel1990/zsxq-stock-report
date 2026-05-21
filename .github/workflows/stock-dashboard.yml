@@ -21,6 +21,8 @@ jobs:
   build-dashboard:
     runs-on: ubuntu-latest
     timeout-minutes: 12
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -60,8 +62,31 @@ jobs:
       - name: 构建静态看板
         run: python3 scripts/build_dashboard.py
 
-      - name: 配置 GitHub Pages
-        uses: actions/configure-pages@v5
+      - name: 检查 Pages 启用状态
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PAGES_PAT_CONFIGURED: ${{ secrets.PAGES_PAT != '' }}
+        run: |
+          status=$(curl -sS -o /tmp/pages.json -w "%{http_code}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/pages")
+          if [ "$status" = "404" ] && [ "$PAGES_PAT_CONFIGURED" != "true" ]; then
+            echo "::error::GitHub Pages 尚未启用。请在仓库 Settings > Pages > Build and deployment > Source 选择 GitHub Actions 后重跑；或添加具备 Pages write/admin 权限的仓库 secret PAGES_PAT，让本 workflow 自动启用 Pages。"
+            exit 1
+          fi
+          if [ "$status" != "200" ] && [ "$status" != "404" ]; then
+            cat /tmp/pages.json
+            echo "::error::检查 GitHub Pages 配置失败，HTTP ${status}。"
+            exit 1
+          fi
+
+      - name: 配置/启用 GitHub Pages
+        uses: actions/configure-pages@v6
+        with:
+          token: ${{ secrets.PAGES_PAT || github.token }}
+          enablement: ${{ secrets.PAGES_PAT != '' }}
 
       - name: 上传 Pages artifact
         uses: actions/upload-pages-artifact@v4
@@ -70,4 +95,4 @@ jobs:
 
       - name: 部署到 GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
