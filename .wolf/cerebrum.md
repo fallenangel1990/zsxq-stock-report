@@ -9,8 +9,11 @@
 - **股票机会展示**：抓取知识星球内容后，始终按四类表格展示股票机会：有量化目标的 / 弹性最大的 / 细分板块 / 风险提示。每行含来源帖子引用。
 - **股票机会最终输出字段**：最终报告不要展示股票代码、当前股价、PE、上涨空间、5日涨跌；展示当前市值，突出核心逻辑和目标参考，推荐指数要有细分层级和区分度。
 - **股票机会决策辅助**：最终报告应方便快速选股，包含操作标签、买入参考区间/策略、个股风险点和潜在利空。
-- **定时报告内容范围**：定时任务有新增内容时只总结新增帖子数；没有新增内容时抓取最近 100 条帖子生成总结和股票机会报告。
+- **国外投行研报处理**：股票机会提取中，国外投行/外资券商研报涉及的 A 股要特别标注；港股、美股、海外上市公司、ETF、ADR、指数、基金等非 A 股投资推荐应忽略。
+- **定时报告增量范围**：定时任务不再限制拉取帖子数，也不再无新增时兜底抓最近 100 篇；每次只处理从上一次拉取记录之后到当前的全部新增帖子。
+- **定时邮件标题**：定时任务成功报告邮件主题使用“新闻资讯M月D日”，例如“新闻资讯5月25日”。
 - **回答语言**：尽可能使用中文回答。
+- **GitHub 同步**：每次完成本地修改后，默认提交并推送到 GitHub。
 
 ## Key Learnings
 
@@ -20,6 +23,9 @@
 - **富文本清洗**：ZSXQ 的 `talk.text` 含有 `<e type="hashtag" ... />` 等富文本标签，需在 `_parse_topic()` 中清洗后内容才可用。
 - **股票报告链路**：AI 提取阶段仍需保留股票代码作为行情查询键；最终报告由 `_rebuild_report()` 重建并移除 JSON/代码等不展示字段。
 - **GitHub Actions 定时**：A 股开盘日 08:30/12:00 北京时间应写为 UTC `30 0 * * 1-5` / `0 4 * * 1-5`，交易日检查必须使用 `Asia/Shanghai` 日期再用 `chinese_calendar` 排除节假日。
+- **GitHub Actions 邮件发送**：邮件凭证已存在但 `smtplib.SMTPServerDisconnected: Connection unexpectedly closed`
+  出现在 `server.login()` 时，优先怀疑 SMTP 端口/安全模式或服务商对 CI 出口的限制；
+  email_sender.py 支持 `SMTP_SECURITY=auto|ssl|starttls|plain`，默认 465 SSL 失败后回退 587 STARTTLS。
 - **项目:** practise
 
 ## Do-Not-Repeat
@@ -29,6 +35,8 @@
 - [2026-05-15] 不要在需要本地/CI 双端校验的脚本里依赖 `grep -P`；macOS grep 不支持 `-P`，日志解析优先用 Python 正则。
 - [2026-05-15] 本地 `python3` 可能是 3.9，不要在需要本地验证的模块里使用 PEP 604 `dict | None` 注解；用 `Optional[...]` 更稳。
 - [2026-05-21] CI 中 `config.yaml` 被 `.gitignore` 排除，不会从仓库检出；工作流从 `config.example.yaml` 复制时 `ths.enabled: false`。任何涉及 CI 配置变更，都不要依赖本地修改后的 `config.yaml`，必须在工作流步骤中显式覆写。
+- [2026-05-25] CI 邮件失败不要只判断为密码错误；如果日志停在 `server.login()` 且报 `SMTPServerDisconnected`，
+  需要同时检查 SMTP 安全模式/端口，保留 465 SSL 与 587 STARTTLS 的可配置和 fallback 路径。
 
 - **GitHub Actions cron 直接使用 UTC 时间**：不要加"延迟补偿"。GitHub Actions 按 cron 表达式在 UTC 时间触发，不存在系统性 +7h 延迟。北京时间 = UTC + 8h，直接换算即可。之前的 +7h 补偿反而造成 4h 偏差。
 

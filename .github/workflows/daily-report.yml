@@ -8,10 +8,6 @@ on:
     - cron: '0 4 * * 1-5'
   workflow_dispatch:
     inputs:
-      max_posts:
-        description: '首次运行最大帖子数'
-        required: false
-        default: '0'
       force:
         description: '强制执行（忽略交易日检查）'
         type: boolean
@@ -140,12 +136,33 @@ jobs:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_SECURITY: ${{ secrets.SMTP_SECURITY }}
           TO_EMAIL: ${{ secrets.TO_EMAIL }}
         run: |
-          echo "DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}" >> $GITHUB_ENV
-          echo "SMTP_USER=${SMTP_USER}" >> $GITHUB_ENV
-          echo "SMTP_PASS=${SMTP_PASS}" >> $GITHUB_ENV
-          echo "TO_EMAIL=${TO_EMAIL:-470337944@qq.com}" >> $GITHUB_ENV
+          python3 - <<'PY'
+          import os
+          import uuid
+
+          env_file = os.environ["GITHUB_ENV"]
+          values = {
+              "DEEPSEEK_API_KEY": os.environ.get("DEEPSEEK_API_KEY", ""),
+              "SMTP_USER": os.environ.get("SMTP_USER", ""),
+              "SMTP_PASS": os.environ.get("SMTP_PASS", ""),
+              "SMTP_HOST": os.environ.get("SMTP_HOST", ""),
+              "SMTP_PORT": os.environ.get("SMTP_PORT", ""),
+              "SMTP_SECURITY": os.environ.get("SMTP_SECURITY", ""),
+              "TO_EMAIL": os.environ.get("TO_EMAIL") or "470337944@qq.com",
+          }
+
+          with open(env_file, "a", encoding="utf-8") as f:
+              for key, value in values.items():
+                  if not value:
+                      continue
+                  marker = f"EOF_{key}_{uuid.uuid4().hex}"
+                  f.write(f"{key}<<{marker}\n{value}\n{marker}\n")
+          PY
 
       # ═══════════════════════════════════════════════════════════
       # 5. 执行主流程
@@ -170,7 +187,7 @@ jobs:
             tail -30 /tmp/crawl.log > /tmp/crawl_error.txt
           }
 
-          # 提取本次处理帖子数：有新增时为新增数量，无新增兜底时为最近 100 篇以内
+          # 提取本次处理帖子数：从上次拉取记录之后的全部新增帖子
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
           import re
 

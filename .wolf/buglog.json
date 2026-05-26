@@ -495,7 +495,7 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-05-15T01:02:34+08:00"
-    }
+    },
     {
       "id": "bug-031",
       "timestamp": "2026-05-21T09:14:00+08:00",
@@ -507,6 +507,44 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-05-21T09:14:00+08:00"
+    },
+    {
+      "id": "bug-032",
+      "timestamp": "2026-05-25T08:58:00+08:00",
+      "error_message": "smtplib.SMTPServerDisconnected: Connection unexpectedly closed during server.login(SMTP_USER, SMTP_PASS) in scheduled GitHub Actions email step",
+      "file": "email_sender.py",
+      "root_cause": "邮件链路固定使用 smtp.qq.com:465 SMTP_SSL，GitHub Actions 中 SMTP 服务器在 AUTH 阶段断开连接时没有 STARTTLS 587 fallback，也没有可配置的 SMTP_SECURITY/SMTP_HOST/SMTP_PORT 诊断路径；workflow 也没有把可选 SMTP host/port/security secrets 写入运行环境。",
+      "fix": "send_email() 增加 SMTP_SECURITY=auto/ssl/starttls/plain，默认先按配置尝试，465 失败后自动 fallback 到 587 STARTTLS；输出每次 SMTP 尝试和最终诊断。daily-report.yml 支持 SMTP_HOST/SMTP_PORT/SMTP_SECURITY secrets，并用 GITHUB_ENV multiline 写法写入 secrets。",
+      "tags": [
+        "smtp",
+        "github-actions",
+        "email",
+        "scheduled-report",
+        "starttls"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-05-25T08:58:00+08:00"
+    },
+    {
+      "id": "bug-033",
+      "timestamp": "2026-05-26T00:00:00+08:00",
+      "error_message": "定时任务拉取帖子存在上限，且无新增时会兜底抓取最近 100 篇；API 成功但 0 篇新增时还会误触发 Playwright fallback。",
+      "file": "main.py, crawler.py, .github/workflows/daily-report.yml",
+      "root_cause": "cmd_crawl 首次运行默认 max_posts=100，cmd_all 无新增时调用 _crawl_recent_for_report(limit=100)，_api_crawl 还有 50 页安全上限；crawl_group 用空列表判断 API 失败，无法区分成功但无新增。",
+      "fix": "移除定时 workflow 的 max_posts 输入和最近 100 兜底；cmd_all 无新增直接结束；首次运行默认不限制数量；API 翻页持续到遇到上次 topic 或无更多数据；_api_crawl 失败返回 None，成功但无新增返回 []，避免误回退 Playwright。",
+      "tags": [
+        "scheduled-report",
+        "incremental-crawl",
+        "max-posts",
+        "fallback",
+        "github-actions"
+      ],
+      "related_bugs": [
+        "bug-028"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-05-26T00:00:00+08:00"
     }
   ]
 }

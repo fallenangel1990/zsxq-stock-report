@@ -116,7 +116,7 @@ def _api_crawl(
     group_url: str,
     max_posts: int = 0,
     since_topic_id: str = "",
-) -> list[dict]:
+) -> Optional[list[dict]]:
     """通过 ZSXQ API 直连爬取帖子（纯 requests，无需浏览器）。
 
     这是爬取的主路径，适合本地和 CI 环境。
@@ -127,23 +127,23 @@ def _api_crawl(
     group_id = get_group_id_from_url(group_url)
     if not group_id:
         _log(f"错误：无法解析专栏 ID: {group_url}")
-        return []
+        return None
 
     incremental = bool(since_topic_id)
     all_topics = []
     end_time = ""
     page = 0
-    max_pages = 50  # 安全上限
 
     _log(f"[API 爬取] group_id={group_id} 增量={incremental}")
 
-    while page < max_pages:
+    while True:
         page += 1
         data = _fetch_topics_page(group_id, cookies, end_time=end_time, count=20)
 
         if data is None:
             if page == 1:
                 _log("[API] 首页请求失败，爬取中止")
+                return None
             break
 
         topics = data.get("resp_data", {}).get("topics", [])
@@ -205,17 +205,12 @@ def crawl_group(
     Returns:
         帖子列表。
     """
-    config = load_config()
-    crawler_config = config.get("crawler", {})
-    if max_posts == 0:
-        max_posts = crawler_config.get("max_posts", 0)
-
     # API 直连路径
     posts = _api_crawl(group_url, max_posts=max_posts, since_topic_id=since_topic_id)
-    if posts:
+    if posts is not None:
         return posts
 
-    # 回退：Playwright（仅用于本地调试，CI 环境不可用）
+    # 回退：Playwright（仅用于 API 请求失败时的本地调试）
     _log("[回退] API 直连失败，尝试 Playwright...")
     return _playwright_crawl(group_url, max_posts=max_posts, since_topic_id=since_topic_id)
 

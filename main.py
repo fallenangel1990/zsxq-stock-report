@@ -3,7 +3,7 @@
 
 用法:
   python3 main.py login                    # 手动扫码登录，保存 cookie
-  python3 main.py crawl <专栏URL>           # 增量爬取（首次最多100篇）
+  python3 main.py crawl <专栏URL>           # 增量爬取（无数量上限）
   python3 main.py summary                  # 对最近爬取的内容进行 AI 总结
   python3 main.py stocks                   # 对最近爬取的内容提取股票投资机会
   python3 main.py research <股票名称>       # 个股深度研究（搜索专栏内所有相关信息）
@@ -40,11 +40,15 @@ def cmd_crawl(group_url: str, max_posts: int = 0) -> list[dict]:
     is_first_run = not since_topic_id
 
     if is_first_run:
-        if max_posts == 0:
-            max_posts = 100
-        _log(f"[首次运行] 最多抓取 {max_posts} 篇帖子")
+        if max_posts > 0:
+            _log(f"[首次运行] 最多抓取 {max_posts} 篇帖子")
+        else:
+            _log("[首次运行] 未设置数量上限，将抓取全部可访问帖子")
     else:
-        _log(f"[增量运行] 上次: {state.get('crawled_at', '未知')}，仅抓取新内容")
+        _log(
+            f"[增量运行] 上次: {state.get('crawled_at', '未知')}，"
+            "抓取上次记录之后的全部新内容"
+        )
         max_posts = 0
 
     posts = crawl_group(group_url, max_posts=max_posts, since_topic_id=since_topic_id)
@@ -361,12 +365,8 @@ def cmd_all(group_url: str) -> None:
     report_scope = "新内容"
 
     if not posts:
-        _log("\n没有新内容，将改为提取最近 100 篇帖子生成报告。")
-        posts = _crawl_recent_for_report(group_url, group_id, limit=100)
-        report_scope = "最近内容"
-        if not posts:
-            _log("\n没有可用于总结的内容，流程结束。")
-            return
+        _log("\n没有新内容，流程结束。")
+        return
 
     # ── 第 3 步：提取股票机会 ──
     _log(f"\n[3/4] 对{report_scope} ({len(posts)} 篇) 提取股票机会...")
@@ -420,7 +420,7 @@ def main():
 
     crawl_parser = subparsers.add_parser("crawl", help="增量爬取指定专栏")
     crawl_parser.add_argument("url", help="专栏 URL")
-    crawl_parser.add_argument("-n", "--max-posts", type=int, default=0, help="首次运行最大帖子数（默认100）")
+    crawl_parser.add_argument("-n", "--max-posts", type=int, default=0, help="最大帖子数（默认0=不限制）")
 
     subparsers.add_parser("summary", help="对最近爬取的内容进行 AI 总结")
 

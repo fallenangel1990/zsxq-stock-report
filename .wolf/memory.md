@@ -219,3 +219,10 @@
 | 09:22 | Edited config.example.yaml | 11→11 lines | ~106 |
 | 09:22 | Edited .github/workflows/daily-report.yml | 12→13 lines | ~108 |
 | 09:23 | Session end: 6 writes across 5 files (daily-report.yml, main.py, ths_sync.py, config.yaml, config.example.yaml) | 8 reads | ~16586 tok |
+| 08:58 | Read OpenWolf context, buglog, workflow, and email sender to diagnose SMTP scheduled task failure | .wolf/*, .github/workflows/daily-report.yml, email_sender.py | identified SMTP AUTH disconnect path and fixed-host workflow limitation | ~9000 |
+| 09:01 | Fixed SMTP scheduled email failure path and recorded OpenWolf bug/cerebrum entries | email_sender.py, .github/workflows/daily-report.yml, .wolf/buglog.json, .wolf/cerebrum.md | SMTP auto fallback added; validations passed | ~7000 |
+| 08:20 | Checked GitHub push capability with dry-run | git remote/status/push --dry-run | push unavailable: HTTPS credentials not configured | ~1000 |
+| 08:21 | Configured GitHub push via SSH remote | git remote origin | SSH auth works; dry-run push succeeded | ~1000 |
+| 08:26 | Removed scheduled crawl post caps and recent-100 fallback | main.py, crawler.py, .github/workflows/daily-report.yml | scheduled all now processes all posts since last state; validations passed | ~6000 |
+| 08:30 | Added foreign investment bank research labeling and non-A-share filtering | stock_extractor.py, .wolf/cerebrum.md | A-share-only prompt/filter plus foreign research display mark; validations passed | ~5000 |
+| 08:31 | Recorded GitHub sync preference and AGENTS anatomy entry | .wolf/cerebrum.md, .wolf/anatomy.md | preference saved; AGENTS.md tracked metadata prepared | ~1000 |

@@ -14,6 +14,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 import markdown as md_lib
 
@@ -30,11 +31,23 @@ def _remove_code_blocks(text: str) -> str:
 
 # ── 默认配置 ──
 
-SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.qq.com")
+SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.qq.com").strip()
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "465"))
-SMTP_USER = os.environ.get("SMTP_USER", "")
-SMTP_PASS = os.environ.get("SMTP_PASS", "")
-TO_EMAIL = os.environ.get("TO_EMAIL", "470337944@qq.com")
+SMTP_SECURITY = os.environ.get("SMTP_SECURITY", "auto").strip().lower()
+SMTP_USER = os.environ.get("SMTP_USER", "").strip()
+SMTP_PASS = os.environ.get("SMTP_PASS", "").strip()
+TO_EMAIL = os.environ.get("TO_EMAIL", "470337944@qq.com").strip()
+
+
+def _now_shanghai() -> datetime:
+    """返回北京时间当前时间。"""
+    return datetime.now(ZoneInfo("Asia/Shanghai"))
+
+
+def _news_subject(now: Optional[datetime] = None) -> str:
+    """生成定时报告邮件主题。"""
+    current = now or _now_shanghai()
+    return f"新闻资讯{current.month}月{current.day}日"
 
 
 def _build_message(
@@ -62,6 +75,47 @@ def _build_message(
     msg.attach(MIMEText(body_html, "html", "utf-8"))
 
     return msg
+
+
+def _smtp_login_and_send(
+    host: str,
+    port: int,
+    security: str,
+    to_email: str,
+    message: MIMEMultipart,
+) -> None:
+    """连接 SMTP 并发送邮件。
+
+    security:
+        ssl      - SMTP over SSL，常见端口 465
+        starttls - 明文连接后 STARTTLS，常见端口 587
+        plain    - 明文 SMTP，仅用于明确配置的内网服务
+    """
+    if security == "ssl":
+        with smtplib.SMTP_SSL(host, port, timeout=30) as server:
+            server.login(SMTP_USER, SMTP_PASS)
+            server.sendmail(SMTP_USER, [to_email], message.as_string())
+        return
+
+    with smtplib.SMTP(host, port, timeout=30) as server:
+        server.ehlo()
+        if security == "starttls":
+            server.starttls()
+            server.ehlo()
+        server.login(SMTP_USER, SMTP_PASS)
+        server.sendmail(SMTP_USER, [to_email], message.as_string())
+
+
+def _smtp_attempts(host: str, port: int, security: str) -> list[tuple[str, int]]:
+    """根据配置生成 SMTP 尝试顺序。"""
+    if security in {"ssl", "starttls", "plain"}:
+        return [(security, port)]
+
+    attempts = [("ssl" if port == 465 else "starttls", port)]
+    fallback = ("starttls", 587) if port == 465 else ("ssl", 465)
+    if fallback not in attempts:
+        attempts.append(fallback)
+    return attempts
 
 
 def send_email(
@@ -99,10 +153,10 @@ def send_email(
     to = to_email or TO_EMAIL
     host = smtp_host or SMTP_HOST
     port = smtp_port or SMTP_PORT
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = _now_shanghai().strftime("%Y-%m-%d")
 
     if not subject:
-        subject = f"每日报告 {today}"
+        subject = _news_subject()
 
     if not body_html:
         body_html = f"""\
@@ -123,9 +177,27 @@ def send_email(
 
     msg = _build_message(to, subject, body_html)
 
-    with smtplib.SMTP_SSL(host, port, timeout=30) as server:
-        server.login(SMTP_USER, SMTP_PASS)
-        server.sendmail(SMTP_USER, [to], msg.as_string())
+    errors = []
+    for security, attempt_port in _smtp_attempts(host, port, SMTP_SECURITY):
+        try:
+            print(f"[邮件] SMTP {host}:{attempt_port} ({security})")
+            _smtp_login_and_send(host, attempt_port, security, to, msg)
+            break
+        except smtplib.SMTPAuthenticationError:
+            raise
+        except (smtplib.SMTPException, OSError) as exc:
+            errors.append(f"{host}:{attempt_port} ({security}) -> {type(exc).__name__}: {exc}")
+            if SMTP_SECURITY in {"ssl", "starttls", "plain"}:
+                raise
+            print(f"[邮件] SMTP 尝试失败，准备重试: {type(exc).__name__}: {exc}")
+    else:
+        detail = "\n".join(f"  - {item}" for item in errors)
+        raise smtplib.SMTPException(
+            "SMTP 发送失败，所有连接方式均不可用。\n"
+            f"{detail}\n"
+            "请检查 GitHub Secrets 中的 SMTP_USER/SMTP_PASS 是否为邮箱授权码，"
+            "以及 SMTP_HOST/SMTP_PORT/SMTP_SECURITY 是否与邮箱服务商匹配。"
+        )
 
     print(f"[邮件] 发送成功 → {to}")
     return True
@@ -180,7 +252,7 @@ def _md_to_html(md_text: str) -> str:
 def _weekday_cn() -> str:
     """返回当前星期几的中文名称。"""
     return ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"][
-        datetime.now().weekday()
+        _now_shanghai().weekday()
     ]
 
 
@@ -203,7 +275,9 @@ def send_report_notification(
             - cookie_warning: cookie 是否即将过期
             - cookie_days: cookie 剩余天数
     """
-    today = datetime.now().strftime("%Y-%m-%d")
+    now = _now_shanghai()
+    today = now.strftime("%Y-%m-%d")
+    subject = _news_subject(now)
     extra_info = extra_info or {}
 
     # 读取 Markdown 并转换为 HTML（先移除代码块避免 JSON 泄露）
@@ -220,7 +294,7 @@ def send_report_notification(
         '<div style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',sans-serif;max-width:800px;">',
         # 头部横幅
         f'<div style="background:#2563eb;color:white;padding:16px 20px;border-radius:8px 8px 0 0;">',
-        f'<h2 style="margin:0;font-size:18px;">📊 每日报告</h2>',
+        f'<h2 style="margin:0;font-size:18px;">{subject}</h2>',
         f'<p style="margin:4px 0 0;opacity:0.85;font-size:13px;">{today} {_weekday_cn()}</p>',
         f"</div>",
     ]
@@ -271,8 +345,6 @@ def send_report_notification(
 
     body_html = "\n".join(lines)
 
-    # 邮件主题
-    subject = f"📊 每日报告 {today}"
     if extra_info.get("cookie_expired"):
         subject = f"[需重新登录] {subject}"
     elif extra_info.get("cookie_warning"):

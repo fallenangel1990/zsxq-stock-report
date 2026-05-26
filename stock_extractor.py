@@ -56,6 +56,20 @@ _INVEST_KEYWORDS = [
     "赛道", "板块", "概念", "产业链", "景气",
 ]
 
+_FOREIGN_BANK_KEYWORDS = [
+    "高盛", "goldman", "摩根士丹利", "morgan stanley", "大摩",
+    "摩根大通", "jpmorgan", "jp morgan", "小摩", "瑞银", "ubs",
+    "花旗", "citi", "citigroup", "美银", "bofa", "bank of america",
+    "美林", "merrill", "德银", "deutsche bank", "巴克莱", "barclays",
+    "汇丰", "hsbc", "野村", "nomura", "麦格理", "macquarie",
+    "杰富瑞", "jefferies", "里昂", "clsa", "伯恩斯坦", "bernstein",
+]
+
+_RESEARCH_REPORT_KEYWORDS = [
+    "研报", "报告", "评级", "目标价", "目标市值", "上调", "下调",
+    "首予", "覆盖", "维持", "买入", "增持", "推荐",
+]
+
 
 def _filter_investment_posts(posts: list[dict]) -> tuple[list[dict], list[dict]]:
     """预过滤帖子：只保留包含投资关键词的帖子，减少 AI token 消耗。
@@ -83,6 +97,46 @@ def _filter_investment_posts(posts: list[dict]) -> tuple[list[dict], list[dict]]
         else:
             skipped.append(post)
     return relevant, skipped
+
+
+def _is_foreign_bank_research_post(post: dict) -> bool:
+    """识别国外投行/外资券商研报相关帖子。"""
+    text = f"{post.get('title', '')} {post.get('content', '')}".lower()
+    has_bank = any(keyword.lower() in text for keyword in _FOREIGN_BANK_KEYWORDS)
+    has_report_signal = any(keyword.lower() in text for keyword in _RESEARCH_REPORT_KEYWORDS)
+    return has_bank and has_report_signal
+
+
+def _source_post_numbers(source: str) -> set[int]:
+    """从 source 字段中提取帖子编号。"""
+    if not source:
+        return set()
+    return {int(n) for n in re.findall(r"帖子\s*(\d+)", source)}
+
+
+def _annotate_foreign_research_sources(stocks_json: dict, foreign_post_numbers: set[int]) -> None:
+    """给来自国外投行研报帖子的股票打标。"""
+    if not foreign_post_numbers:
+        return
+    for category in ("quantitative", "elastic"):
+        for stock in stocks_json.get(category, []):
+            source_numbers = _source_post_numbers(stock.get("source", ""))
+            if source_numbers & foreign_post_numbers:
+                stock["foreign_research"] = True
+                stock["source_note"] = "国外投行研报"
+
+
+def _is_a_share_candidate(stock: dict) -> bool:
+    """只保留 A 股推荐；非 A 股代码或明显境外标的剔除。"""
+    code = (stock.get("code") or "").strip()
+    if code:
+        return bool(re.fullmatch(r"\d{6}", code))
+
+    # 无代码时只要不像明显境外代码，仍保留给后续行情/人工判断，避免错杀未写代码的 A 股。
+    name = (stock.get("name") or "").strip()
+    if re.search(r"\b[A-Z]{1,5}(?:\.[A-Z]{1,3})?\b", name):
+        return False
+    return True
 
 
 def extract_stock_opportunities(
@@ -138,15 +192,21 @@ def extract_stock_opportunities(
         batches.append((
             client,
             relevant_posts[i : i + batch_size],
+            i,
             batch_num,
             total_batches,
         ))
+
+    foreign_post_numbers = {
+        i + 1 for i, post in enumerate(relevant_posts)
+        if _is_foreign_bank_research_post(post)
+    }
 
     # 并发调用 AI（最多 3 个并发，避免触发 API 限流）
     max_workers = min(3, len(batches))
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_idx = {
-            executor.submit(_extract_stocks_batch, *b): b[2]
+            executor.submit(_extract_stocks_batch, *b): b[3]
             for b in batches
         }
         # 按批次号收集结果以保持顺序
@@ -157,6 +217,7 @@ def extract_stock_opportunities(
                 report = future.result()
                 results[batch_num] = report
                 batch_json = _parse_stock_json(report)
+                _annotate_foreign_research_sources(batch_json, foreign_post_numbers)
                 _merge_json(all_stocks_json, batch_json)
                 q = len(batch_json.get("quantitative", []))
                 e = len(batch_json.get("elastic", []))
@@ -213,16 +274,17 @@ def _format_post_for_stocks(post: dict, index: int) -> str:
 def _extract_stocks_batch(
     client,
     batch: list[dict],
+    start_index: int,
     batch_num: int,
     total_batches: int,
 ) -> str:
     """将一批帖子发送给 AI，提取股票机会并输出表格 + JSON。"""
     posts_text = "\n\n---\n\n".join(
-        _format_post_for_stocks(p, i + 1) for i, p in enumerate(batch)
+        _format_post_for_stocks(p, start_index + i + 1) for i, p in enumerate(batch)
     )
 
     system = (
-        "你是一位专业的A股/港股/美股投资分析师，擅长从大量财经资讯中"
+        "你是一位专业的A股投资分析师，擅长从大量财经资讯中"
         "精确提取和分类股票投资机会。你输出干净、结构化的Markdown表格和JSON数据，"
         "绝不输出分析过程或解释性文字。对于没有明确投资机会的内容，"
         "直接说明\"无符合条件的标的\"而不编造。"
@@ -234,7 +296,9 @@ def _extract_stocks_batch(
 对于每只股票：
 - 只提取被明确推荐、看好、或给出具体分析逻辑的股票
 - 区分"投资建议"和"背景提及"——只在表格中包含有明确投资逻辑的股票
-- 如果有股票代码（6位A股代码或境外代码），请务必包含
+- 只提取 A 股投资推荐；港股、美股、海外上市公司、ETF、ADR、指数、基金等非 A 股推荐一律忽略
+- 如果原帖是国外投行/外资券商研报，只保留其中涉及 A 股的推荐，并在逻辑或来源中体现"国外投行研报"
+- 如果有股票代码，请只填写 6 位 A 股代码；不要填写境外代码
 - 如果同一只股票出现在多个帖子中，合并为一条最完整的记录
 - 尽量提取该股票对应的风险点/潜在利空；若原文没有明确提及，JSON 中 risk 写空字符串，不要编造确定性风险
 
@@ -263,6 +327,7 @@ def _extract_stocks_batch(
 注意事项：
 - "来源帖子"列填写"帖子 X"格式的引用（X为帖子编号）
 - 如果某个类别没有符合条件的标的，写"**本批次暂无符合条件的标的**"
+- 非 A 股推荐不要放入任何表格或 JSON
 - 不要输出表格以外的解释性文字
 - 表格使用标准Markdown格式
 
@@ -312,6 +377,8 @@ def _merge_stock_reports(client, batch_reports: list[str]) -> str:
 2. **统一编号**：重新从1开始编号
 3. **统一格式**：保持四部分结构 + JSON 数据块不变
 4. **移除空类别标记**：如果合并后某个类别不再为空，移除各批次中的"暂无符合条件的标的"
+5. **只保留 A 股**：港股、美股、海外上市公司、ETF、ADR、指数、基金等非 A 股推荐一律移除
+6. **国外投行研报标注**：如果来源或逻辑包含"国外投行研报/外资券商研报"信息，合并后继续保留该标注
 
 以下是各批次结果：
 
@@ -371,7 +438,7 @@ def _merge_json(target: dict, source: dict) -> None:
         existing_by_name = {s.get("name", ""): s for s in target[category]}
         for stock in source.get(category, []):
             name = stock.get("name", "")
-            if not name:
+            if not name or not _is_a_share_candidate(stock):
                 continue
             if name not in existing_by_name:
                 target[category].append(stock)
@@ -383,6 +450,9 @@ def _merge_json(target: dict, source: dict) -> None:
                         existing[field] = stock.get(field)
                 for field in ("logic", "risk", "source"):
                     existing[field] = _merge_text(existing.get(field, ""), stock.get(field, ""))
+                if stock.get("foreign_research"):
+                    existing["foreign_research"] = True
+                    existing["source_note"] = stock.get("source_note", "国外投行研报")
 
     # 合并 sectors — 按 sector 名去重
     existing_sectors = {s.get("sector", "") for s in target["sectors"]}
@@ -516,7 +586,7 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
     for entry in stocks_json.get("quantitative", []):
         code = entry.get("code", "").strip()
         name = entry.get("name", "")
-        if name:
+        if name and _is_a_share_candidate(entry):
             key = code if code else name
             if key not in all_stocks:
                 all_stocks[key] = {
@@ -530,6 +600,8 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
                     "sector": "",
                     "post_count": 1,
                     "quality": _assess_quality(entry.get("target", "")),
+                    "foreign_research": bool(entry.get("foreign_research")),
+                    "source_note": entry.get("source_note", ""),
                 }
             else:
                 # 合并重复股票
@@ -542,12 +614,15 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
                 existing["risk_str"] = _merge_text(
                     existing.get("risk_str", ""), entry.get("risk", "")
                 )
+                if entry.get("foreign_research"):
+                    existing["foreign_research"] = True
+                    existing["source_note"] = entry.get("source_note", "国外投行研报")
 
     for entry in stocks_json.get("elastic", []):
         code = entry.get("code", "").strip()
         name = entry.get("name", "")
         sector = entry.get("sector", "")
-        if name:
+        if name and _is_a_share_candidate(entry):
             key = code if code else name
             if key not in all_stocks:
                 all_stocks[key] = {
@@ -560,6 +635,8 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
                     "sector": sector,
                     "post_count": 1,
                     "quality": 0.3,  # 定性推荐，信息质量较低
+                    "foreign_research": bool(entry.get("foreign_research")),
+                    "source_note": entry.get("source_note", ""),
                 }
             else:
                 all_stocks[key]["post_count"] += 1
@@ -568,6 +645,9 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
                 all_stocks[key]["risk_str"] = _merge_text(
                     all_stocks[key].get("risk_str", ""), entry.get("risk", "")
                 )
+                if entry.get("foreign_research"):
+                    all_stocks[key]["foreign_research"] = True
+                    all_stocks[key]["source_note"] = entry.get("source_note", "国外投行研报")
 
     # 用细分板块表回填量化标的的赛道，便于趋势评分和板块风险匹配
     for sector_entry in stocks_json.get("sectors", []):
@@ -1322,7 +1402,7 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
     )
 
     for stock in enriched:
-        name = stock["name"]
+        name = _display_stock_name(stock)
         market_cap_str = _fmt_market_cap(stock.get("market_cap_yi"))
         target_str = _emphasize_cell(stock["target_str"])
         logic = _emphasize_cell(stock["logic"][:70] if stock["logic"] else "")
@@ -1379,7 +1459,7 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
         for i, s in enumerate(q_stocks, 1):
             trend_badge = _trend_badge(s)
             parts.append(
-                f"| {i} | {s['name']} | {_fmt_market_cap(s.get('market_cap_yi'))} | "
+                f"| {i} | {_display_stock_name(s)} | {_fmt_market_cap(s.get('market_cap_yi'))} | "
                 f"{s.get('entry_ref', '-')} | "
                 f"{_emphasize_cell(s['logic'][:80] if s['logic'] else '')} | "
                 f"{_emphasize_cell(s['target_str'])} | {s.get('risk_display', '-')[:90]} | {_format_score_display(s)} | "
@@ -1400,7 +1480,7 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
         for i, s in enumerate(e_stocks, 1):
             trend_badge = _trend_badge(s)
             parts.append(
-                f"| {i} | {s['name']} | {_fmt_market_cap(s.get('market_cap_yi'))} | "
+                f"| {i} | {_display_stock_name(s)} | {_fmt_market_cap(s.get('market_cap_yi'))} | "
                 f"{s.get('entry_ref', '-')} | {s['sector'] or '-'} | {_emphasize_cell(s['logic'][:80] if s['logic'] else '')} | "
                 f"{_emphasize_cell(s['target_str'])} | {s.get('risk_display', '-')[:90]} | {_format_score_display(s)} | "
                 f"{trend_badge} | {s['source']} |"
@@ -1425,6 +1505,14 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
             parts.append("")
 
     return "\n".join(parts)
+
+
+def _display_stock_name(stock: dict) -> str:
+    """最终报告中的股票名称展示，保留特别来源标注。"""
+    name = stock.get("name", "")
+    if stock.get("foreign_research"):
+        return f"{name}（国外投行研报）"
+    return name
 
 
 def _extract_section(markdown: str, start_marker: str, end_marker: Optional[str] = None) -> str:
