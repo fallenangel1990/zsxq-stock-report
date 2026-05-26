@@ -226,3 +226,4 @@
 | 08:26 | Removed scheduled crawl post caps and recent-100 fallback | main.py, crawler.py, .github/workflows/daily-report.yml | scheduled all now processes all posts since last state; validations passed | ~6000 |
 | 08:30 | Added foreign investment bank research labeling and non-A-share filtering | stock_extractor.py, .wolf/cerebrum.md | A-share-only prompt/filter plus foreign research display mark; validations passed | ~5000 |
 | 08:31 | Recorded GitHub sync preference and AGENTS anatomy entry | .wolf/cerebrum.md, .wolf/anatomy.md | preference saved; AGENTS.md tracked metadata prepared | ~1000 |
+| 08:32 | Committed and pushed scheduled report automation updates | git commit ab5cb2a, origin/main | GitHub sync succeeded | ~1000 |
