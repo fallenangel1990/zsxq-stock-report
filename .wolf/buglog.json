@@ -563,6 +563,25 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-05-26T00:00:00+08:00"
+    },
+    {
+      "id": "bug-035",
+      "timestamp": "2026-05-26T00:00:00+08:00",
+      "error_message": "手动指定 max_posts=200 时实际只拉取了 20 条帖子。",
+      "file": "main.py",
+      "root_cause": "cmd_crawl() 在存在上次拉取状态时强制进入增量模式，把 max_posts 改成 0 并保留 since_topic_id；如果上次状态之后只有 20 条新帖，手动填写的 200 会被忽略。",
+      "fix": "当 max_posts > 0 时进入手动限量模式，清空 since_topic_id，按最近 N 条帖子抓取；max_posts=0 时才继续按上次状态做不限量增量。",
+      "tags": [
+        "manual-dispatch",
+        "max-posts",
+        "incremental-crawl",
+        "github-actions"
+      ],
+      "related_bugs": [
+        "bug-033"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-05-26T00:00:00+08:00"
     }
   ]
 }

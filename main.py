@@ -39,17 +39,17 @@ def cmd_crawl(group_url: str, max_posts: int = 0) -> list[dict]:
     since_topic_id = state.get("last_topic_id", "")
     is_first_run = not since_topic_id
 
-    if is_first_run:
-        if max_posts > 0:
-            _log(f"[首次运行] 最多抓取 {max_posts} 篇帖子")
-        else:
-            _log("[首次运行] 未设置数量上限，将抓取全部可访问帖子")
+    if max_posts > 0:
+        since_topic_id = ""
+        _log(f"[手动限量] 抓取最近 {max_posts} 篇帖子（忽略上次增量位置）")
     else:
-        _log(
-            f"[增量运行] 上次: {state.get('crawled_at', '未知')}，"
-            "抓取上次记录之后的全部新内容"
-        )
-        max_posts = 0
+        if is_first_run:
+            _log("[首次运行] 未设置数量上限，将抓取全部可访问帖子")
+        else:
+            _log(
+                f"[增量运行] 上次: {state.get('crawled_at', '未知')}，"
+                "抓取上次记录之后的全部新内容"
+            )
 
     posts = crawl_group(group_url, max_posts=max_posts, since_topic_id=since_topic_id)
 

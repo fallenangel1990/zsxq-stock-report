@@ -229,3 +229,4 @@
 | 08:32 | Committed and pushed scheduled report automation updates | git commit ab5cb2a, origin/main | GitHub sync succeeded | ~1000 |
 | 08:35 | Added manual max-posts input for stock report crawl | main.py, .github/workflows/daily-report.yml | manual dispatch/CLI can limit posts; scheduled default remains unlimited | ~3000 |
 | 08:52 | Encrypted local DeepSeek API key in config.yaml | config.yaml, summarizer.py, .secrets/deepseek.key, .gitignore | plaintext removed; encrypted config decrypts locally | ~5000 |
+| 08:54 | Fixed manual max_posts being ignored by incremental state | main.py, .wolf/buglog.json, .wolf/cerebrum.md | max_posts>0 now fetches latest N posts; validations passed | ~3000 |
