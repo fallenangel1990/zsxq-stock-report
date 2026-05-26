@@ -228,3 +228,4 @@
 | 08:31 | Recorded GitHub sync preference and AGENTS anatomy entry | .wolf/cerebrum.md, .wolf/anatomy.md | preference saved; AGENTS.md tracked metadata prepared | ~1000 |
 | 08:32 | Committed and pushed scheduled report automation updates | git commit ab5cb2a, origin/main | GitHub sync succeeded | ~1000 |
 | 08:35 | Added manual max-posts input for stock report crawl | main.py, .github/workflows/daily-report.yml | manual dispatch/CLI can limit posts; scheduled default remains unlimited | ~3000 |
+| 08:52 | Encrypted local DeepSeek API key in config.yaml | config.yaml, summarizer.py, .secrets/deepseek.key, .gitignore | plaintext removed; encrypted config decrypts locally | ~5000 |

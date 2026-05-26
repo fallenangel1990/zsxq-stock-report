@@ -43,6 +43,10 @@
 - `summarizer.py` — 内容总结模块。 (~2462 tok)
 - `ths_sync.py` — 同花顺账户自选股同步模块。 (~5803 tok)
 
+## .secrets/
+
+- `deepseek.key` — 本机 DeepSeek 配置密文的 Fernet 解密密钥；已被 .gitignore 忽略，不能提交。 (~1 tok)
+
 ## .claude/
 
 - `settings.json` (~441 tok)

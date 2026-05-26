@@ -6,5 +6,6 @@ site/
 __pycache__/
 *.pyc
 .env
+.secrets/
 .codex/
 .cursor/

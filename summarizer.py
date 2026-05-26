@@ -19,6 +19,68 @@ def _load_config() -> dict:
     return {}
 
 
+def _load_encryption_key(provider: str) -> str:
+    """读取本地 API key 解密密钥。
+
+    优先级：
+    1. 环境变量 {PROVIDER}_API_KEY_ENCRYPTION_KEY
+    2. 本地 .secrets/{provider}.key
+    """
+    env_name = f"{provider.upper()}_API_KEY_ENCRYPTION_KEY"
+    env_key = os.environ.get(env_name, "").strip()
+    if env_key:
+        return env_key
+
+    key_file = Path(__file__).parent / ".secrets" / f"{provider}.key"
+    if key_file.exists():
+        return key_file.read_text(encoding="utf-8").strip()
+
+    return ""
+
+
+def _decrypt_api_key(provider: str, encrypted_value: str) -> str:
+    """解密配置文件中的 API key。"""
+    encrypted_value = (encrypted_value or "").strip()
+    if not encrypted_value:
+        return ""
+
+    if encrypted_value.startswith("fernet:"):
+        encrypted_value = encrypted_value.removeprefix("fernet:")
+
+    encryption_key = _load_encryption_key(provider)
+    if not encryption_key:
+        raise ValueError(
+            f"config.yaml 中配置了 {provider} 加密 API key，但缺少解密密钥。\n"
+            f"请设置 {provider.upper()}_API_KEY_ENCRYPTION_KEY 环境变量，"
+            f"或创建 .secrets/{provider}.key。"
+        )
+
+    try:
+        from cryptography.fernet import Fernet, InvalidToken
+    except ImportError as exc:
+        raise ValueError("缺少 cryptography 依赖，无法解密配置中的 API key。") from exc
+
+    try:
+        return Fernet(encryption_key.encode("utf-8")).decrypt(
+            encrypted_value.encode("utf-8")
+        ).decode("utf-8")
+    except (InvalidToken, ValueError) as exc:
+        raise ValueError(f"{provider} 加密 API key 解密失败，请检查解密密钥。") from exc
+
+
+def _resolve_api_key(provider: str, provider_config: dict, env_name: str) -> str:
+    """按环境变量、加密配置、明文配置的顺序获取 API key。"""
+    env_key = os.environ.get(env_name, "").strip()
+    if env_key:
+        return env_key
+
+    encrypted_key = provider_config.get("api_key_encrypted", "")
+    if encrypted_key:
+        return _decrypt_api_key(provider, encrypted_key)
+
+    return provider_config.get("api_key", "")
+
+
 def get_client():
     """根据配置获取 AI client，支持 deepseek / claude。
 
@@ -42,10 +104,11 @@ def _init_deepseek(ds_config: dict):
     """初始化 DeepSeek client（OpenAI 兼容接口）。"""
     from openai import OpenAI
 
-    api_key = os.environ.get("DEEPSEEK_API_KEY") or ds_config.get("api_key", "")
+    api_key = _resolve_api_key("deepseek", ds_config, "DEEPSEEK_API_KEY")
     if not api_key:
         raise ValueError(
-            "请设置 DEEPSEEK_API_KEY 环境变量或在 config.yaml 中配置 ai.deepseek.api_key"
+            "请设置 DEEPSEEK_API_KEY 环境变量，或在 config.yaml 中配置 "
+            "ai.deepseek.api_key_encrypted"
         )
 
     base_url = ds_config.get("base_url", "https://api.deepseek.com")

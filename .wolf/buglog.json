@@ -545,6 +545,24 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-05-26T00:00:00+08:00"
+    },
+    {
+      "id": "bug-034",
+      "timestamp": "2026-05-26T00:00:00+08:00",
+      "error_message": "config.yaml 中存在明文 DeepSeek API key，存在本地或误提交泄露风险。",
+      "file": "config.yaml, summarizer.py, .gitignore, config.example.yaml, requirements.txt",
+      "root_cause": "summarizer.py 只支持从 DEEPSEEK_API_KEY 环境变量或 config.yaml 的 ai.deepseek.api_key 明文字段读取密钥；config.yaml 虽在 .gitignore 中，但已被 Git 跟踪。",
+      "fix": "新增 ai.deepseek.api_key_encrypted 支持，使用 Fernet 加密并从 .secrets/deepseek.key 或 DEEPSEEK_API_KEY_ENCRYPTION_KEY 解密；清空 config.yaml 明文 api_key；忽略 .secrets/；在 requirements.txt 增加 cryptography。",
+      "tags": [
+        "security",
+        "api-key",
+        "deepseek",
+        "config",
+        "encryption"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-05-26T00:00:00+08:00"
     }
   ]
 }

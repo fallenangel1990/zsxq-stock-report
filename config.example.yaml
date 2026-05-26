@@ -16,9 +16,12 @@ ai:
   provider: "deepseek"
 
   # DeepSeek API 配置（provider=deepseek 时生效）
-  # API Key 也可通过环境变量 DEEPSEEK_API_KEY 设置
+  # API Key 优先通过环境变量 DEEPSEEK_API_KEY 设置。
+  # 本地如需写入配置文件，建议使用 api_key_encrypted，并将解密密钥放在
+  # .secrets/deepseek.key 或 DEEPSEEK_API_KEY_ENCRYPTION_KEY 环境变量中。
   deepseek:
-    api_key: ""  # 请在此填入 API Key，或设置环境变量 DEEPSEEK_API_KEY
+    api_key: ""
+    api_key_encrypted: ""
     model: "deepseek-chat"
     base_url: "https://api.deepseek.com"
 

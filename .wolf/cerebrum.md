@@ -15,6 +15,7 @@
 - **定时邮件标题**：定时任务成功报告邮件主题使用“新闻资讯M月D日”，例如“新闻资讯5月25日”。
 - **回答语言**：尽可能使用中文回答。
 - **GitHub 同步**：每次完成本地修改后，默认提交并推送到 GitHub。
+- **本地 API Key 安全**：DeepSeek API key 不应以明文留在 config.yaml；配置使用 `api_key_encrypted`，解密密钥放在本机 `.secrets/deepseek.key` 或环境变量 `DEEPSEEK_API_KEY_ENCRYPTION_KEY`。
 
 ## Key Learnings
 
