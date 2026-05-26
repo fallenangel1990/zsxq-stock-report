@@ -348,7 +348,7 @@ def cmd_research(
     )
 
 
-def cmd_all(group_url: str) -> None:
+def cmd_all(group_url: str, max_posts: int = 0) -> None:
     _log("=" * 50)
     _log("知识星球内容爬取与总结工具（增量模式）")
     _log("=" * 50)
@@ -361,7 +361,7 @@ def cmd_all(group_url: str) -> None:
     load_cookies()
 
     _log("\n[2/4] 爬取最新内容...")
-    posts = cmd_crawl(group_url)
+    posts = cmd_crawl(group_url, max_posts=max_posts)
     report_scope = "新内容"
 
     if not posts:
@@ -412,6 +412,7 @@ def main():
   python3 main.py research 华亚智能
   python3 main.py research 拓斯达 -c 300607
   python3 main.py all https://wx.zsxq.com/dweb2/index/group/123456
+  python3 main.py all https://wx.zsxq.com/dweb2/index/group/123456 --max-posts 50
         """,
     )
     subparsers = parser.add_subparsers(dest="command", help="可用命令")
@@ -484,6 +485,7 @@ def main():
 
     all_parser = subparsers.add_parser("all", help="一键执行完整流程")
     all_parser.add_argument("url", help="专栏 URL")
+    all_parser.add_argument("-n", "--max-posts", type=int, default=0, help="最大帖子数（默认0=不限制）")
 
     args = parser.parse_args()
 
@@ -504,7 +506,7 @@ def main():
     elif args.command == "market":
         cmd_market(args)
     elif args.command == "all":
-        cmd_all(args.url)
+        cmd_all(args.url, max_posts=args.max_posts)
     else:
         parser.print_help()
 

@@ -8,6 +8,10 @@ on:
     - cron: '0 4 * * 1-5'
   workflow_dispatch:
     inputs:
+      max_posts:
+        description: '手动触发时最多拉取帖子数（0=不限制）'
+        required: false
+        default: '0'
       force:
         description: '强制执行（忽略交易日检查）'
         type: boolean
@@ -171,6 +175,7 @@ jobs:
         id: crawl
         env:
           ZSXQ_GROUP_URL: ${{ secrets.ZSXQ_GROUP_URL }}
+          MAX_POSTS: ${{ inputs.max_posts }}
         run: |
           GROUP_URL="${ZSXQ_GROUP_URL}"
           if [ -z "$GROUP_URL" ]; then
@@ -179,8 +184,16 @@ jobs:
           fi
           echo "专栏 URL: $GROUP_URL"
 
+          MAX_POSTS_ARG=""
+          if [ -n "$MAX_POSTS" ] && [ "$MAX_POSTS" != "0" ]; then
+            MAX_POSTS_ARG="--max-posts $MAX_POSTS"
+            echo "手动限制帖子数: $MAX_POSTS"
+          else
+            echo "帖子数限制: 不限制"
+          fi
+
           # 运行并捕获输出
-          python main.py all "$GROUP_URL" 2>&1 | tee /tmp/crawl.log || {
+          python main.py all "$GROUP_URL" $MAX_POSTS_ARG 2>&1 | tee /tmp/crawl.log || {
             EXIT_CODE=${PIPESTATUS[0]}
             echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
             # 提取错误信息用于失败通知
