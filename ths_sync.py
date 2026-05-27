@@ -179,12 +179,23 @@ class THSClient:
 
         if isinstance(cookies_data, list):
             for c in cookies_data:
+                name = c.get("name", c.get("key", ""))
+                value = c.get("value", "")
+                domain = c.get("domain", ".10jqka.com.cn")
+                path = c.get("path", "/")
                 self._session.cookies.set(
-                    c.get("name", c.get("key", "")),
-                    c.get("value", ""),
-                    domain=c.get("domain", ".10jqka.com.cn"),
-                    path=c.get("path", "/"),
+                    name,
+                    value,
+                    domain=domain,
+                    path=path,
                 )
+                if name and domain.lstrip(".").endswith("10jqka.com.cn") and domain != ".10jqka.com.cn":
+                    self._session.cookies.set(
+                        name,
+                        value,
+                        domain=".10jqka.com.cn",
+                        path=path,
+                    )
         elif isinstance(cookies_data, dict):
             for name, value in cookies_data.items():
                 self._session.cookies.set(name, value, domain=".10jqka.com.cn")
@@ -490,12 +501,20 @@ class THSClient:
         use_group = bool(self.group_name)
         target_label = self.group_name if use_group else "默认自选股"
 
+        group_error = ""
         if use_group:
             try:
                 group_id = self.resolve_group_id(self.group_name)
             except Exception as e:
-                return {"status": "error", "reason": f"分组「{self.group_name}」: {e}"}
-        else:
+                group_error = f"分组「{self.group_name}」: {e}"
+                logger.error(group_error)
+                if not self.also_add_to_watchlist:
+                    return {"status": "error", "reason": group_error}
+                use_group = False
+                target_label = "默认自选股"
+                group_id = ""
+
+        if not use_group:
             if not self.api_base:
                 self._resolve_api_base()
             if not self.api_base:
@@ -559,6 +578,7 @@ class THSClient:
         return {
             "status": "success",
             "target": target_label,
+            "warning": group_error,
             "added": success_count - already_count,
             "already": already_count,
             "total": len(top_stocks),
@@ -582,6 +602,8 @@ def format_sync_result(result: dict) -> str:
         already = result.get("already", 0)
         total = result.get("total", 0)
         lines.append(f"  目标: {target}")
+        if result.get("warning"):
+            lines.append(f"  警告: {result['warning']}")
         lines.append(f"  新增: {added} 只")
         lines.append(f"  已存在: {already} 只")
         lines.append(f"  共 {total} 只（评分 >= 阈值）")

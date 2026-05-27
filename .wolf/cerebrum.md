@@ -57,6 +57,10 @@
   save_enriched_stocks() 实现的。
 - **配置式自动化**：同花顺同步通过 config.yaml 的 ths.enabled 控制开关，默认关闭。
   启用后会在 stocks 和 all 流程末尾自动执行，不阻塞主流程。
+- **同花顺 cookies 域名**：从浏览器导出的列表式 cookies 可能绑定到 `i.10jqka.com.cn` 等子域；
+  自定义分组接口在 `ugc.10jqka.com.cn`，加载 cookies 时需补写 `.10jqka.com.cn` 父域，否则定时任务可能能查默认自选但无法创建分组。
+- **同花顺降级同步**：`ths.also_add_to_watchlist: true` 时，分组查询/创建失败不应阻断默认自选股添加；
+  应降级继续写默认自选股，并在同步结果中输出分组失败 warning。
 
 ## Decision Log
 

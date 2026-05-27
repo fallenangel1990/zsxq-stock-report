@@ -230,3 +230,5 @@
 | 08:35 | Added manual max-posts input for stock report crawl | main.py, .github/workflows/daily-report.yml | manual dispatch/CLI can limit posts; scheduled default remains unlimited | ~3000 |
 | 08:52 | Encrypted local DeepSeek API key in config.yaml | config.yaml, summarizer.py, .secrets/deepseek.key, .gitignore | plaintext removed; encrypted config decrypts locally | ~5000 |
 | 08:54 | Fixed manual max_posts being ignored by incremental state | main.py, .wolf/buglog.json, .wolf/cerebrum.md | max_posts>0 now fetches latest N posts; validations passed | ~3000 |
+| 11:10 | Fixed scheduled 同花顺 group/watchlist sync fallback | ths_sync.py, .github/workflows/daily-report.yml, .wolf/buglog.json, .wolf/cerebrum.md | parent-domain cookies, group-failure fallback to default watchlist, explicit CI ths config; py_compile passed | ~9000 |
+| 11:10 | Validated YAML with Ruby after local Python lacked PyYAML | .github/workflows/daily-report.yml, config.example.yaml, config.yaml, .wolf/buglog.json | YAML parsed OK; local env gap logged as bug-037 | ~1200 |

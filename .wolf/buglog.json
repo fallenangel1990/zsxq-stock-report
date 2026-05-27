@@ -582,6 +582,43 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-05-26T00:00:00+08:00"
+    },
+    {
+      "id": "bug-036",
+      "timestamp": "2026-05-27T03:10:09Z",
+      "error_message": "触发定时任务后，没有同步创建分组和添加自选股",
+      "file": "ths_sync.py, .github/workflows/daily-report.yml",
+      "root_cause": "同花顺列表式 cookies 可能只绑定 i.10jqka.com.cn 等子域，导致 ugc.10jqka.com.cn 分组接口收不到 cookie；且分组解析/创建失败时 sync_stocks 直接返回 error，即使配置 also_add_to_watchlist 也不会继续添加默认自选股。CI 同花顺配置也只覆写了部分字段，依赖 config.example.yaml 默认值。",
+      "fix": "加载列表式同花顺 cookies 时额外写入 .10jqka.com.cn 父域；分组失败且 also_add_to_watchlist=true 时降级继续同步默认自选股并输出警告；GitHub Actions 显式覆写 group_name/create_group_if_missing/cookies_path/request_delay 等同花顺字段。",
+      "tags": [
+        "ths",
+        "github-actions",
+        "scheduled-task",
+        "cookies",
+        "watchlist",
+        "group-sync"
+      ],
+      "related_bugs": [
+        "bug-021"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-05-27T03:10:09Z"
+    },
+    {
+      "id": "bug-037",
+      "timestamp": "2026-05-27T03:10:09Z",
+      "error_message": "ModuleNotFoundError: No module named 'yaml'",
+      "file": "requirements.txt",
+      "root_cause": "本地系统 python3 环境未安装 requirements.txt 中声明的 PyYAML，导致用于校验 GitHub Actions/config YAML 的临时 Python 命令失败。",
+      "fix": "未修改项目依赖；改用系统 Ruby YAML 解析器完成本次 YAML 结构校验。后续若需要 Python 本地校验，应先在虚拟环境安装 requirements.txt。",
+      "tags": [
+        "local-env",
+        "pyyaml",
+        "validation"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-05-27T03:10:09Z"
     }
   ]
 }
