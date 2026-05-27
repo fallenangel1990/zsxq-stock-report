@@ -232,3 +232,4 @@
 | 08:54 | Fixed manual max_posts being ignored by incremental state | main.py, .wolf/buglog.json, .wolf/cerebrum.md | max_posts>0 now fetches latest N posts; validations passed | ~3000 |
 | 11:10 | Fixed scheduled 同花顺 group/watchlist sync fallback | ths_sync.py, .github/workflows/daily-report.yml, .wolf/buglog.json, .wolf/cerebrum.md | parent-domain cookies, group-failure fallback to default watchlist, explicit CI ths config; py_compile passed | ~9000 |
 | 11:10 | Validated YAML with Ruby after local Python lacked PyYAML | .github/workflows/daily-report.yml, config.example.yaml, config.yaml, .wolf/buglog.json | YAML parsed OK; local env gap logged as bug-037 | ~1200 |
+| 11:11 | Committed and pushed THS sync fallback fix | git remote, ~/.ssh/known_hosts, .wolf/buglog.json | HTTPS push failed, SSH host key added, push succeeded to origin/main | ~1500 |

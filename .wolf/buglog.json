@@ -619,6 +619,24 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-05-27T03:10:09Z"
+    },
+    {
+      "id": "bug-038",
+      "timestamp": "2026-05-27T03:10:09Z",
+      "error_message": "fatal: could not read Username for 'https://github.com': Device not configured; Host key verification failed.",
+      "file": ".git/config, ~/.ssh/known_hosts",
+      "root_cause": "origin push URL 使用 HTTPS，当前环境无法交互输入 GitHub 凭证；切换到 SSH 后，GitHub host key 尚未写入 known_hosts。",
+      "fix": "将 origin push/fetch URL 切换为 git@github.com:fallenangel1990/zsxq-stock-report.git，并通过 ssh-keyscan github.com 写入 known_hosts 后重新推送成功。",
+      "tags": [
+        "git",
+        "github",
+        "push",
+        "ssh",
+        "known-hosts"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-05-27T03:10:09Z"
     }
   ]
 }
