@@ -61,6 +61,8 @@
   自定义分组接口在 `ugc.10jqka.com.cn`，加载 cookies 时需补写 `.10jqka.com.cn` 父域，否则定时任务可能能查默认自选但无法创建分组。
 - **同花顺降级同步**：`ths.also_add_to_watchlist: true` 时，分组查询/创建失败不应阻断默认自选股添加；
   应降级继续写默认自选股，并在同步结果中输出分组失败 warning。
+- **CI 同花顺兜底执行**：日报 workflow 不能只依赖 `main.py all` 末尾的自动同步。
+  Actions 应在爬取/提取后检查日志；若未出现“同花顺同步结果”且 `cookies_ths.json` 存在，需要显式运行 `python main.py thssync --strict`，让同步失败在 CI 中红掉。
 
 ## Decision Log
 

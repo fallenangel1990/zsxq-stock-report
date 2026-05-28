@@ -216,6 +216,22 @@ jobs:
               print(f"new_stocks={q_count + e_count}")
           PY
 
+      - name: 确保执行同花顺同步
+        if: always()
+        run: |
+          if [ ! -f cookies_ths.json ]; then
+            echo "ℹ️  未找到 cookies_ths.json，跳过同花顺同步"
+            exit 0
+          fi
+
+          if [ -f /tmp/crawl.log ] && grep -q "同花顺同步结果" /tmp/crawl.log; then
+            echo "✅ 主流程已执行同花顺同步"
+            exit 0
+          fi
+
+          echo "⚠️  主流程未检测到同花顺同步结果，执行兜底同步..."
+          python main.py thssync --strict 2>&1 | tee /tmp/thssync.log
+
       # ═══════════════════════════════════════════════════════════
       # 6. 生成 PDF
       # ═══════════════════════════════════════════════════════════

@@ -657,6 +657,26 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-05-28T16:16:53+08:00"
+    },
+    {
+      "id": "bug-040",
+      "timestamp": "2026-05-28T17:26:45+08:00",
+      "error_message": "运行定时任务后，同步到同花顺的操作没有执行",
+      "file": ".github/workflows/daily-report.yml, main.py",
+      "root_cause": "同花顺同步只嵌在 main.py all/stocks 流程末尾；当主流程提前返回、没有走到自动同步、或自动同步失败被“不中断主流程”吞掉时，GitHub Actions 没有独立步骤保证执行，也不会把同步异常暴露为失败。",
+      "fix": "在 daily-report.yml 的爬取/股票提取之后新增“确保执行同花顺同步”兜底步骤：如果主流程日志未出现同花顺同步结果且 cookies_ths.json 存在，则显式执行 python main.py thssync --strict；同时为 thssync 添加 --strict，使 CI 中同步未成功时返回非零退出码。",
+      "tags": [
+        "github-actions",
+        "ths-sync",
+        "scheduled-task",
+        "silent-failure",
+        "ci"
+      ],
+      "related_bugs": [
+        "bug-036"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-05-28T17:26:45+08:00"
     }
   ]
 }

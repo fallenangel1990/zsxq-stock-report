@@ -228,6 +228,9 @@ def cmd_thssync(args) -> None:
     _log("=" * 50)
     print(format_sync_result(result))
 
+    if getattr(args, "strict", False) and result.get("status") != "success":
+        sys.exit(1)
+
     return result
 
 
@@ -437,6 +440,10 @@ def main():
     thssync_parser.add_argument(
         "-s", "--score", type=float, default=None,
         help="推荐指数阈值（覆盖 config.yaml 设置）",
+    )
+    thssync_parser.add_argument(
+        "--strict", action="store_true",
+        help="同步未成功时返回非零退出码（用于 CI）",
     )
 
     sectors_parser = subparsers.add_parser("sectors", help="捕获A股主流板块盘中异动/盘后建仓复盘")
