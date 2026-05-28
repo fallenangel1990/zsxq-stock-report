@@ -69,5 +69,7 @@
   config.yaml 的 `ths.group_name` 指定目标分组，`score_threshold: 3.0` 过滤评分。
 - [2026-05-28] **GitHub Actions 定时补偿**：用户确认 Actions 推送比目标北京时间晚 4 小时。
   工作流按目标北京时间提前 4 小时配置：08:30 目标使用 UTC `30 20 * * 0-4`，12:00 目标使用 UTC `0 0 * * 1-5`。
+- [2026-05-28] **取消股票信息聚合看板定时**：用户要求取消 `stock-dashboard.yml` 的定时推送；
+  已移除盘中每 15 分钟和 16:10 盘后 schedule，仅保留手动 `workflow_dispatch`。
 
 <!-- Significant technical decisions with rationale. Why X was chosen over Y. -->
