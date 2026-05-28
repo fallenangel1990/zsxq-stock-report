@@ -63,6 +63,7 @@
 ## .github/workflows/
 
 - `daily-report.yml` — CI: 每日股票报告 (~3201 tok)
+- `stock-dashboard.yml` — CI: 股票仪表盘定时更新/同步任务，含盘中 15 分钟频率和收盘后触发。 (~1600 tok)
 
 ## data/
 

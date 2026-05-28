@@ -234,3 +234,4 @@
 | 11:10 | Validated YAML with Ruby after local Python lacked PyYAML | .github/workflows/daily-report.yml, config.example.yaml, config.yaml, .wolf/buglog.json | YAML parsed OK; local env gap logged as bug-037 | ~1200 |
 | 11:11 | Committed and pushed THS sync fallback fix | git remote, ~/.ssh/known_hosts, .wolf/buglog.json | HTTPS push failed, SSH host key added, push succeeded to origin/main | ~1500 |
 | 16:16 | Corrected GitHub Actions cron for observed 4h delay | .github/workflows/daily-report.yml, .wolf/cerebrum.md, .wolf/buglog.json | schedules now target Beijing 08:30/12:00 with 4h early compensation | ~4000 |
+| 16:28 | Investigated unexpected new push notification | .github/workflows/stock-dashboard.yml, .wolf/anatomy.md | found separate stock-dashboard workflow scheduled every 15min during Beijing 09:00-15:45 plus 16:10 Pages deploy | ~2000 |
