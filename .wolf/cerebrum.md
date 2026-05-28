@@ -40,11 +40,11 @@
 - [2026-05-25] CI 邮件失败不要只判断为密码错误；如果日志停在 `server.login()` 且报 `SMTPServerDisconnected`，
   需要同时检查 SMTP 安全模式/端口，保留 465 SSL 与 587 STARTTLS 的可配置和 fallback 路径。
 
-- **GitHub Actions cron 直接使用 UTC 时间**：不要加"延迟补偿"。GitHub Actions 按 cron 表达式在 UTC 时间触发，不存在系统性 +7h 延迟。北京时间 = UTC + 8h，直接换算即可。之前的 +7h 补偿反而造成 4h 偏差。
+- **GitHub Actions cron 直接使用 UTC 时间**（已作废，见 2026-05-28 决策）：此前认为不要加"延迟补偿"；用户 2026-05-28 明确反馈 Actions 推送比目标北京时间晚 4 小时，当前工作流需提前 4 小时配置。
 
 ## Do-Not-Repeat
 
-- [2026-05-18] 不要给 GitHub Actions cron 加任何"延迟补偿"偏移。北京时间 8:30 = UTC 0:30 (cron `30 0 * * 1-5`)，北京时间 12:00 = UTC 4:00 (cron `0 4 * * 1-5`)。之前的 +7h 补偿导致实际执行偏离目标 4 小时。
+- [2026-05-18] 已作废：不要给 GitHub Actions cron 加任何"延迟补偿"偏移。2026-05-28 用户确认 Actions 推送晚 4 小时，需按实测提前 4 小时配置。
 - [2026-05-16] 不要假设 GitHub Actions cron 延迟固定为 +4h。实测约 +7h，且不同时段可能不同。新增定时任务时应验证实际触发时间。
 - [2026-05-11] 不要用正则从中文财经文本中提取股票——匹配结果充满噪声（部分句子被误匹配为股票名，随机数字被当作目标价）。使用 stock_extractor.py 的 AI 方案替代。
 
@@ -67,5 +67,7 @@
 - [2026-05-19] **同花顺同步实现选择**：双 API 并存 — t.10jqka.com.cn 写默认自选；
   ugc.10jqka.com.cn（group/v1/query + content/v1/add）写自定义分组，与手机端同步。
   config.yaml 的 `ths.group_name` 指定目标分组，`score_threshold: 3.0` 过滤评分。
+- [2026-05-28] **GitHub Actions 定时补偿**：用户确认 Actions 推送比目标北京时间晚 4 小时。
+  工作流按目标北京时间提前 4 小时配置：08:30 目标使用 UTC `30 20 * * 0-4`，12:00 目标使用 UTC `0 0 * * 1-5`。
 
 <!-- Significant technical decisions with rationale. Why X was chosen over Y. -->

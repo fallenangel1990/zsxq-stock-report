@@ -637,6 +637,26 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-05-27T03:10:09Z"
+    },
+    {
+      "id": "bug-039",
+      "timestamp": "2026-05-28T16:16:53+08:00",
+      "error_message": "定时任务有4个小时的时差，即 actions 的时间比实际时间晚4小时，要求纠正，和北京时间同步",
+      "file": ".github/workflows/daily-report.yml, .wolf/cerebrum.md",
+      "root_cause": "工作流 cron 之前按 UTC+8 直接换算目标北京时间，但用户实测 GitHub Actions 推送相对目标北京时间晚 4 小时，导致报告未在预期北京时间送达。",
+      "fix": "将 GitHub Actions schedule 提前 4 小时配置：08:30 北京目标改为 UTC 20:30 前一日（cron 30 20 * * 0-4），12:00 北京目标改为 UTC 00:00 当日（cron 0 0 * * 1-5）；同时将 cerebrum 中旧的“不补偿”结论标记为已作废。",
+      "tags": [
+        "github-actions",
+        "cron",
+        "timezone",
+        "beijing-time",
+        "scheduled-task"
+      ],
+      "related_bugs": [
+        "bug-021"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-05-28T16:16:53+08:00"
     }
   ]
 }
