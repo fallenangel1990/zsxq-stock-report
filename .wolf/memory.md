@@ -239,3 +239,4 @@
 | 17:26 | Added CI fallback for THS sync execution | .github/workflows/daily-report.yml, main.py, .wolf/buglog.json, .wolf/cerebrum.md | workflow now runs thssync --strict when main flow did not report THS sync; validations passed | ~5000 |
 | 17:33 | Checked local cookie status | cookies.json, cookies_ths.json | both local cookie files missing; ZSXQ status invalid locally; THS cannot be verified locally without file/deps | ~1000 |
 | 17:40 | Guided THS cookie refresh workflow | browser/GitHub secrets | cannot directly inspect browser cookies; user should export JSON and update THS_COOKIES manually or provide file for local secret update if gh becomes available | ~800 |
+| 09:01 | Delayed daily report schedules by 2.5 hours | .github/workflows/daily-report.yml, .wolf/cerebrum.md | target Beijing times moved from 08:30/12:00 to 11:00/14:30 with 4h Actions-delay compensation | ~2500 |

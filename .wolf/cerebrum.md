@@ -73,5 +73,7 @@
   工作流按目标北京时间提前 4 小时配置：08:30 目标使用 UTC `30 20 * * 0-4`，12:00 目标使用 UTC `0 0 * * 1-5`。
 - [2026-05-28] **取消股票信息聚合看板定时**：用户要求取消 `stock-dashboard.yml` 的定时推送；
   已移除盘中每 15 分钟和 16:10 盘后 schedule，仅保留手动 `workflow_dispatch`。
+- [2026-05-29] **日报定时延后 2.5 小时**：用户要求将定时任务延后 2.5 小时。
+  在保留 GitHub Actions 晚 4 小时补偿前提下，日报目标北京时间从 08:30/12:00 调整为 11:00/14:30，对应 cron 为 `0 23 * * 0-4` / `30 2 * * 1-5`。
 
 <!-- Significant technical decisions with rationale. Why X was chosen over Y. -->
