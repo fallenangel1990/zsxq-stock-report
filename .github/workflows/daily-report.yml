@@ -2,10 +2,10 @@ name: 每日股票报告
 
 on:
   schedule:
-    # 目标北京时间 11:00；GitHub Actions 实测推送晚 4 小时，故提前到 UTC 23:00（前一日）触发
-    - cron: '0 23 * * 0-4'
-    # 目标北京时间 14:30；GitHub Actions 实测推送晚 4 小时，故提前到 UTC 02:30 触发
-    - cron: '30 2 * * 1-5'
+    # 目标北京时间 8:30；GitHub Actions 实测推送晚 4 小时，故提前到 UTC 20:30（前一日）触发
+    - cron: '30 20 * * 0-4'
+    # 目标北京时间 12:00；GitHub Actions 实测推送晚 4 小时，故提前到 UTC 4:00 触发
+    - cron: '0 4 * * 1-5'
   workflow_dispatch:
     inputs:
       max_posts:
