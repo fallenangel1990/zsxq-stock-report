@@ -4,10 +4,10 @@ zsxq:
 ai:
   provider: deepseek
   deepseek:
-    api_key: ''
-    model: deepseek-chat
-    base_url: https://api.deepseek.com
-    api_key_encrypted: fernet:gAAAAABqFO5tdaEc32UvG3BOtpSUeqZ3-0mPiW9EpsLMACia7bhfzxivfTftFN1-O7QFZdWTDPmOrU3KCEJEXGblBl-WV_R8-wpcq8WtYOJS0VH_BVPA2rIoEQsKEWzHyMqoT5DRM1oi
+    api_key: 'sk-c0xsk7sofzycx5s6z6vz9nxrj8qwx4s6q6e3zhj7iuyyljg7'
+    model: mimo-v2.5
+    base_url: https://api.xiaomimimo.com/v1
+    api_key_encrypted: ''
   claude:
     api_key: ''
     model: claude-sonnet-4-6
