@@ -3,7 +3,7 @@
 
 用法:
   python3 main.py login                    # 手动扫码登录，保存 cookie
-  python3 main.py crawl <专栏URL>           # 增量爬取（无数量上限）
+  python3 main.py crawl <专栏URL>           # 增量爬取（默认最多 300 条）
   python3 main.py summary                  # 对最近爬取的内容进行 AI 总结
   python3 main.py stocks                   # 对最近爬取的内容提取股票投资机会
   python3 main.py research <股票名称>       # 个股深度研究（搜索专栏内所有相关信息）
@@ -12,6 +12,8 @@
 
 import argparse
 import sys
+
+DEFAULT_INCREMENTAL_MAX_POSTS = 300
 
 
 def _log(msg: str) -> None:
@@ -39,19 +41,21 @@ def cmd_crawl(group_url: str, max_posts: int = 0) -> list[dict]:
     since_topic_id = state.get("last_topic_id", "")
     is_first_run = not since_topic_id
 
+    effective_max_posts = max_posts
     if max_posts > 0:
         since_topic_id = ""
         _log(f"[手动限量] 抓取最近 {max_posts} 篇帖子（忽略上次增量位置）")
     else:
+        effective_max_posts = DEFAULT_INCREMENTAL_MAX_POSTS
         if is_first_run:
-            _log("[首次运行] 未设置数量上限，将抓取全部可访问帖子")
+            _log(f"[首次运行] 增量上限 {effective_max_posts} 条，将抓取最近内容作为起点")
         else:
             _log(
                 f"[增量运行] 上次: {state.get('crawled_at', '未知')}，"
-                "抓取上次记录之后的全部新内容"
+                f"抓取上次记录之后的新内容（最多 {effective_max_posts} 条）"
             )
 
-    posts = crawl_group(group_url, max_posts=max_posts, since_topic_id=since_topic_id)
+    posts = crawl_group(group_url, max_posts=effective_max_posts, since_topic_id=since_topic_id)
 
     if not posts:
         _log("没有新内容，无需更新。")
@@ -424,7 +428,10 @@ def main():
 
     crawl_parser = subparsers.add_parser("crawl", help="增量爬取指定专栏")
     crawl_parser.add_argument("url", help="专栏 URL")
-    crawl_parser.add_argument("-n", "--max-posts", type=int, default=0, help="最大帖子数（默认0=不限制）")
+    crawl_parser.add_argument(
+        "-n", "--max-posts", type=int, default=0,
+        help="最大帖子数（默认0=增量模式最多300条；填N=抓最近N条并忽略上次位置）",
+    )
 
     subparsers.add_parser("summary", help="对最近爬取的内容进行 AI 总结")
 
@@ -492,7 +499,10 @@ def main():
 
     all_parser = subparsers.add_parser("all", help="一键执行完整流程")
     all_parser.add_argument("url", help="专栏 URL")
-    all_parser.add_argument("-n", "--max-posts", type=int, default=0, help="最大帖子数（默认0=不限制）")
+    all_parser.add_argument(
+        "-n", "--max-posts", type=int, default=0,
+        help="最大帖子数（默认0=增量模式最多300条；填N=抓最近N条并忽略上次位置）",
+    )
 
     args = parser.parse_args()
 

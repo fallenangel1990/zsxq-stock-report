@@ -242,3 +242,4 @@
 | 09:01 | Delayed daily report schedules by 2.5 hours | .github/workflows/daily-report.yml, .wolf/cerebrum.md | target Beijing times moved from 08:30/12:00 to 11:00/14:30 with 4h Actions-delay compensation | ~2500 |
 | 09:01 | Fixed GitHub Actions schedule schema error | .github/workflows/daily-report.yml, .wolf/buglog.json, .wolf/cerebrum.md | removed invalid empty schedule, kept workflow_dispatch, quoted top-level "on"; Ruby YAML schema check passed | ~3000 |
 | 09:11 | Fixed failure notification NameError | .github/workflows/daily-report.yml, .wolf/buglog.json | added missing os import in error email step; workflow os import scan passed | ~1500 |
+| 09:24 | Set incremental crawl default cap to 300 | main.py, daily-report.yml, config*.yaml, .wolf/cerebrum.md | max_posts=0 now means incremental up to 300 while preserving crawl state; validations passed | ~3000 |

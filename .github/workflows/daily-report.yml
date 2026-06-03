@@ -4,7 +4,7 @@ name: 每日股票报告
   workflow_dispatch:
     inputs:
       max_posts:
-        description: '手动触发时最多拉取帖子数（0=不限制）'
+        description: '手动触发时最多拉取帖子数（0=增量模式最多300条）'
         required: false
         default: '0'
       force:
@@ -184,7 +184,7 @@ jobs:
             MAX_POSTS_ARG="--max-posts $MAX_POSTS"
             echo "手动限制帖子数: $MAX_POSTS"
           else
-            echo "帖子数限制: 不限制"
+            echo "帖子数限制: 增量模式最多 300 条"
           fi
 
           # 运行并捕获输出

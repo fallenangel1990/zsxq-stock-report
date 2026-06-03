@@ -13,7 +13,7 @@ ai:
     model: claude-sonnet-4-6
 crawler:
   scroll_delay: 2
-  max_posts: 0
+  max_posts: 0  # 0=增量模式默认最多300条；填N=抓最近N条
   fetch_comments: true
 storage:
   raw_dir: data/raw
