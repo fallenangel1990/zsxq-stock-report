@@ -15,15 +15,16 @@ zsxq:
 ai:
   provider: "deepseek"
 
-  # DeepSeek API 配置（provider=deepseek 时生效）
-  # API Key 优先通过环境变量 DEEPSEEK_API_KEY 设置。
+  # OpenAI 兼容接口配置（provider=deepseek 时生效）。
+  # 如 base_url 使用小米 Mimo，请优先通过 MIMO_API_KEY 或 XIAOMI_MIMO_API_KEY 设置。
+  # 如 base_url 使用 DeepSeek，请优先通过 DEEPSEEK_API_KEY 设置。
   # 本地如需写入配置文件，建议使用 api_key_encrypted，并将解密密钥放在
-  # .secrets/deepseek.key 或 DEEPSEEK_API_KEY_ENCRYPTION_KEY 环境变量中。
+  # .secrets/{deepseek|mimo}.key 或对应的 *_API_KEY_ENCRYPTION_KEY 环境变量中。
   deepseek:
     api_key: ""
     api_key_encrypted: ""
-    model: "deepseek-chat"
-    base_url: "https://api.deepseek.com"
+    model: "mimo-v2.5"
+    base_url: "https://api.xiaomimimo.com/v1"
 
   # Claude API 配置（provider=claude 时生效）
   # API Key 也可通过环境变量 ANTHROPIC_API_KEY 设置

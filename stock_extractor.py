@@ -228,6 +228,10 @@ def extract_stock_opportunities(
 
     # 按批次号排序结果
     batch_reports = [results[k] for k in sorted(results.keys())]
+    if not batch_reports:
+        raise RuntimeError(
+            "股票提取全部批次失败，请检查 AI API Key、模型和 base_url 配置。"
+        )
 
     if verbose:
         total_q = len(all_stocks_json["quantitative"])

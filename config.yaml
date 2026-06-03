@@ -4,7 +4,7 @@ zsxq:
 ai:
   provider: deepseek
   deepseek:
-    api_key: 'sk-c0xsk7sofzycx5s6z6vz9nxrj8qwx4s6q6e3zhj7iuyyljg7'
+    api_key: ''
     model: mimo-v2.5
     base_url: https://api.xiaomimimo.com/v1
     api_key_encrypted: ''

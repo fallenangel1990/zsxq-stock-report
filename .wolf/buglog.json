@@ -715,6 +715,45 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-03T09:11:34+08:00"
+    },
+    {
+      "id": "bug-043",
+      "timestamp": "2026-06-03T09:51:46+08:00",
+      "error_message": "openai.AuthenticationError: Error code: 401 - Invalid API Key",
+      "file": "summarizer.py, stock_extractor.py, .github/workflows/daily-report.yml, config.yaml, config.example.yaml",
+      "root_cause": "配置已切到小米 Mimo（base_url=https://api.xiaomimimo.com/v1, model=mimo-v2.5），但 provider 仍复用 deepseek 分支，CI 只注入 DEEPSEEK_API_KEY，导致旧 DeepSeek key 被拿去请求 Mimo 接口并返回 401；同时股票提取全部批次失败后仍继续调用合并 AI，造成二次 traceback。config.yaml 里还残留了明文 Mimo key。",
+      "fix": "Mimo base_url 下优先读取 MIMO_API_KEY 或 XIAOMI_MIMO_API_KEY，不再误用 DEEPSEEK_API_KEY；workflow 注入这两个 secret；清空 config.yaml 明文 api_key；股票提取无成功批次时抛出明确错误；config.example.yaml 更新为 Mimo 配置说明。",
+      "tags": [
+        "github-actions",
+        "mimo",
+        "api-key",
+        "401",
+        "stock-extractor",
+        "security"
+      ],
+      "related_bugs": [
+        "bug-034"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-03T09:51:46+08:00"
+    },
+    {
+      "id": "bug-044",
+      "timestamp": "2026-06-03T09:51:46+08:00",
+      "error_message": "ModuleNotFoundError: No module named 'yaml'",
+      "file": "summarizer.py",
+      "root_cause": "本地系统 python3 环境仍未安装 requirements.txt 中声明的 PyYAML，导致直接运行 summarizer.get_client() 的本地检查失败。",
+      "fix": "未修改依赖；本次使用 py_compile 和 Ruby YAML 完成可用校验。需要本地运行时先安装 requirements.txt。",
+      "tags": [
+        "local-env",
+        "pyyaml",
+        "validation"
+      ],
+      "related_bugs": [
+        "bug-037"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-03T09:51:46+08:00"
     }
   ]
 }

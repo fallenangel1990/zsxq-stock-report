@@ -65,6 +65,7 @@
   应降级继续写默认自选股，并在同步结果中输出分组失败 warning。
 - **CI 同花顺兜底执行**：日报 workflow 不能只依赖 `main.py all` 末尾的自动同步。
   Actions 应在爬取/提取后检查日志；若未出现“同花顺同步结果”且 `cookies_ths.json` 存在，需要显式运行 `python main.py thssync --strict`，让同步失败在 CI 中红掉。
+- **小米 Mimo API Key**：当 `ai.deepseek.base_url` 指向 `api.xiaomimimo.com` 且模型为 `mimo-v2.5` 时，CI/本地应设置 `MIMO_API_KEY` 或 `XIAOMI_MIMO_API_KEY`，不要复用 `DEEPSEEK_API_KEY`；本地加密 key 使用 `MIMO_API_KEY_ENCRYPTION_KEY` 或 `.secrets/mimo.key`。
 
 ## Decision Log
 
@@ -79,5 +80,7 @@
   在保留 GitHub Actions 晚 4 小时补偿前提下，日报目标北京时间从 08:30/12:00 调整为 11:00/14:30，对应 cron 为 `0 23 * * 0-4` / `30 2 * * 1-5`。
 - [2026-06-03] **增量抓取上限**：用户要求增量抓取上限为 300 条，并记录上次抓取位置。
   `max_posts=0` 现在表示增量模式最多 300 条；显式传入 N 仍表示手动抓最近 N 条并忽略上次位置。
+- [2026-06-03] **小米 Mimo 密钥读取**：修复 Mimo 配置误读 `DEEPSEEK_API_KEY` 导致 401。
+  `summarizer.py` 现在根据 `base_url` 识别 Mimo，并优先读取 `MIMO_API_KEY` / `XIAOMI_MIMO_API_KEY`。
 
 <!-- Significant technical decisions with rationale. Why X was chosen over Y. -->

@@ -68,11 +68,14 @@ def _decrypt_api_key(provider: str, encrypted_value: str) -> str:
         raise ValueError(f"{provider} 加密 API key 解密失败，请检查解密密钥。") from exc
 
 
-def _resolve_api_key(provider: str, provider_config: dict, env_name: str) -> str:
+def _resolve_api_key(provider: str, provider_config: dict, env_names) -> str:
     """按环境变量、加密配置、明文配置的顺序获取 API key。"""
-    env_key = os.environ.get(env_name, "").strip()
-    if env_key:
-        return env_key
+    if isinstance(env_names, str):
+        env_names = [env_names]
+    for env_name in env_names:
+        env_key = os.environ.get(env_name, "").strip()
+        if env_key:
+            return env_key
 
     encrypted_key = provider_config.get("api_key_encrypted", "")
     if encrypted_key:
@@ -104,15 +107,22 @@ def _init_deepseek(ds_config: dict):
     """初始化 DeepSeek client（OpenAI 兼容接口）。"""
     from openai import OpenAI
 
-    api_key = _resolve_api_key("deepseek", ds_config, "DEEPSEEK_API_KEY")
-    if not api_key:
-        raise ValueError(
-            "请设置 DEEPSEEK_API_KEY 环境变量，或在 config.yaml 中配置 "
-            "ai.deepseek.api_key_encrypted"
-        )
-
     base_url = ds_config.get("base_url", "https://api.deepseek.com")
     model = ds_config.get("model", "deepseek-chat")
+    is_mimo = "xiaomimimo.com" in base_url
+    env_names = (
+        ["MIMO_API_KEY", "XIAOMI_MIMO_API_KEY"]
+        if is_mimo else
+        ["DEEPSEEK_API_KEY"]
+    )
+    key_provider = "mimo" if is_mimo else "deepseek"
+    api_key = _resolve_api_key(key_provider, ds_config, env_names)
+    if not api_key:
+        env_hint = " 或 ".join(env_names)
+        raise ValueError(
+            f"请设置 {env_hint} 环境变量，或在 config.yaml 中配置 "
+            "ai.deepseek.api_key_encrypted"
+        )
 
     client = OpenAI(api_key=api_key, base_url=base_url)
 
@@ -129,7 +139,7 @@ def _init_deepseek(ds_config: dict):
             )
             return response.choices[0].message.content
 
-    return DeepSeekWrapper(), model, "deepseek"
+    return DeepSeekWrapper(), model, "mimo" if is_mimo else "deepseek"
 
 
 def _init_claude(claude_config: dict):
