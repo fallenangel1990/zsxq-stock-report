@@ -327,7 +327,7 @@ jobs:
         if: steps.pdf.outputs.no_report == 'true'
         shell: python3 {0}
         run: |
-          import sys
+          import os, sys
           sys.path.insert(0, '.')
           from email_sender import send_error_email
 

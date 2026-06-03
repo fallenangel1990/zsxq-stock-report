@@ -697,6 +697,24 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-03T09:01:20+08:00"
+    },
+    {
+      "id": "bug-042",
+      "timestamp": "2026-06-03T09:11:34+08:00",
+      "error_message": "NameError: name 'os' is not defined. Did you forget to import 'os'?",
+      "file": ".github/workflows/daily-report.yml",
+      "root_cause": "发送失败通知邮件的 inline Python 脚本调用了 `os.environ.get('TO_EMAIL')`，但该脚本只导入了 `sys`，漏导入 `os`。",
+      "fix": "将失败通知脚本的导入改为 `import os, sys`，并扫描 workflow 内使用 `os.` 的 Python block 确认均已导入 os。",
+      "tags": [
+        "github-actions",
+        "python",
+        "import",
+        "error-notification",
+        "email"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-03T09:11:34+08:00"
     }
   ]
 }

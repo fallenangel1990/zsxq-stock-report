@@ -241,3 +241,4 @@
 | 17:40 | Guided THS cookie refresh workflow | browser/GitHub secrets | cannot directly inspect browser cookies; user should export JSON and update THS_COOKIES manually or provide file for local secret update if gh becomes available | ~800 |
 | 09:01 | Delayed daily report schedules by 2.5 hours | .github/workflows/daily-report.yml, .wolf/cerebrum.md | target Beijing times moved from 08:30/12:00 to 11:00/14:30 with 4h Actions-delay compensation | ~2500 |
 | 09:01 | Fixed GitHub Actions schedule schema error | .github/workflows/daily-report.yml, .wolf/buglog.json, .wolf/cerebrum.md | removed invalid empty schedule, kept workflow_dispatch, quoted top-level "on"; Ruby YAML schema check passed | ~3000 |
+| 09:11 | Fixed failure notification NameError | .github/workflows/daily-report.yml, .wolf/buglog.json | added missing os import in error email step; workflow os import scan passed | ~1500 |
