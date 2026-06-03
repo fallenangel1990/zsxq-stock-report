@@ -34,6 +34,8 @@
 
 - [2026-05-11] 不要用正则从中文财经文本中提取股票——匹配结果充满噪声（部分句子被误匹配为股票名，随机数字被当作目标价）。使用 stock_extractor.py 的 AI 方案替代。
 - [2026-05-15] 校验 GitHub Actions YAML 时不要用 PyYAML `safe_load` 直接取 `on`，它会按 YAML 1.1 把 `on` 当布尔值；用 `yaml.BaseLoader` 或文本校验。
+- [2026-06-03] GitHub Actions workflow 顶层事件键写成 `"on":`，不要用裸 `on:`；裸键可能在 YAML 1.1 解析链路中变成布尔值并触发 schedule schema 报错。
+- [2026-06-03] 禁用 GitHub Actions 定时任务时不要写 `schedule: []`；GitHub 要求 schedule 至少包含一个 `cron` map，应直接移除 `schedule` 键，只保留 `workflow_dispatch`。
 - [2026-05-15] 不要在需要本地/CI 双端校验的脚本里依赖 `grep -P`；macOS grep 不支持 `-P`，日志解析优先用 Python 正则。
 - [2026-05-15] 本地 `python3` 可能是 3.9，不要在需要本地验证的模块里使用 PEP 604 `dict | None` 注解；用 `Optional[...]` 更稳。
 - [2026-05-21] CI 中 `config.yaml` 被 `.gitignore` 排除，不会从仓库检出；工作流从 `config.example.yaml` 复制时 `ths.enabled: false`。任何涉及 CI 配置变更，都不要依赖本地修改后的 `config.yaml`，必须在工作流步骤中显式覆写。

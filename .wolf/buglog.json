@@ -677,6 +677,26 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-05-28T17:26:45+08:00"
+    },
+    {
+      "id": "bug-041",
+      "timestamp": "2026-06-03T09:01:20+08:00",
+      "error_message": "Invalid workflow file: (Line: 4, Col: 13): `schedule` accepts a list of one or more maps with the `cron` key set",
+      "file": ".github/workflows/daily-report.yml",
+      "root_cause": "远端最新 workflow 为禁用定时执行将 `schedule` 写成空列表 `schedule: []`，但 GitHub Actions 要求 schedule 必须是一个或多个带 `cron` 键的 map；同时顶层事件键使用裸 `on:` 容易被 YAML 1.1 工具误解析。",
+      "fix": "完全移除空 `schedule`，只保留手动触发 `workflow_dispatch`；同时将顶层事件键写成显式字符串键 `\"on\":`。",
+      "tags": [
+        "github-actions",
+        "workflow",
+        "yaml",
+        "schedule",
+        "cron"
+      ],
+      "related_bugs": [
+        "bug-039"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-03T09:01:20+08:00"
     }
   ]
 }
