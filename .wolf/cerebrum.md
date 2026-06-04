@@ -66,6 +66,7 @@
 - **CI 同花顺兜底执行**：日报 workflow 不能只依赖 `main.py all` 末尾的自动同步。
   Actions 应在爬取/提取后检查日志；若未出现“同花顺同步结果”且 `cookies_ths.json` 存在，需要显式运行 `python main.py thssync --strict`，让同步失败在 CI 中红掉。
 - **小米 Mimo API Key**：当 `ai.deepseek.base_url` 指向 `api.xiaomimimo.com` 且模型为 `mimo-v2.5` 时，CI/本地应设置 `MIMO_API_KEY` 或 `XIAOMI_MIMO_API_KEY`，不要复用 `DEEPSEEK_API_KEY`；本地加密 key 使用 `MIMO_API_KEY_ENCRYPTION_KEY` 或 `.secrets/mimo.key`。
+- **增量状态提交时机**：`main.py all` 不能在爬取 raw 后立刻更新 `data/state`；必须等股票报告和总结报告都成功后再保存上次位置。否则 AI 失败会导致下一次触发误判“无新内容”。
 
 ## Decision Log
 
@@ -82,5 +83,7 @@
   `max_posts=0` 现在表示增量模式最多 300 条；显式传入 N 仍表示手动抓最近 N 条并忽略上次位置。
 - [2026-06-03] **小米 Mimo 密钥读取**：修复 Mimo 配置误读 `DEEPSEEK_API_KEY` 导致 401。
   `summarizer.py` 现在根据 `base_url` 识别 Mimo，并优先读取 `MIMO_API_KEY` / `XIAOMI_MIMO_API_KEY`。
+- [2026-06-04] **增量状态延后提交**：修复触发后无股票结果输出。
+  `cmd_all()` 现在在股票报告和总结都成功后才更新 crawl state；若存在未生成股票报告的最新 raw，会在无新增时恢复处理。
 
 <!-- Significant technical decisions with rationale. Why X was chosen over Y. -->

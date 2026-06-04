@@ -191,9 +191,11 @@ jobs:
             echo "帖子数限制: 增量模式最多 300 条"
           fi
 
+          RUN_EXIT_CODE=0
           # 运行并捕获输出
           python main.py all "$GROUP_URL" $MAX_POSTS_ARG 2>&1 | tee /tmp/crawl.log || {
             EXIT_CODE=${PIPESTATUS[0]}
+            RUN_EXIT_CODE=$EXIT_CODE
             echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
             # 提取错误信息用于失败通知
             tail -30 /tmp/crawl.log > /tmp/crawl_error.txt
@@ -215,6 +217,10 @@ jobs:
               print(f"new_stocks={q_count + e_count}")
           PY
 
+          if [ "$RUN_EXIT_CODE" != "0" ]; then
+            exit "$RUN_EXIT_CODE"
+          fi
+
       - name: 确保执行同花顺同步
         if: always()
         run: |
@@ -225,6 +231,11 @@ jobs:
 
           if [ -f /tmp/crawl.log ] && grep -q "同花顺同步结果" /tmp/crawl.log; then
             echo "✅ 主流程已执行同花顺同步"
+            exit 0
+          fi
+
+          if [ ! -f /tmp/crawl.log ] || ! grep -q "股票机会报告已保存" /tmp/crawl.log; then
+            echo "ℹ️  本次未生成股票机会报告，跳过同花顺兜底同步"
             exit 0
           fi
 

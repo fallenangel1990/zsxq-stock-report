@@ -25,7 +25,7 @@ def cmd_login() -> None:
     login(headless=False)
 
 
-def cmd_crawl(group_url: str, max_posts: int = 0) -> list[dict]:
+def cmd_crawl(group_url: str, max_posts: int = 0, update_state: bool = True) -> list[dict]:
     from crawler import crawl_group, get_group_id_from_url
     from storage import load_crawl_state, save_crawl_state, save_raw_data
 
@@ -65,13 +65,37 @@ def cmd_crawl(group_url: str, max_posts: int = 0) -> list[dict]:
     cleaned = extract_structured_content(posts)
 
     save_raw_data(cleaned, group_name=group_id)
-    save_crawl_state(group_id, cleaned[0], len(cleaned))
+    if update_state:
+        save_crawl_state(group_id, cleaned[0], len(cleaned))
 
     from extractor import generate_stats
     stats = generate_stats(cleaned)
     _log(f"\n爬取完成！新增 {stats['total']} 篇，总赞 {stats['total_likes']}，总评论 {stats['total_comments']}")
 
     return cleaned
+
+
+def _load_latest_unprocessed_raw(group_id: str) -> list[dict]:
+    """加载最近一次已抓取但尚未生成股票报告的原始数据。"""
+    from pathlib import Path
+    from storage import _get_dirs, load_latest_raw
+
+    posts, raw_path = load_latest_raw(group_id)
+    if not posts or not raw_path:
+        return []
+
+    raw_file = Path(raw_path)
+    _, summary_dir = _get_dirs()
+    if summary_dir.exists():
+        newer_stock_reports = [
+            p for p in summary_dir.glob(f"{group_id}_stocks_*.md")
+            if p.stat().st_mtime >= raw_file.stat().st_mtime
+        ]
+        if newer_stock_reports:
+            return []
+
+    _log("[恢复处理] 无新增内容，但发现最近原始数据尚未生成股票报告，将重新处理该批数据")
+    return posts
 
 
 def _crawl_recent_for_report(group_url: str, group_id: str, limit: int = 100) -> list[dict]:
@@ -368,12 +392,15 @@ def cmd_all(group_url: str, max_posts: int = 0) -> None:
     load_cookies()
 
     _log("\n[2/4] 爬取最新内容...")
-    posts = cmd_crawl(group_url, max_posts=max_posts)
+    posts = cmd_crawl(group_url, max_posts=max_posts, update_state=False)
     report_scope = "新内容"
 
     if not posts:
-        _log("\n没有新内容，流程结束。")
-        return
+        posts = _load_latest_unprocessed_raw(group_id)
+        report_scope = "最近一次未处理原始数据"
+        if not posts:
+            _log("\n没有新内容，流程结束。")
+            return
 
     # ── 第 3 步：提取股票机会 ──
     _log(f"\n[3/4] 对{report_scope} ({len(posts)} 篇) 提取股票机会...")
@@ -394,6 +421,9 @@ def cmd_all(group_url: str, max_posts: int = 0) -> None:
 
     report = summarize_posts(posts)
     save_summary(report, group_name=group_id)
+
+    from storage import save_crawl_state
+    save_crawl_state(group_id, posts[0], len(posts))
 
     # ── 第 5 步：同花顺同步（可选，根据配置） ──
     _try_thssync_auto()

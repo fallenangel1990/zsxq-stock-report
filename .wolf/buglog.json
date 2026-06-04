@@ -754,6 +754,26 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-03T09:51:46+08:00"
+    },
+    {
+      "id": "bug-045",
+      "timestamp": "2026-06-04T09:09:35+08:00",
+      "error_message": "触发定时任务后，没有任何股票结果输出",
+      "file": "main.py, .github/workflows/daily-report.yml",
+      "root_cause": "cmd_crawl() 在抓取原始数据后立即更新 data/state 上次位置；如果后续股票 AI 提取或总结失败，状态已经前移，下一次触发会认为没有新内容而直接结束。workflow 的爬取步骤也吞掉了 main.py all 的非零退出码，可能继续归档 raw/state，放大这个问题。",
+      "fix": "cmd_all() 调用 cmd_crawl(update_state=False)，仅在股票报告和总结成功后才保存 crawl state；无新增时如果发现最新 raw 尚未生成股票报告，会恢复处理该 raw；workflow 捕获 main.py all 失败后在解析输出后按原 exit code 失败，且只有本次生成股票报告时才执行同花顺兜底同步。",
+      "tags": [
+        "incremental-crawl",
+        "state",
+        "stock-report",
+        "github-actions",
+        "recovery"
+      ],
+      "related_bugs": [
+        "bug-043"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-04T09:09:35+08:00"
     }
   ]
 }
