@@ -550,13 +550,42 @@ def _extract_code(text: str) -> str:
     return m.group(1) if m else ""
 
 
+def _sector_stocks_to_text(stocks_value) -> str:
+    """把 AI 返回的 sectors.stocks 统一成可拆分文本。"""
+    if stocks_value is None:
+        return ""
+    if isinstance(stocks_value, str):
+        return stocks_value.strip()
+    if isinstance(stocks_value, list):
+        parts = []
+        for item in stocks_value:
+            if isinstance(item, dict):
+                name = str(item.get("name") or item.get("stock") or item.get("股票名称") or "").strip()
+                code = str(item.get("code") or item.get("股票代码") or "").strip()
+                text = f"{name} {code}".strip()
+            else:
+                text = str(item).strip()
+            if text:
+                parts.append(text)
+        return "、".join(parts)
+    if isinstance(stocks_value, dict):
+        name = str(stocks_value.get("name") or stocks_value.get("stock") or stocks_value.get("股票名称") or "").strip()
+        code = str(stocks_value.get("code") or stocks_value.get("股票代码") or "").strip()
+        text = f"{name} {code}".strip()
+        if text:
+            return text
+    return str(stocks_value).strip()
+
+
 def _split_sector_stock_entries(sector_entry: dict) -> list[dict]:
     """把“细分板块机会”的核心标的拆成个股候选。
 
     AI 有时会把股票只放在 sectors.stocks，而 quantitative/elastic 为空。
     这里把这类核心标的补进弹性候选，避免最终报告只有空表。
     """
-    stocks_text = (sector_entry.get("stocks") or "").strip()
+    if not isinstance(sector_entry, dict):
+        return []
+    stocks_text = _sector_stocks_to_text(sector_entry.get("stocks"))
     sector_name = (sector_entry.get("sector") or "").strip()
     if not stocks_text or not sector_name:
         return []
@@ -707,8 +736,10 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
 
     # 用细分板块表回填量化标的的赛道，便于趋势评分和板块风险匹配
     for sector_entry in stocks_json.get("sectors", []):
+        if not isinstance(sector_entry, dict):
+            continue
         sector_name = sector_entry.get("sector", "")
-        stocks_text = sector_entry.get("stocks", "")
+        stocks_text = _sector_stocks_to_text(sector_entry.get("stocks"))
         if not sector_name or not stocks_text:
             continue
         for stock in all_stocks.values():
@@ -766,8 +797,10 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
     # 计算板块热度（sectors 中的 stocks 字符串被提及的总字符数作为代理）
     sector_heat = {}
     for entry in stocks_json.get("sectors", []):
+        if not isinstance(entry, dict):
+            continue
         sector_name = entry.get("sector", "")
-        stocks_str = entry.get("stocks", "")
+        stocks_str = _sector_stocks_to_text(entry.get("stocks"))
         if sector_name:
             sector_heat[sector_name] = len(stocks_str)
 
@@ -1121,6 +1154,8 @@ def _detect_sector_trends(
     # 3. 构建板块逻辑映射（标准化 + 合并同板块逻辑文本）
     sector_logic_map: dict[str, str] = {}
     for entry in sectors_list:
+        if not isinstance(entry, dict):
+            continue
         raw = entry.get("sector", "")
         norm = _normalize_sector_name(raw, sector_aliases)
         if norm:

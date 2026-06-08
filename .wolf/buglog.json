@@ -795,6 +795,26 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-08T09:07:48+08:00"
+    },
+    {
+      "id": "bug-047",
+      "timestamp": "2026-06-08T09:28:08+08:00",
+      "error_message": "AttributeError: 'list' object has no attribute 'strip' in _split_sector_stock_entries",
+      "file": "stock_extractor.py",
+      "root_cause": "Mimo 返回的 sectors[].stocks 可能是 list 或 dict，而新增的 sectors fallback 按字符串调用 .strip()；后续板块热度和趋势逻辑也假设 sectors 每项一定是 dict。",
+      "fix": "新增 _sector_stocks_to_text() 统一兼容 str/list/dict/None；拆分候选、赛道回填、板块热度都先规范化 stocks；sectors 中非 dict 项在评分和趋势检测中跳过。",
+      "tags": [
+        "github-actions",
+        "mimo",
+        "stock-extractor",
+        "json-shape",
+        "attribute-error"
+      ],
+      "related_bugs": [
+        "bug-046"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-08T09:28:08+08:00"
     }
   ]
 }
