@@ -774,6 +774,27 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-04T09:09:35+08:00"
+    },
+    {
+      "id": "bug-046",
+      "timestamp": "2026-06-08T09:07:48+08:00",
+      "error_message": "触发定时任务后，股票机会报告快速选股清单为空；日志显示 ZSXQ 第 4 页后 code=1059，AI 批次完成但量化/弹性均为 0",
+      "file": "crawler.py, stock_extractor.py",
+      "root_cause": "crawler.py 对分页中的 1059 只按普通翻页结束处理，导致 80 篇半截数据被当作成功结果；stock_extractor.py 只把 quantitative/elastic 转入评分和同花顺同步，AI 若只在 sectors.stocks 中列核心标的，最终 enriched 为空并输出空表。",
+      "fix": "ZSXQ API 分页改为 15 秒间隔，1059 冷却 30 秒重试；重试仍失败时不再静默接受半截结果。股票提取将 sectors.stocks 拆为弹性候选并参与评分/同步，且真正无个股时在报告中输出提取诊断。",
+      "tags": [
+        "github-actions",
+        "zsxq",
+        "rate-limit",
+        "stock-extractor",
+        "empty-report",
+        "ths-sync"
+      ],
+      "related_bugs": [
+        "bug-045"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-08T09:07:48+08:00"
     }
   ]
 }

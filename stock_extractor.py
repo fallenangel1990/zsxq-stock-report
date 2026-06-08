@@ -550,6 +550,58 @@ def _extract_code(text: str) -> str:
     return m.group(1) if m else ""
 
 
+def _split_sector_stock_entries(sector_entry: dict) -> list[dict]:
+    """把“细分板块机会”的核心标的拆成个股候选。
+
+    AI 有时会把股票只放在 sectors.stocks，而 quantitative/elastic 为空。
+    这里把这类核心标的补进弹性候选，避免最终报告只有空表。
+    """
+    stocks_text = (sector_entry.get("stocks") or "").strip()
+    sector_name = (sector_entry.get("sector") or "").strip()
+    if not stocks_text or not sector_name:
+        return []
+
+    normalized = re.sub(r"<br\s*/?>", "、", stocks_text, flags=re.IGNORECASE)
+    normalized = re.sub(r"[（(](\d{6})[)）]", r" \1", normalized)
+    raw_items = re.split(r"[、,，/；;|｜\n\r\t]+|(?:\s+和\s+)|(?:\s+及\s+)|(?:以及)", normalized)
+
+    entries = []
+    seen = set()
+    for item in raw_items:
+        item = re.sub(r"\*\*|`", "", item or "").strip()
+        item = re.sub(r"^(?:核心标的|标的|包括|主要|关注)[:：\s]*", "", item)
+        item = item.strip(" .。:：()（）[]【】")
+        if not item:
+            continue
+
+        code = _extract_code(item)
+        name = re.sub(r"\b\d{6}\b", "", item).strip(" .。:：()（）[]【】")
+        name_match = re.match(r"([一-龥A-Za-z]{2,12})", name)
+        name = name_match.group(1) if name_match else name
+
+        if not name or len(name) < 2:
+            continue
+        if name in {"相关公司", "核心标的", "龙头公司", "上市公司", "板块"}:
+            continue
+        if re.search(r"\b[A-Z]{1,5}(?:\.[A-Z]{1,3})?\b", name):
+            continue
+
+        key = code or name
+        if key in seen:
+            continue
+        seen.add(key)
+        entries.append({
+            "name": name,
+            "code": code,
+            "sector": sector_name,
+            "logic": sector_entry.get("logic", ""),
+            "risk": "",
+            "source": sector_entry.get("source", ""),
+        })
+
+    return entries
+
+
 def _parse_target_value(target_str: str) -> Optional[float]:
     """从量化参考文本中提取数值（目标价/目标市值等）。
 
@@ -662,6 +714,30 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
         for stock in all_stocks.values():
             if not stock.get("sector") and stock.get("name") in stocks_text:
                 stock["sector"] = sector_name
+
+        for entry in _split_sector_stock_entries(sector_entry):
+            if not _is_a_share_candidate(entry):
+                continue
+            code = entry.get("code", "").strip()
+            name = entry.get("name", "")
+            key = code if code else name
+            if not key or key in all_stocks:
+                continue
+            all_stocks[key] = {
+                "name": name,
+                "code": code,
+                "logic": entry.get("logic", ""),
+                "target_str": "",
+                "target_value": None,
+                "risk_str": entry.get("risk", ""),
+                "source": entry.get("source", ""),
+                "category": "elastic",
+                "sector": entry.get("sector", ""),
+                "post_count": 1,
+                "quality": 0.25,
+                "foreign_research": bool(entry.get("foreign_research")),
+                "source_note": entry.get("source_note", ""),
+            }
 
     if not all_stocks:
         return [], {}
@@ -1405,6 +1481,12 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
         "|------|----------|----------|----------|----------|----------|----------------|----------|------|"
     )
 
+    if not enriched:
+        parts.append(
+            "| - | 本次未形成可评分个股 | - | - | AI 未返回可进入量化/弹性评分的 A 股标的 | - | "
+            "请检查下方细分板块/风险提示；若日志出现 1059，优先更新 Cookie 或等待限流恢复 | - | - |"
+        )
+
     for stock in enriched:
         name = _display_stock_name(stock)
         market_cap_str = _fmt_market_cap(stock.get("market_cap_yi"))
@@ -1422,6 +1504,19 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
         )
 
     parts.append("")
+
+    if not enriched:
+        parts.append("## 提取诊断\n")
+        parts.append(
+            "- 股票 AI 批次已完成，但结构化 JSON 中没有可评分的 `quantitative` 或 `elastic` 个股。"
+        )
+        parts.append(
+            "- 如果运行日志出现 `code=1059`，本次可能只抓到部分帖子；爬虫已改为 15 秒分页间隔并对 1059 冷却重试。"
+        )
+        parts.append(
+            "- 若 AI 只在“细分板块机会”中列出核心标的，后续运行会自动把这些标的补入弹性候选并参与评分/同花顺同步。"
+        )
+        parts.append("")
 
     # ── 0.5. 行业趋势概览 ──
     trending = [(s, ts) for s, ts in trend_scores.items() if ts >= 5.0]

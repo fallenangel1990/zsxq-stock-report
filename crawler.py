@@ -31,6 +31,18 @@ def load_config() -> dict:
 # ── ZSXQ API 直连 ──
 
 ZSXQ_API_BASE = "https://api.zsxq.com/v2"
+ZSXQ_PAGE_DELAY_SECONDS = 15
+ZSXQ_1059_COOLDOWN_SECONDS = 30
+ZSXQ_1059_RETRIES = 2
+
+
+class ZSXQApiError(RuntimeError):
+    """知识星球 API 返回业务错误。"""
+
+    def __init__(self, code: int, message: str = ""):
+        self.code = code
+        self.message = message
+        super().__init__(f"ZSXQ API error {code}: {message}")
 
 
 def _get_zsxq_headers(cookies: list[dict]) -> dict:
@@ -103,8 +115,8 @@ def _fetch_topics_page(
             err_msg = data.get("message", "")
             _log(f"  [API] 错误 code={err_code}: {err_msg}")
             if err_code == 1059:
-                _log("  [API] Cookie 已过期（1059），需要重新登录")
-            return None
+                _log("  [API] 触发 1059（Cookie/频率异常），将由分页层冷却重试")
+            raise ZSXQApiError(err_code, err_msg)
 
         return data
     except requests.RequestException as e:
@@ -138,7 +150,23 @@ def _api_crawl(
 
     while True:
         page += 1
-        data = _fetch_topics_page(group_id, cookies, end_time=end_time, count=20)
+        data = None
+        for attempt in range(ZSXQ_1059_RETRIES + 1):
+            try:
+                data = _fetch_topics_page(group_id, cookies, end_time=end_time, count=20)
+                break
+            except ZSXQApiError as exc:
+                if exc.code == 1059 and attempt < ZSXQ_1059_RETRIES:
+                    _log(
+                        f"  [API] 1059 冷却 {ZSXQ_1059_COOLDOWN_SECONDS}s 后重试 "
+                        f"({attempt + 1}/{ZSXQ_1059_RETRIES})"
+                    )
+                    time.sleep(ZSXQ_1059_COOLDOWN_SECONDS)
+                    continue
+                if page == 1:
+                    _log("[API] 首页触发 1059 且重试失败，爬取中止")
+                    return None
+                raise
 
         if data is None:
             if page == 1:
@@ -169,7 +197,7 @@ def _api_crawl(
                 _log(f"  [API] 已获取 {len(all_topics)} 条，达到上限")
                 break
             # 翻页间隔（API 限流防护）
-            time.sleep(3)
+            time.sleep(ZSXQ_PAGE_DELAY_SECONDS)
             continue
 
         # 遇到了 since_topic_id，停止

@@ -67,6 +67,8 @@
   Actions 应在爬取/提取后检查日志；若未出现“同花顺同步结果”且 `cookies_ths.json` 存在，需要显式运行 `python main.py thssync --strict`，让同步失败在 CI 中红掉。
 - **小米 Mimo API Key**：当 `ai.deepseek.base_url` 指向 `api.xiaomimimo.com` 且模型为 `mimo-v2.5` 时，CI/本地应设置 `MIMO_API_KEY` 或 `XIAOMI_MIMO_API_KEY`，不要复用 `DEEPSEEK_API_KEY`；本地加密 key 使用 `MIMO_API_KEY_ENCRYPTION_KEY` 或 `.secrets/mimo.key`。
 - **增量状态提交时机**：`main.py all` 不能在爬取 raw 后立刻更新 `data/state`；必须等股票报告和总结报告都成功后再保存上次位置。否则 AI 失败会导致下一次触发误判“无新内容”。
+- **股票候选来源**：同花顺同步依赖 `stock_extractor.py` 生成的 enriched 股票数据；如果 AI 只把股票放在 `sectors.stocks`，也必须拆成弹性候选参与评分，否则最终快速选股表和同花顺同步都会为空。
+- **ZSXQ 1059 分页处理**：分页中途遇到 1059 不能当作“没有更多数据”静默结束；应按限流/会话异常冷却重试，重试失败要阻止半截数据推进增量状态。
 
 ## Decision Log
 
