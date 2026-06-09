@@ -815,6 +815,29 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-08T09:28:08+08:00"
+    },
+    {
+      "id": "bug-048",
+      "timestamp": "2026-06-09T09:05:43+08:00",
+      "error_message": "GitHub Actions 日报中 ZSXQ API HTTP 401 Unauthorized 后回退 Playwright，爬取 0 篇并误报“没有新内容”",
+      "file": "auth.py, crawler.py, main.py, .github/workflows/daily-report.yml",
+      "root_cause": "crawler.py 将 HTTP 401 当作普通 API 失败返回 None，crawl_group() 在 CI 中继续回退 Playwright；Playwright 带失效 Cookie 打开页面后捕获不到 API 数据，cmd_crawl() 又把 0 篇当作无新增。workflow 在失败场景下还可能使用仓库中的旧报告生成 PDF/成功邮件。",
+      "fix": "CI 中缺失或本地过期 Cookie 直接失败；ZSXQ HTTP/API 401/403 抛出认证错误并提示更新 ZSXQ_COOKIES；CI 禁止 Playwright 回退；首次/手动抓取返回 0 篇改为错误；workflow 强制校验 ZSXQ_COOKIES secret，并且只有主流程成功才生成/发送报告，失败时发送错误通知。",
+      "tags": [
+        "github-actions",
+        "zsxq",
+        "cookie",
+        "401",
+        "playwright",
+        "empty-crawl",
+        "email"
+      ],
+      "related_bugs": [
+        "bug-045",
+        "bug-046"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-09T09:05:43+08:00"
     }
   ]
 }

@@ -70,6 +70,7 @@
 - **股票候选来源**：同花顺同步依赖 `stock_extractor.py` 生成的 enriched 股票数据；如果 AI 只把股票放在 `sectors.stocks`，也必须拆成弹性候选参与评分，否则最终快速选股表和同花顺同步都会为空。
 - **ZSXQ 1059 分页处理**：分页中途遇到 1059 不能当作“没有更多数据”静默结束；应按限流/会话异常冷却重试，重试失败要阻止半截数据推进增量状态。
 - **AI JSON 字段类型漂移**：Mimo 等模型可能把 schema 中声明为字符串的字段返回为 list/dict；处理 AI JSON 前要做类型归一，尤其是 `sectors[].stocks` 这类“列表语义”的字段。
+- **CI Cookie 认证失败处理**：GitHub Actions 中 ZSXQ HTTP/API 401/403 必须硬失败并提示更新 `ZSXQ_COOKIES`；不要回退 Playwright，也不要把 0 篇结果当作“无新增”或用旧报告发成功邮件。
 
 ## Decision Log
 

@@ -93,9 +93,20 @@ jobs:
         run: |
           if [ -n "$ZSXQ_COOKIES" ]; then
             echo "$ZSXQ_COOKIES" > cookies.json
+            python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          cookies = json.loads(Path("cookies.json").read_text(encoding="utf-8"))
+          if not isinstance(cookies, list) or not cookies:
+              raise SystemExit("❌ ZSXQ_COOKIES 不是有效的非空 Cookie JSON 列表")
+          if not any(c.get("name") == "zsxq_access_token" for c in cookies if isinstance(c, dict)):
+              raise SystemExit("❌ ZSXQ_COOKIES 中缺少 zsxq_access_token")
+          PY
             echo "✅ cookies.json 已写入"
           else
-            echo "⚠️  ZSXQ_COOKIES secret 未设置"
+            echo "❌ ZSXQ_COOKIES secret 未设置"
+            exit 1
           fi
 
       - name: 写入同花顺 cookies（可选）
@@ -247,7 +258,7 @@ jobs:
       # ═══════════════════════════════════════════════════════════
       - name: 验证 PDF 后端 + 生成 PDF
         id: pdf
-        if: success() || steps.crawl.outcome == 'failure'
+        if: success()
         run: |
           # 验证 WeasyPrint 可用性
           python3 -c "
@@ -339,7 +350,7 @@ jobs:
               print("❌ 未找到报告 Markdown 文件")
 
       - name: 发送失败通知邮件
-        if: steps.pdf.outputs.no_report == 'true'
+        if: failure()
         shell: python3 {0}
         run: |
           import os, sys

@@ -92,6 +92,11 @@ def load_cookies() -> dict:
             print("警告: ZSXQ_COOKIES 环境变量不是有效的 JSON，回退到文件加载")
 
     if not COOKIE_FILE.exists():
+        if os.environ.get("GITHUB_ACTIONS"):
+            raise RuntimeError(
+                "未找到 cookies.json，且当前在 GitHub Actions 中无法扫码登录。"
+                "请更新 GitHub Secret: ZSXQ_COOKIES。"
+            )
         print("未找到已保存的 Cookie，开始登录...")
         return login()
 
@@ -106,6 +111,11 @@ def load_cookies() -> dict:
             break
 
     if not valid:
+        if os.environ.get("GITHUB_ACTIONS"):
+            raise RuntimeError(
+                "知识星球 Cookie 本地过期，且当前在 GitHub Actions 中无法扫码登录。"
+                "请更新 GitHub Secret: ZSXQ_COOKIES。"
+            )
         print("Cookie 已过期，需要重新登录...")
         return login()
 

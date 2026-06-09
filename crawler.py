@@ -5,6 +5,7 @@ Playwright 仅作 cookie 过期时的登录回退。
 """
 
 import json
+import os
 import re
 import time
 from datetime import datetime
@@ -43,6 +44,10 @@ class ZSXQApiError(RuntimeError):
         self.code = code
         self.message = message
         super().__init__(f"ZSXQ API error {code}: {message}")
+
+
+class ZSXQAuthError(ZSXQApiError):
+    """知识星球 Cookie 无效或无权限。"""
 
 
 def _get_zsxq_headers(cookies: list[dict]) -> dict:
@@ -107,6 +112,11 @@ def _fetch_topics_page(
         resp = requests.get(url, headers=headers, timeout=30)
         if resp.status_code != 200:
             _log(f"  [API] HTTP {resp.status_code}: {resp.text[:200]}")
+            if resp.status_code in {401, 403}:
+                raise ZSXQAuthError(
+                    resp.status_code,
+                    "知识星球 API 未授权，请更新 ZSXQ_COOKIES",
+                )
             return None
 
         data = resp.json()
@@ -114,6 +124,8 @@ def _fetch_topics_page(
             err_code = data.get("code", 0)
             err_msg = data.get("message", "")
             _log(f"  [API] 错误 code={err_code}: {err_msg}")
+            if err_code in {401, 403}:
+                raise ZSXQAuthError(err_code, err_msg or "知识星球 API 未授权")
             if err_code == 1059:
                 _log("  [API] 触发 1059（Cookie/频率异常），将由分页层冷却重试")
             raise ZSXQApiError(err_code, err_msg)
@@ -164,8 +176,12 @@ def _api_crawl(
                     time.sleep(ZSXQ_1059_COOLDOWN_SECONDS)
                     continue
                 if page == 1:
-                    _log("[API] 首页触发 1059 且重试失败，爬取中止")
-                    return None
+                    if exc.code == 1059:
+                        raise RuntimeError(
+                            "知识星球 API 首页连续触发 1059，可能是 Cookie 服务端失效或请求被限流。"
+                            "请稍后重试；若持续出现，请更新 ZSXQ_COOKIES。"
+                        ) from exc
+                    raise
                 raise
 
         if data is None:
@@ -234,9 +250,29 @@ def crawl_group(
         帖子列表。
     """
     # API 直连路径
-    posts = _api_crawl(group_url, max_posts=max_posts, since_topic_id=since_topic_id)
+    try:
+        posts = _api_crawl(group_url, max_posts=max_posts, since_topic_id=since_topic_id)
+    except ZSXQAuthError as exc:
+        raise RuntimeError(
+            "知识星球 Cookie 已失效或无权限访问该专栏。"
+            "请重新获取浏览器 Cookie，并更新 GitHub Secret: ZSXQ_COOKIES。"
+        ) from exc
+    except ZSXQApiError as exc:
+        if os.environ.get("GITHUB_ACTIONS"):
+            raise RuntimeError(
+                f"知识星球 API 返回错误 code={exc.code}: {exc.message or '无错误信息'}。"
+                "CI 中不执行 Playwright 回退，避免误判为无新内容。"
+            ) from exc
+        raise
+
     if posts is not None:
         return posts
+
+    if os.environ.get("GITHUB_ACTIONS"):
+        raise RuntimeError(
+            "知识星球 API 首页请求失败，CI 中不执行 Playwright 回退。"
+            "请检查 ZSXQ_COOKIES 是否有效，或稍后重试。"
+        )
 
     # 回退：Playwright（仅用于 API 请求失败时的本地调试）
     _log("[回退] API 直连失败，尝试 Playwright...")

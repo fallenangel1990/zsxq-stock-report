@@ -58,6 +58,11 @@ def cmd_crawl(group_url: str, max_posts: int = 0, update_state: bool = True) -> 
     posts = crawl_group(group_url, max_posts=effective_max_posts, since_topic_id=since_topic_id)
 
     if not posts:
+        if not since_topic_id:
+            raise RuntimeError(
+                "本次抓取返回 0 篇。首次运行或手动限量抓取不应为空，"
+                "请检查知识星球 Cookie 是否已失效，或 ZSXQ_GROUP_URL 是否正确。"
+            )
         _log("没有新内容，无需更新。")
         return []
 
