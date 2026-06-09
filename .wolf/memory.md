@@ -248,3 +248,4 @@
 | 09:07 | Fixed empty stock report after partial ZSXQ crawl | crawler.py, stock_extractor.py, .wolf/buglog.json, .wolf/cerebrum.md | 1059 now cools down/retries; sector core stocks become elastic candidates; empty reports include diagnostics | ~5000 |
 | 09:28 | Fixed sectors.stocks list crash | stock_extractor.py, .wolf/buglog.json, .wolf/cerebrum.md | AI sector stocks now accepts str/list/dict and skips malformed sector entries; validations passed | ~2500 |
 | 09:05 | Fixed ZSXQ 401 being misreported as no new content | auth.py, crawler.py, main.py, daily-report.yml, .wolf/* | CI now hard-fails invalid/missing cookies, blocks Playwright fallback, and sends failure notification instead of old success report | ~5000 |
+| 11:30 | Relaxed ZSXQ cookie expires metadata gate | auth.py, daily-report.yml, .wolf/* | expired local expires now warns but lets API validate token; workflow labels metadata expiry separately | ~2500 |

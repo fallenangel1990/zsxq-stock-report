@@ -838,6 +838,26 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-09T09:05:43+08:00"
+    },
+    {
+      "id": "bug-049",
+      "timestamp": "2026-06-09T11:30:54+08:00",
+      "error_message": "RuntimeError: 知识星球 Cookie 本地过期，且当前在 GitHub Actions 中无法扫码登录。请更新 GitHub Secret: ZSXQ_COOKIES。",
+      "file": "auth.py, .github/workflows/daily-report.yml",
+      "root_cause": "auth.py 在 CI 中只根据 cookies.json 的 expires 元数据判断 zsxq_access_token 过期并提前失败；浏览器导出的 expires 可能不准、缺失或与服务端会话有效性不同，导致还没请求 API 就中断。",
+      "fix": "load_cookies() 改为只要求存在 zsxq_access_token，expires 元数据过期时仅打印警告并继续请求 API；get_cookie_status() 增加 metadata_expired 标记，workflow 状态输出改为说明由服务端继续验证。",
+      "tags": [
+        "github-actions",
+        "zsxq",
+        "cookie",
+        "expires",
+        "auth"
+      ],
+      "related_bugs": [
+        "bug-048"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-09T11:30:54+08:00"
     }
   ]
 }

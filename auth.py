@@ -102,22 +102,27 @@ def load_cookies() -> dict:
 
     cookies = json.loads(COOKIE_FILE.read_text())
 
-    # 检查是否有核心 cookie 且未过期
+    # 检查是否有核心 cookie。浏览器导出的 expires 元数据可能不准或缺失，
+    # CI 中最终以 ZSXQ API 的 401/403 作为服务端有效性判断。
     now = time.time()
-    valid = False
+    token_cookie = None
     for c in cookies:
-        if c.get("name") == "zsxq_access_token" and c.get("expires", 0) > now:
-            valid = True
+        if c.get("name") == "zsxq_access_token":
+            token_cookie = c
             break
 
-    if not valid:
+    if not token_cookie:
         if os.environ.get("GITHUB_ACTIONS"):
             raise RuntimeError(
-                "知识星球 Cookie 本地过期，且当前在 GitHub Actions 中无法扫码登录。"
+                "知识星球 Cookie 缺少 zsxq_access_token，且当前在 GitHub Actions 中无法扫码登录。"
                 "请更新 GitHub Secret: ZSXQ_COOKIES。"
             )
-        print("Cookie 已过期，需要重新登录...")
+        print("Cookie 缺少 zsxq_access_token，需要重新登录...")
         return login()
+
+    expires = token_cookie.get("expires", 0)
+    if isinstance(expires, (int, float)) and expires > 0 and expires <= now:
+        print("警告: Cookie expires 元数据已过期，将继续请求 API 由服务端验证。")
 
     print(f"已加载本地 Cookie（共 {len(cookies)} 条）")
     return cookies
@@ -191,14 +196,28 @@ def get_cookie_status() -> dict:
                 expires_dt = datetime.fromtimestamp(expires)
                 days = (expires_dt - datetime.now()).days
                 return {
-                    "valid": expires > now,
+                    "valid": True,
                     "expires_at": expires_dt.strftime("%Y-%m-%d"),
                     "days_remaining": max(0, days),
                     "warning": days <= 3,
+                    "metadata_expired": expires <= now,
                 }
+            return {
+                "valid": True,
+                "expires_at": "未知",
+                "days_remaining": 0,
+                "warning": True,
+                "metadata_expired": False,
+            }
             break
 
-    return {"valid": False, "expires_at": "未知", "days_remaining": 0, "warning": True}
+    return {
+        "valid": False,
+        "expires_at": "未知",
+        "days_remaining": 0,
+        "warning": True,
+        "metadata_expired": False,
+    }
 
 
 

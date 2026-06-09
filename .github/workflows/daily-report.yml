@@ -129,9 +129,11 @@ jobs:
           from auth import get_cookie_status
           status = get_cookie_status()
           print(f"Cookie 状态: 有效={status['valid']}, 到期={status['expires_at']}, 剩余{status['days_remaining']}天")
+          if status.get('metadata_expired'):
+              print("⚠️  Cookie expires 元数据已过期，将继续请求 API 由服务端验证")
 
           if not status['valid']:
-              print("⚠️  Cookie 已过期")
+              print("⚠️  Cookie 缺少 zsxq_access_token 或格式无效")
               with open(os.environ.get('GITHUB_OUTPUT', ''), 'a') as f:
                   f.write("cookie_expired=true\n")
           elif status['warning']:
