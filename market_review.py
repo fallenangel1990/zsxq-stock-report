@@ -5,10 +5,13 @@
 
 import json
 import math
-from datetime import datetime
+from collections import Counter
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 from zoneinfo import ZoneInfo
+
+import requests
 
 from sector_monitor import (
     _money_yi,
@@ -24,6 +27,7 @@ from sector_monitor import (
 STATE_FILE = Path(__file__).parent / "data" / "state" / "market_review.json"
 A_SHARE_FIELDS = "f12,f14,f3,f6,f8,f20,f62,f100"
 A_SHARE_FS = "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23"
+EASTMONEY_DATACENTER_URL = "https://datacenter-web.eastmoney.com/api/data/v1/get"
 
 
 def _now_shanghai() -> datetime:
@@ -148,6 +152,131 @@ def summarize_breadth(stocks: list[dict], market: Optional[dict] = None) -> dict
     }
 
 
+def _request_lhb_json(trade_date: str, page_size: int = 80) -> dict:
+    params = {
+        "sortColumns": "BILLBOARD_NET_AMT",
+        "sortTypes": "-1",
+        "pageSize": page_size,
+        "pageNumber": 1,
+        "reportName": "RPT_DAILYBILLBOARD_DETAILS",
+        "columns": "ALL",
+        "source": "WEB",
+        "client": "WEB",
+        "filter": f"(TRADE_DATE>='{trade_date}')(TRADE_DATE<='{trade_date}')",
+    }
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+        "Referer": "https://data.eastmoney.com/stock/tradedetail.html",
+        "Accept": "application/json, text/plain, */*",
+    }
+    resp = requests.get(EASTMONEY_DATACENTER_URL, params=params, headers=headers, timeout=15)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def fetch_lhb_details(max_days: int = 10, page_size: int = 80) -> dict:
+    """抓取最近一个有数据交易日的龙虎榜明细。"""
+    last_error = ""
+    today = _now_shanghai().date()
+    for offset in range(max_days):
+        trade_date = (today - timedelta(days=offset)).strftime("%Y-%m-%d")
+        try:
+            data = _request_lhb_json(trade_date, page_size=page_size)
+            result = data.get("result") or {}
+            rows = result.get("data", []) or []
+        except Exception as exc:
+            last_error = str(exc)
+            print(f"[复盘] 龙虎榜 {trade_date} 获取失败: {exc}", flush=True)
+            continue
+        if not rows:
+            continue
+        normalized = []
+        for row in rows:
+            normalized.append({
+                "date": (row.get("TRADE_DATE") or trade_date)[:10],
+                "code": row.get("SECURITY_CODE", ""),
+                "name": row.get("SECURITY_NAME_ABBR", ""),
+                "change_pct": _safe_float(row.get("CHANGE_RATE")),
+                "turnover_rate": _safe_float(row.get("TURNOVERRATE")),
+                "buy_yi": _money_yi(row.get("BILLBOARD_BUY_AMT")),
+                "sell_yi": _money_yi(row.get("BILLBOARD_SELL_AMT")),
+                "net_yi": _money_yi(row.get("BILLBOARD_NET_AMT")),
+                "deal_yi": _money_yi(row.get("BILLBOARD_DEAL_AMT")),
+                "deal_ratio": _safe_float(row.get("DEAL_AMOUNT_RATIO")),
+                "reason": row.get("EXPLANATION", ""),
+                "explain": row.get("EXPLAIN", ""),
+                "market": row.get("TRADE_MARKET", ""),
+            })
+        return {
+            "date": normalized[0]["date"],
+            "rows": normalized,
+            "source": "东方财富龙虎榜",
+            "data_status": "正常",
+        }
+    return {
+        "date": "",
+        "rows": [],
+        "source": "东方财富龙虎榜",
+        "data_status": f"龙虎榜数据暂不可用{f'：{last_error}' if last_error else ''}",
+    }
+
+
+def summarize_lhb(lhb: dict) -> dict:
+    rows = lhb.get("rows", []) or []
+    if not rows:
+        return {
+            "date": lhb.get("date", ""),
+            "count": 0,
+            "row_count": 0,
+            "total_buy_yi": 0.0,
+            "total_sell_yi": 0.0,
+            "total_net_yi": 0.0,
+            "total_deal_yi": 0.0,
+            "net_buy_count": 0,
+            "net_sell_count": 0,
+            "top_buy": [],
+            "top_sell": [],
+            "reason_counts": [],
+            "data_status": lhb.get("data_status", "龙虎榜数据暂不可用"),
+        }
+    reason_counter = Counter((row.get("reason") or "未分类").split("，")[0][:24] for row in rows)
+    total_buy = round(sum(row.get("buy_yi", 0) for row in rows), 2)
+    total_sell = round(sum(row.get("sell_yi", 0) for row in rows), 2)
+    total_deal = round(sum(row.get("deal_yi", 0) for row in rows), 2)
+    total_net = round(sum(row.get("net_yi", 0) for row in rows), 2)
+    unique_rows = {}
+    for row in rows:
+        key = row.get("code") or row.get("name")
+        if not key:
+            continue
+        old = unique_rows.get(key)
+        if old is None or abs(row.get("net_yi", 0)) > abs(old.get("net_yi", 0)):
+            unique_rows[key] = row
+    display_rows = list(unique_rows.values())
+    return {
+        "date": lhb.get("date", ""),
+        "count": len(display_rows),
+        "row_count": len(rows),
+        "total_buy_yi": total_buy,
+        "total_sell_yi": total_sell,
+        "total_net_yi": total_net,
+        "total_deal_yi": total_deal,
+        "net_buy_count": sum(1 for row in display_rows if row.get("net_yi", 0) > 0),
+        "net_sell_count": sum(1 for row in display_rows if row.get("net_yi", 0) < 0),
+        "top_buy": sorted(
+            [row for row in display_rows if row.get("net_yi", 0) > 0],
+            key=lambda row: row.get("net_yi", 0),
+            reverse=True,
+        )[:5],
+        "top_sell": sorted(
+            [row for row in display_rows if row.get("net_yi", 0) < 0],
+            key=lambda row: row.get("net_yi", 0),
+        )[:5],
+        "reason_counts": reason_counter.most_common(5),
+        "data_status": lhb.get("data_status", "正常"),
+    }
+
+
 def style_bias(stocks: list[dict]) -> str:
     """粗略判断市场风格：大盘蓝筹/成长/中小盘。"""
     if not stocks:
@@ -231,6 +360,55 @@ def _strongest_and_weakest_boards(boards: list[dict]) -> tuple[list[dict], list[
     return strongest, weakest
 
 
+def summarize_board_stats(boards: list[dict]) -> dict:
+    if not boards:
+        return {
+            "total": 0,
+            "industry_count": 0,
+            "concept_count": 0,
+            "up": 0,
+            "down": 0,
+            "flat": 0,
+            "strong_count": 0,
+            "weak_count": 0,
+            "main_in_count": 0,
+            "main_out_count": 0,
+            "total_amount_yi": 0.0,
+            "total_main_net_yi": 0.0,
+            "avg_up_ratio": 0.0,
+            "top_amount": [],
+            "top_inflow": [],
+            "top_outflow": [],
+            "data_status": "板块数据不可用",
+        }
+
+    up = sum(1 for board in boards if board.get("change_pct", 0) > 0)
+    down = sum(1 for board in boards if board.get("change_pct", 0) < 0)
+    flat = max(0, len(boards) - up - down)
+    top_amount = sorted(boards, key=lambda b: b.get("amount_yi", 0), reverse=True)[:5]
+    top_inflow = sorted(boards, key=lambda b: b.get("main_net_yi", 0), reverse=True)[:5]
+    top_outflow = sorted(boards, key=lambda b: b.get("main_net_yi", 0))[:5]
+    return {
+        "total": len(boards),
+        "industry_count": sum(1 for board in boards if board.get("type") == "industry"),
+        "concept_count": sum(1 for board in boards if board.get("type") == "concept"),
+        "up": up,
+        "down": down,
+        "flat": flat,
+        "strong_count": sum(1 for board in boards if board.get("change_pct", 0) >= 2 and board.get("up_ratio", 0) >= 60),
+        "weak_count": sum(1 for board in boards if board.get("change_pct", 0) <= -2),
+        "main_in_count": sum(1 for board in boards if board.get("main_net_yi", 0) > 0),
+        "main_out_count": sum(1 for board in boards if board.get("main_net_yi", 0) < 0),
+        "total_amount_yi": round(sum(board.get("amount_yi", 0) for board in boards), 2),
+        "total_main_net_yi": round(sum(board.get("main_net_yi", 0) for board in boards), 2),
+        "avg_up_ratio": round(sum(board.get("up_ratio", 0) for board in boards) / len(boards), 2),
+        "top_amount": top_amount,
+        "top_inflow": top_inflow,
+        "top_outflow": top_outflow,
+        "data_status": "正常",
+    }
+
+
 def _append_table(lines: list[str], headers: list[str], rows: list[list[str]]) -> None:
     lines.append("| " + " | ".join(headers) + " |")
     lines.append("|" + "|".join(["---"] * len(headers)) + "|")
@@ -243,6 +421,8 @@ def build_review_report(
     market: dict,
     breadth: dict,
     all_boards: list[dict],
+    board_stats: dict,
+    lhb_summary: dict,
     signal_boards: list[dict],
     watchlist: list[dict],
     previous: dict,
@@ -256,14 +436,19 @@ def build_review_report(
     breadth_source = breadth.get("source", "东方财富全A快照")
     breadth_status = breadth.get("data_status", "正常")
     market_status = market.get("data_status", "正常")
-    data_status = "；".join(status for status in (market_status, breadth_status) if status and status != "正常") or "正常"
+    board_status = board_stats.get("data_status", "正常")
+    lhb_status = lhb_summary.get("data_status", "正常")
+    data_status = "；".join(
+        status for status in (market_status, breadth_status, board_status, lhb_status)
+        if status and status != "正常"
+    ) or "正常"
     amount_label = "全A约" if breadth_source == "东方财富全A快照" else "主要指数合计约"
 
     lines = [
         "# A股盘后复盘报告",
         "",
         f"> 生成时间: {now}",
-        "> 数据源: 东方财富指数/板块/个股快照；龙虎榜、北向资金和真实持仓需接入独立数据源后补齐。",
+        "> 数据源: 东方财富指数/板块/个股快照/龙虎榜；真实持仓需接入券商或手工持仓数据后补齐。",
         f"> 数据完整性: {data_status}",
         "",
         "## 一、大盘行情与市场情绪",
@@ -273,7 +458,6 @@ def build_review_report(
         f"- 市场宽度: {breadth.get('up', 0)} 涨 / {breadth.get('down', 0)} 跌 / {breadth.get('flat', 0)} 平，赚钱效应 **{breadth.get('money_effect', '未知')}**。",
         f"- 市场风格: **{style}**；平均换手率约 {breadth.get('avg_turnover_rate', 0):.2f}%。",
         f"- 涨停/跌停: 涨停 {breadth.get('limit_up', 0)} 只，跌停 {breadth.get('limit_down', 0)} 只；连板数据待接入涨停池数据源。",
-        f"- 北向资金: 数据待接入，当前复盘不编造净流入/流出数字。",
         f"- 主线情绪评分: **{emotion} / 10**。",
         "",
     ]
@@ -293,6 +477,9 @@ def build_review_report(
         f"- 今日最强势板块: **{top_signal.get('name', '暂无')}**。",
         f"- 主要驱动: {top_signal.get('logic_hint', '资金扩散与板块强度待确认')}",
         f"- 板块接力: 主力净流入 {_fmt_yi(top_signal.get('main_net_yi'))}，上涨家数占比 {top_signal.get('up_ratio', 0):.1f}%。",
+        f"- 板块统计: 共 {board_stats.get('total', 0)} 个板块（行业 {board_stats.get('industry_count', 0)} / 概念 {board_stats.get('concept_count', 0)}），{board_stats.get('up', 0)} 涨 / {board_stats.get('down', 0)} 跌 / {board_stats.get('flat', 0)} 平。",
+        f"- 板块强弱: 强势扩散 {board_stats.get('strong_count', 0)} 个，弱势下跌 {board_stats.get('weak_count', 0)} 个；平均上涨家数占比 {board_stats.get('avg_up_ratio', 0):.1f}%。",
+        f"- 板块资金: 总成交 {_fmt_yi(board_stats.get('total_amount_yi'))}，主力净流入合计 {_fmt_yi(board_stats.get('total_main_net_yi'))}；主力净流入 {board_stats.get('main_in_count', 0)} 个 / 净流出 {board_stats.get('main_out_count', 0)} 个。",
         "",
     ])
     _append_table(
@@ -319,15 +506,80 @@ def build_review_report(
             for b in weakest
         ],
     )
+    lines.extend(["", "成交额前五板块："])
+    _append_table(
+        lines,
+        ["板块", "类型", "成交额", "涨幅", "主力净流入", "上涨家数占比"],
+        [
+            [
+                b["name"],
+                "行业" if b.get("type") == "industry" else "概念",
+                _fmt_yi(b.get("amount_yi")),
+                _fmt_pct(b.get("change_pct")),
+                _fmt_yi(b.get("main_net_yi")),
+                f"{b.get('up_ratio', 0):.1f}%",
+            ]
+            for b in board_stats.get("top_amount", [])
+        ],
+    )
+    lines.extend(["", "主力净流入/流出排行："])
+    _append_table(
+        lines,
+        ["方向", "板块", "涨幅", "主力净流入", "成交额", "领涨股"],
+        [
+            ["流入", b["name"], _fmt_pct(b.get("change_pct")), _fmt_yi(b.get("main_net_yi")), _fmt_yi(b.get("amount_yi")), b.get("leader_name", "-")]
+            for b in board_stats.get("top_inflow", [])[:3]
+        ] + [
+            ["流出", b["name"], _fmt_pct(b.get("change_pct")), _fmt_yi(b.get("main_net_yi")), _fmt_yi(b.get("amount_yi")), b.get("leader_name", "-")]
+            for b in board_stats.get("top_outflow", [])[:3]
+        ],
+    )
 
     lines.extend([
         "",
-        "## 三、资金流向与龙虎榜",
+        "## 三、龙虎榜与短线资金",
         "",
-        f"- 主力资金主要押注: {_format_board_names([b for b in strongest if b.get('main_net_yi', 0) > 0], 5)}。",
-        "- 北向资金方向: 数据待接入。",
-        "- 龙虎榜机构/游资净买卖: 数据待接入。",
-        "- 热点追逐判断: 若强势板块主力净流入为正且领涨股保持高位，短线资金仍在追逐热点；否则以轮动为主。",
+        f"- 板块主力资金主要押注: {_format_board_names([b for b in strongest if b.get('main_net_yi', 0) > 0], 5)}。",
+        f"- 龙虎榜日期: {lhb_summary.get('date') or '暂无'}；上榜 {lhb_summary.get('count', 0)} 只（明细 {lhb_summary.get('row_count', 0)} 条），净买入 {lhb_summary.get('net_buy_count', 0)} 只 / 净卖出 {lhb_summary.get('net_sell_count', 0)} 只。",
+        f"- 龙虎榜金额: 买入合计 {_fmt_yi(lhb_summary.get('total_buy_yi'))}，卖出合计 {_fmt_yi(lhb_summary.get('total_sell_yi'))}，净额 {_fmt_yi(lhb_summary.get('total_net_yi'))}，上榜成交 {_fmt_yi(lhb_summary.get('total_deal_yi'))}。",
+        f"- 上榜原因集中: {_format_lhb_reasons(lhb_summary.get('reason_counts', []))}。",
+        "- 热点追逐判断: 若强势板块主力净流入为正且龙虎榜净买入集中在同方向，短线资金仍在追逐热点；否则以轮动为主。",
+        "",
+        "龙虎榜净买入前五：",
+    ])
+    _append_table(
+        lines,
+        ["股票", "涨跌幅", "净买入", "买入", "卖出", "上榜原因/解读"],
+        [
+            [
+                row.get("name", "-"),
+                _fmt_pct(row.get("change_pct")),
+                _fmt_yi(row.get("net_yi")),
+                _fmt_yi(row.get("buy_yi")),
+                _fmt_yi(row.get("sell_yi")),
+                row.get("explain") or row.get("reason", "-"),
+            ]
+            for row in lhb_summary.get("top_buy", [])
+        ],
+    )
+    lines.extend(["", "龙虎榜净卖出前五："])
+    _append_table(
+        lines,
+        ["股票", "涨跌幅", "净买入", "买入", "卖出", "上榜原因/解读"],
+        [
+            [
+                row.get("name", "-"),
+                _fmt_pct(row.get("change_pct")),
+                _fmt_yi(row.get("net_yi")),
+                _fmt_yi(row.get("buy_yi")),
+                _fmt_yi(row.get("sell_yi")),
+                row.get("explain") or row.get("reason", "-"),
+            ]
+            for row in lhb_summary.get("top_sell", [])
+        ],
+    )
+
+    lines.extend([
         "",
         "## 四、个股复盘",
         "",
@@ -413,6 +665,12 @@ def _format_board_names(boards: list[dict], limit: int) -> str:
     return "、".join(names) if names else "暂无明确方向"
 
 
+def _format_lhb_reasons(reason_counts: list[tuple[str, int]]) -> str:
+    if not reason_counts:
+        return "暂无龙虎榜原因分布"
+    return "、".join(f"{reason}({count})" for reason, count in reason_counts[:5])
+
+
 def _mainline_state(signal_boards: list[dict], emotion: float) -> str:
     if emotion >= 7 and len(signal_boards) >= 3:
         return "强化"
@@ -436,6 +694,13 @@ def generate_market_review(top_n: int = 10, board_type: str = "all") -> tuple[st
     except Exception as exc:
         print(f"[复盘] 板块快照获取失败，继续生成降级报告: {exc}", flush=True)
         all_boards = []
+    board_stats = summarize_board_stats(all_boards)
+    try:
+        lhb = fetch_lhb_details()
+    except Exception as exc:
+        print(f"[复盘] 龙虎榜获取失败，继续生成降级报告: {exc}", flush=True)
+        lhb = {"date": "", "rows": [], "data_status": f"龙虎榜数据暂不可用：{exc}"}
+    lhb_summary = summarize_lhb(lhb)
     try:
         _, _, signal_boards = capture_market_signals(
             mode="review",
@@ -452,6 +717,8 @@ def generate_market_review(top_n: int = 10, board_type: str = "all") -> tuple[st
         market=market,
         breadth=breadth,
         all_boards=all_boards,
+        board_stats=board_stats,
+        lhb_summary=lhb_summary,
         signal_boards=signal_boards,
         watchlist=watchlist,
         previous=previous,
@@ -461,6 +728,18 @@ def generate_market_review(top_n: int = 10, board_type: str = "all") -> tuple[st
         "total_amount_yi": breadth.get("total_amount_yi", 0),
         "market": market,
         "breadth": breadth,
+        "board_stats": {
+            key: value
+            for key, value in board_stats.items()
+            if key not in ("top_amount", "top_inflow", "top_outflow")
+        },
+        "lhb": {
+            "date": lhb_summary.get("date", ""),
+            "count": lhb_summary.get("count", 0),
+            "row_count": lhb_summary.get("row_count", 0),
+            "total_net_yi": lhb_summary.get("total_net_yi", 0),
+            "data_status": lhb_summary.get("data_status", ""),
+        },
         "top_boards": [
             {
                 "name": b.get("name", ""),
