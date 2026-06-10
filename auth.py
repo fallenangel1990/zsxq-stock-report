@@ -8,8 +8,12 @@ import os
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
+
+import requests
 
 COOKIE_FILE = Path(__file__).parent / "cookies.json"
+DEFAULT_COOKIE_WARNING_DAYS = 3
 
 
 def login(headless: bool = False) -> dict:
@@ -67,6 +71,98 @@ def login(headless: bool = False) -> dict:
     print(f"Cookie 已保存到 {COOKIE_FILE}")
 
     return cookies
+
+
+def _validate_cookie_list(cookies) -> list[dict]:
+    """校验 Cookie JSON，确保存在 zsxq_access_token。"""
+    if not isinstance(cookies, list) or not cookies:
+        raise ValueError("Cookie 数据必须是非空 JSON 列表")
+    if not any(
+        isinstance(c, dict) and c.get("name") == "zsxq_access_token"
+        for c in cookies
+    ):
+        raise ValueError("Cookie 数据缺少 zsxq_access_token")
+    return cookies
+
+
+def _save_cookies(cookies: list[dict]) -> None:
+    COOKIE_FILE.write_text(json.dumps(cookies, ensure_ascii=False, indent=2))
+    print(f"Cookie 已更新到 {COOKIE_FILE}")
+
+
+def _fetch_cookies_from_refresh_url(
+    refresh_url: str,
+    token: str = "",
+    timeout: int = 30,
+) -> list[dict]:
+    """从外部刷新端点获取 Cookie。
+
+    端点返回格式支持：
+    1. 直接返回 cookies 列表
+    2. 返回 {"cookies": [...]} 对象
+    """
+    headers = {"Accept": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    resp = requests.get(refresh_url, headers=headers, timeout=timeout)
+    resp.raise_for_status()
+    payload = resp.json()
+    cookies = payload.get("cookies") if isinstance(payload, dict) else payload
+    return _validate_cookie_list(cookies)
+
+
+def refresh_cookies_if_needed(
+    warning_days: int = DEFAULT_COOKIE_WARNING_DAYS,
+    force: bool = False,
+    headless: bool = False,
+) -> dict:
+    """Cookie 即将过期时尝试自动刷新。
+
+    GitHub Actions 无法扫码登录，因此 CI 中只支持通过外部刷新端点获取新 Cookie：
+    - ZSXQ_COOKIES_REFRESH_URL: 返回 Cookie JSON 的 HTTPS 地址
+    - ZSXQ_COOKIES_REFRESH_TOKEN: 可选 Bearer Token
+
+    本地运行时，如果没有刷新端点，会打开浏览器扫码登录并覆盖 cookies.json。
+    """
+    status = get_cookie_status()
+    should_refresh = force or (not status.get("valid")) or status.get("warning")
+    if status.get("days_remaining", 0) > warning_days and status.get("expires_at") != "未知":
+        should_refresh = force
+
+    if not should_refresh:
+        return {
+            "refreshed": False,
+            "skipped": True,
+            "reason": "Cookie 未达到刷新阈值",
+            "status": status,
+        }
+
+    refresh_url = os.environ.get("ZSXQ_COOKIES_REFRESH_URL", "").strip()
+    refresh_token = os.environ.get("ZSXQ_COOKIES_REFRESH_TOKEN", "").strip()
+    if refresh_url:
+        cookies = _fetch_cookies_from_refresh_url(refresh_url, refresh_token)
+        _save_cookies(cookies)
+        return {
+            "refreshed": True,
+            "method": "refresh_url",
+            "status": get_cookie_status(),
+        }
+
+    if os.environ.get("GITHUB_ACTIONS"):
+        return {
+            "refreshed": False,
+            "skipped": True,
+            "reason": "GitHub Actions 无法无交互扫码登录，且未配置 ZSXQ_COOKIES_REFRESH_URL",
+            "status": status,
+        }
+
+    print("Cookie 即将过期或无效，开始本地扫码刷新...")
+    login(headless=headless)
+    return {
+        "refreshed": True,
+        "method": "local_login",
+        "status": get_cookie_status(),
+    }
 
 
 def load_cookies() -> dict:

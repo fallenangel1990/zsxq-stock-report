@@ -3,6 +3,7 @@
 
 用法:
   python3 main.py login                    # 手动扫码登录，保存 cookie
+  python3 main.py refresh-cookie           # Cookie 即将过期时自动刷新
   python3 main.py crawl <专栏URL>           # 增量爬取（默认最多 300 条）
   python3 main.py summary                  # 对最近爬取的内容进行 AI 总结
   python3 main.py stocks                   # 对最近爬取的内容提取股票投资机会
@@ -23,6 +24,17 @@ def _log(msg: str) -> None:
 def cmd_login() -> None:
     from auth import login
     login(headless=False)
+
+
+def cmd_refresh_cookie(force: bool = False) -> None:
+    from auth import refresh_cookies_if_needed
+    result = refresh_cookies_if_needed(force=force)
+    if result.get("refreshed"):
+        _log(f"✅ Cookie 已刷新（方式：{result.get('method', 'unknown')}）")
+    elif result.get("skipped"):
+        _log(f"ℹ️  Cookie 未刷新：{result.get('reason', '')}")
+    else:
+        _log("ℹ️  Cookie 未刷新")
 
 
 def cmd_crawl(group_url: str, max_posts: int = 0, update_state: bool = True) -> list[dict]:
@@ -445,6 +457,7 @@ def main():
         epilog="""
 示例:
   python3 main.py login
+  python3 main.py refresh-cookie
   python3 main.py crawl https://wx.zsxq.com/dweb2/index/group/123456
   python3 main.py summary
   python3 main.py stocks
@@ -460,6 +473,9 @@ def main():
     subparsers = parser.add_subparsers(dest="command", help="可用命令")
 
     subparsers.add_parser("login", help="手动扫码登录，保存 cookie")
+
+    refresh_parser = subparsers.add_parser("refresh-cookie", help="Cookie 即将过期时自动刷新")
+    refresh_parser.add_argument("--force", action="store_true", help="忽略剩余天数，强制刷新")
 
     crawl_parser = subparsers.add_parser("crawl", help="增量爬取指定专栏")
     crawl_parser.add_argument("url", help="专栏 URL")
@@ -543,6 +559,8 @@ def main():
 
     if args.command == "login":
         cmd_login()
+    elif args.command == "refresh-cookie":
+        cmd_refresh_cookie(force=args.force)
     elif args.command == "crawl":
         cmd_crawl(args.url, max_posts=args.max_posts)
     elif args.command == "summary":

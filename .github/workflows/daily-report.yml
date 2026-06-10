@@ -120,6 +120,29 @@ jobs:
             echo "ℹ️  THS_COOKIES secret 未设置，同花顺同步将跳过"
           fi
 
+      - name: 自动刷新即将过期的知识星球 Cookie
+        id: cookie_refresh
+        env:
+          ZSXQ_COOKIES_REFRESH_URL: ${{ secrets.ZSXQ_COOKIES_REFRESH_URL }}
+          ZSXQ_COOKIES_REFRESH_TOKEN: ${{ secrets.ZSXQ_COOKIES_REFRESH_TOKEN }}
+        shell: python3 {0}
+        run: |
+          import os, sys
+          sys.path.insert(0, '.')
+          from auth import refresh_cookies_if_needed
+
+          result = refresh_cookies_if_needed()
+          if result.get("refreshed"):
+              print(f"✅ Cookie 已自动刷新（方式：{result.get('method', 'unknown')}）")
+              with open(os.environ.get("GITHUB_OUTPUT", ""), "a", encoding="utf-8") as f:
+                  f.write("cookie_refreshed=true\n")
+          elif result.get("skipped"):
+              print(f"ℹ️  Cookie 未刷新：{result.get('reason', '')}")
+              with open(os.environ.get("GITHUB_OUTPUT", ""), "a", encoding="utf-8") as f:
+                  f.write("cookie_refresh_skipped=true\n")
+          else:
+              print("ℹ️  Cookie 未刷新")
+
       - name: 检查 Cookie 状态
         id: cookie_check
         shell: python3 {0}
