@@ -356,6 +356,7 @@ def send_report_notification(
     markdown_path: str,
     to_email: str = "",
     extra_info: Optional[dict] = None,
+    subject_override: str = "",
 ) -> bool:
     """发送报告通知邮件（HTML 正文，无附件）。
 
@@ -373,7 +374,7 @@ def send_report_notification(
     """
     now = _now_shanghai()
     today = now.strftime("%Y-%m-%d")
-    subject = _news_subject(now)
+    subject = subject_override or _news_subject(now)
     extra_info = extra_info or {}
 
     # 读取 Markdown 并转换为 HTML（先移除代码块避免 JSON 泄露）

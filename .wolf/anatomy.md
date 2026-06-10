@@ -35,6 +35,7 @@
 - `email_sender.py` — 邮件发送模块。 (~2844 tok)
 - `extractor.py` — 内容解析与清洗模块。 (~1290 tok)
 - `main.py` — 知识星球内容爬取与总结工具 — CLI 入口。 (~2658 tok)
+- `market_review.py` — A 股盘后复盘任务，汇总指数、全A宽度、板块题材、自选股表现、明日计划和待接入数据项。 (~4460 tok)
 - `pdf_generator.py` — 报告 PDF 生成模块。 (~2809 tok)
 - `price_fetcher.py` — 实时股价获取模块。 (~2347 tok)
 - `requirements.txt` — Python dependencies (~43 tok)
@@ -63,6 +64,7 @@
 ## .github/workflows/
 
 - `daily-report.yml` — CI: 每日股票报告 (~3201 tok)
+- `market-review.yml` — CI: A 股盘后复盘报告，支持手动触发和盘后定时邮件。 (~1510 tok)
 - `stock-dashboard.yml` — CI: 股票仪表盘定时更新/同步任务，含盘中 15 分钟频率和收盘后触发。 (~1600 tok)
 
 ## data/

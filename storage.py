@@ -138,6 +138,21 @@ def save_market_signal_report(report: str, mode: str = "intraday") -> str:
     return str(filepath)
 
 
+def save_market_review_report(report: str) -> str:
+    """保存盘后复盘报告。"""
+    _, summary_dir = _get_dirs()
+    review_dir = summary_dir / "reviews"
+    review_dir.mkdir(parents=True, exist_ok=True)
+
+    date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"market_review_{date_str}.md"
+
+    filepath = review_dir / filename
+    filepath.write_text(report, encoding="utf-8")
+    _log(f"盘后复盘报告已保存到: {filepath}")
+    return str(filepath)
+
+
 def save_enriched_stocks(stocks: list[dict], group_name: str = "") -> str:
     """保存增强后的股票数据为 JSON 文件（供 ths_sync 使用）。
 

@@ -355,6 +355,36 @@ def cmd_market(args) -> None:
     _log(f"\n监控完成：大盘={market.get('level')}，板块信号={len(signals)} 个")
 
 
+def cmd_review(args) -> None:
+    """生成盘后复盘报告。"""
+    from market_review import generate_market_review
+    from storage import save_market_review_report
+
+    _log(f"开始生成盘后复盘：board_type={args.board_type}, top={args.top}")
+    report, snapshot = generate_market_review(top_n=args.top, board_type=args.board_type)
+
+    _log("\n" + "=" * 60)
+    _log("A股盘后复盘报告：")
+    _log("=" * 60)
+    print(report)
+
+    filepath = save_market_review_report(report)
+
+    if args.email:
+        try:
+            from email_sender import send_report_notification
+            market_level = snapshot.get("market", {}).get("level", "未知")
+            send_report_notification(
+                filepath,
+                subject_override=f"📋 A股盘后复盘：{market_level}",
+            )
+            _log("邮件已发送")
+        except Exception as e:
+            _log(f"邮件发送失败（不影响报告）: {e}")
+
+    _log(f"\n复盘完成：{filepath}")
+
+
 def _load_thssync_config() -> dict:
     """加载同花顺同步配置。"""
     import yaml
@@ -464,6 +494,7 @@ def main():
   python3 main.py sectors --mode review
   python3 main.py sectors --mode intraday --no-ai
   python3 main.py market --mode intraday
+  python3 main.py review --email
   python3 main.py research 华亚智能
   python3 main.py research 拓斯达 -c 300607
   python3 main.py all https://wx.zsxq.com/dweb2/index/group/123456
@@ -548,6 +579,21 @@ def main():
     market_parser.add_argument("--no-ai", action="store_true", help="只输出规则模型信号，不调用AI解读")
     market_parser.add_argument("--email", action="store_true", help="生成后发送邮件")
 
+    review_parser = subparsers.add_parser("review", help="生成A股盘后复盘报告")
+    review_parser.add_argument(
+        "-t", "--top",
+        type=int,
+        default=10,
+        help="输出重点板块/题材数量（默认10）",
+    )
+    review_parser.add_argument(
+        "--board-type",
+        choices=["all", "industry", "concept"],
+        default="all",
+        help="板块范围：行业/概念/全部（默认all）",
+    )
+    review_parser.add_argument("--email", action="store_true", help="生成后发送邮件")
+
     all_parser = subparsers.add_parser("all", help="一键执行完整流程")
     all_parser.add_argument("url", help="专栏 URL")
     all_parser.add_argument(
@@ -575,6 +621,8 @@ def main():
         cmd_sectors(args)
     elif args.command == "market":
         cmd_market(args)
+    elif args.command == "review":
+        cmd_review(args)
     elif args.command == "all":
         cmd_all(args.url, max_posts=args.max_posts)
     else:

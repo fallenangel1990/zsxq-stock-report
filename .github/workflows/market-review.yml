@@ -1,0 +1,118 @@
+name: A股盘后复盘
+
+"on":
+  workflow_dispatch:
+    inputs:
+      force:
+        description: '强制执行（忽略交易日检查）'
+        type: boolean
+        required: false
+        default: false
+      top:
+        description: '重点板块数量'
+        required: false
+        default: '10'
+  schedule:
+    # 目标北京时间约 17:00 盘后复盘；按历史观察的 Actions 约 4 小时延迟提前配置。
+    - cron: '0 5 * * 1-5'
+
+env:
+  PYTHONUNBUFFERED: 1
+
+jobs:
+  market-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v6
+
+      - name: 设置 Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: 安装 Python 依赖
+        run: |
+          pip install --upgrade pip -q
+          pip install -r requirements.txt -q
+
+      - name: 检查交易日
+        if: ${{ !inputs.force }}
+        shell: python3 {0}
+        run: |
+          import datetime
+          from zoneinfo import ZoneInfo
+
+          today = datetime.datetime.now(ZoneInfo("Asia/Shanghai")).date()
+          try:
+              from chinese_calendar import is_workday, is_holiday
+              if not is_workday(today) or is_holiday(today):
+                  print(f"⏭ 跳过：{today} 非 A 股开盘日（周末或中国法定节假日）")
+                  exit(0)
+              print(f"✅ {today} 是 A 股开盘日，继续执行...")
+          except ImportError:
+              if today.weekday() >= 5:
+                  print(f"⏭ 跳过：{today} 是周末（北京时间）")
+                  exit(0)
+              print("⚠️  chinese_calendar 未安装，仅检测北京时间周末，无法排除节假日")
+
+      - name: 写入邮件环境变量
+        env:
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_SECURITY: ${{ secrets.SMTP_SECURITY }}
+          TO_EMAIL: ${{ secrets.TO_EMAIL }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import uuid
+
+          env_file = os.environ["GITHUB_ENV"]
+          values = {
+              "SMTP_USER": os.environ.get("SMTP_USER", ""),
+              "SMTP_PASS": os.environ.get("SMTP_PASS", ""),
+              "SMTP_HOST": os.environ.get("SMTP_HOST", ""),
+              "SMTP_PORT": os.environ.get("SMTP_PORT", ""),
+              "SMTP_SECURITY": os.environ.get("SMTP_SECURITY", ""),
+              "TO_EMAIL": os.environ.get("TO_EMAIL") or "470337944@qq.com",
+          }
+
+          with open(env_file, "a", encoding="utf-8") as f:
+              for key, value in values.items():
+                  if not value:
+                      continue
+                  marker = f"EOF_{key}_{uuid.uuid4().hex}"
+                  f.write(f"{key}<<{marker}\n{value}\n{marker}\n")
+          PY
+
+      - name: 生成并发送盘后复盘
+        env:
+          TOP: ${{ inputs.top }}
+        run: |
+          TOP="${TOP:-10}"
+          python main.py review --top "$TOP" --email 2>&1 | tee /tmp/market-review.log
+
+      - name: 发送失败通知邮件
+        if: failure()
+        shell: python3 {0}
+        run: |
+          import os, sys
+          sys.path.insert(0, '.')
+          from email_sender import send_error_email
+
+          try:
+              error_msg = open('/tmp/market-review.log', 'r', encoding='utf-8').read()[-4000:]
+          except Exception:
+              error_msg = '盘后复盘失败（无日志）'
+
+          send_error_email(
+              error_msg=error_msg,
+              to_email=os.environ.get('TO_EMAIL', ''),
+              step='盘后复盘',
+          )
+          print("✅ 错误通知已发送")

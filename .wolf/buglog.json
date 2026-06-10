@@ -970,6 +970,25 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-10T16:30:00+08:00"
+    },
+    {
+      "id": "bug-056",
+      "timestamp": "2026-06-10T17:08:00+08:00",
+      "error_message": "ModuleNotFoundError: No module named 'yaml' while running local market_review sample",
+      "file": "market_review.py, sector_monitor.py",
+      "root_cause": "本机 python3 环境未安装 PyYAML；market_review.py 导入 sector_monitor.py 时触发 import yaml。CI 会通过 requirements.txt 安装依赖，但本地轻量样例需要 stub yaml 或使用项目依赖环境。",
+      "fix": "保留代码依赖不变，使用 yaml stub 完成离线报告拼装验证；后续本地完整运行需先安装 requirements.txt。",
+      "tags": [
+        "local-env",
+        "pyyaml",
+        "market-review",
+        "test"
+      ],
+      "related_bugs": [
+        "bug-037"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-10T17:08:00+08:00"
     }
   ]
 }
