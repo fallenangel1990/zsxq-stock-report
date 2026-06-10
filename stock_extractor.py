@@ -927,7 +927,6 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
         technical_score, technical_view = _technical_buy_score(stock_view)
         stock_view["technical_score"] = technical_score
         stock_view["technical_view"] = technical_view
-        stock_view["buy_score"] = _buy_score(stock_view)
         risk_display = _build_stock_risk(
             stock_view, stocks_json.get("risks", []), sector_aliases
         )
@@ -935,6 +934,8 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
         stock_view["buy_score"] = _buy_score(stock_view)
         stock_view["entry_ref"] = _technical_buy_reference(stock_view)
         stock_view["action"] = _selection_action(stock_view)
+        stock_view["trade_period"] = _trade_period(stock_view)
+        stock_view["exit_trigger"] = _exit_trigger(stock_view)
 
         enriched.append({
             **stock_view,
@@ -951,6 +952,15 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
         })
 
     # 按推荐指数降序排列
+    market_filter = _market_filter(enriched)
+    for stock in enriched:
+        stock["market_filter"] = market_filter
+        stock["buy_score"] = _buy_score(stock)
+        stock["entry_ref"] = _technical_buy_reference(stock)
+        stock["action"] = _selection_action(stock)
+        stock["trade_period"] = _trade_period(stock)
+        stock["exit_trigger"] = _exit_trigger(stock)
+
     enriched.sort(key=lambda x: x["score"], reverse=True)
 
     # 构建趋势数据供报告层使用
@@ -958,6 +968,7 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
         "scores": trend_scores,
         "groups": sector_groups,
         "logic_map": sector_logic_map,
+        "market_filter": market_filter,
     }
     return enriched, trend_data
 
@@ -1422,12 +1433,115 @@ def _buy_score(stock: dict) -> float:
     score = stock.get("score", 0)
     technical_score = stock.get("technical_score", 5.0)
     risk_text = stock.get("risk_display", "")
+    tech = stock.get("technical") or {}
+    market_filter = stock.get("market_filter") or {}
     penalty = 0.0
     if any(kw in risk_text for kw in ("回避", "看空", "退市", "重大利空")):
         penalty += 2.0
     if stock.get("change_5d") is not None and stock["change_5d"] > 10:
         penalty += 0.8
-    return round(max(1.0, min(10.0, score * 0.58 + technical_score * 0.42 - penalty)), 1)
+    if _is_overheated(stock):
+        penalty += 1.2
+    if tech.get("distance_ma20_pct") is not None and tech["distance_ma20_pct"] < -6:
+        penalty += 0.5
+    market_penalty = market_filter.get("buy_penalty", 0.0)
+    market_bonus = market_filter.get("buy_bonus", 0.0)
+    credibility = _source_credibility_score(stock)
+    raw = score * 0.52 + technical_score * 0.36 + credibility * 0.12
+    return round(max(1.0, min(10.0, raw + market_bonus - market_penalty - penalty)), 1)
+
+
+def _is_overheated(stock: dict) -> bool:
+    """判断是否短线过热，过热票不能进入立即买入。"""
+    tech = stock.get("technical") or {}
+    change_5d = tech.get("change_5d", stock.get("change_5d"))
+    position = tech.get("position_20d")
+    distance = tech.get("distance_ma20_pct")
+    return (
+        (change_5d is not None and change_5d > 10)
+        or (position is not None and position > 85)
+        or (distance is not None and distance > 10)
+    )
+
+
+def _market_filter(enriched: list[dict]) -> dict:
+    """用候选池整体技术面估算市场环境过滤。"""
+    techs = [s.get("technical") or {} for s in enriched if s.get("technical")]
+    if not techs:
+        return {
+            "level": "未知",
+            "desc": "技术样本不足，买入档位不做市场过滤",
+            "buy_penalty": 0.0,
+            "buy_bonus": 0.0,
+        }
+    total = len(techs)
+    above20 = sum(1 for t in techs if t.get("above_ma20")) / total
+    bullish = sum(1 for t in techs if t.get("ma_bullish")) / total
+    overheated = sum(
+        1 for t in techs
+        if (t.get("change_5d") is not None and t["change_5d"] > 10)
+        or (t.get("position_20d") is not None and t["position_20d"] > 85)
+        or (t.get("distance_ma20_pct") is not None and t["distance_ma20_pct"] > 10)
+    ) / total
+
+    if above20 >= 0.62 and bullish >= 0.35 and overheated <= 0.35:
+        level = "偏强"
+        penalty = 0.0
+        bonus = 0.2
+    elif above20 < 0.42 or bullish < 0.18:
+        level = "偏弱"
+        penalty = 0.7
+        bonus = 0.0
+    elif overheated > 0.45:
+        level = "过热"
+        penalty = 0.5
+        bonus = 0.0
+    else:
+        level = "中性"
+        penalty = 0.2
+        bonus = 0.0
+
+    return {
+        "level": level,
+        "desc": (
+            f"候选池站上20日线占比{above20:.0%}，均线多头占比{bullish:.0%}，"
+            f"短线过热占比{overheated:.0%}"
+        ),
+        "buy_penalty": penalty,
+        "buy_bonus": bonus,
+    }
+
+
+def _source_credibility_score(stock: dict) -> float:
+    """来源可信度评分，补强多次提及和研报型机会。"""
+    score = 5.0
+    post_count = stock.get("post_count", 1) or 1
+    score += min(1.5, math.log1p(post_count) * 0.8)
+    if stock.get("category") == "quantitative" or stock.get("target_str"):
+        score += 1.0
+    if stock.get("foreign_research") or "研报" in (stock.get("logic") or ""):
+        score += 0.8
+    if stock.get("source"):
+        score += 0.3
+    if stock.get("category") == "elastic" and not stock.get("target_str"):
+        score -= 0.4
+    return round(max(1.0, min(10.0, score)), 1)
+
+
+def _buy_bucket(stock: dict) -> str:
+    """三档买入状态。"""
+    risk_text = stock.get("risk_display", "")
+    if any(kw in risk_text for kw in ("回避", "看空", "退市", "重大利空")):
+        return "只观察"
+    if stock.get("market_filter", {}).get("level") == "偏弱" and stock.get("score", 0) < 8.0:
+        return "只观察"
+    if _is_overheated(stock):
+        return "等回踩买"
+    if stock.get("buy_score", 0) >= 7.4 and stock.get("score", 0) >= 7.0:
+        return "立即可买"
+    if stock.get("buy_score", 0) >= 6.2 and stock.get("score", 0) >= 6.2:
+        return "等回踩买"
+    return "只观察"
 
 
 def _technical_buy_reference(stock: dict) -> str:
@@ -1440,6 +1554,10 @@ def _technical_buy_reference(stock: dict) -> str:
 
     if not current or current <= 0:
         return stock.get("entry_ref", "缺少行情，先观察")
+
+    bucket = _buy_bucket(stock)
+    if bucket == "只观察":
+        return "先观察，不急买；等趋势、量能或风险改善"
 
     if buy_score >= 7.5:
         if distance is not None and distance > 7:
@@ -1461,18 +1579,55 @@ def _trade_advice(stock: dict) -> str:
     risk_text = stock.get("risk_display", "")
     if any(kw in risk_text for kw in ("回避", "看空", "退市", "重大利空")):
         return "卖出/回避"
-    buy_score = stock.get("buy_score", 0)
     score = stock.get("score", 0)
     tech_score = stock.get("technical_score", 0)
-    if buy_score >= 7.5 and score >= 7.0:
-        return "适合买入"
+    bucket = _buy_bucket(stock)
+    if bucket == "立即可买":
+        return "立即可买"
+    if bucket == "等回踩买":
+        return "等回踩买"
     if score >= 7.0 and tech_score < 5.5:
         return "持有等买点"
-    if buy_score >= 6.3:
-        return "低吸观察"
     if score < 5.4:
         return "暂不买入"
-    return "继续观察"
+    return "只观察"
+
+
+def _trade_period(stock: dict) -> str:
+    """区分短线/波段/中线机会。"""
+    tech = stock.get("technical") or {}
+    logic = stock.get("logic", "")
+    target = stock.get("target_str", "")
+    if any(kw in logic for kw in ("涨停", "事件", "催化", "反弹", "突破")):
+        return "短线"
+    if target or stock.get("category") == "quantitative" or stock.get("trend_score", 0) >= 6.5:
+        return "中线"
+    if tech.get("ma_bullish") or stock.get("technical_score", 0) >= 6.5:
+        return "波段"
+    return "观察"
+
+
+def _exit_trigger(stock: dict) -> str:
+    """生成卖出/减仓触发条件。"""
+    current = stock.get("current_price")
+    tech = stock.get("technical") or {}
+    ma20 = tech.get("ma20")
+    ma10 = tech.get("ma10")
+    period = stock.get("trade_period", "")
+    if not current:
+        return "无行情数据；按原帖逻辑和风险事件人工复核"
+    if any(kw in stock.get("risk_display", "") for kw in ("回避", "看空", "退市", "重大利空")):
+        return "风险触发，回避或清仓"
+    if _is_overheated(stock):
+        return "短线涨幅过热，冲高分批止盈；跌破5日线减仓"
+    if period == "短线":
+        return f"跌破 {_fmt_price(current * 0.94)} 或放量转弱减仓"
+    if period == "波段":
+        ref = ma10 or current * 0.95
+        return f"跌破10日线附近（约 {_fmt_price(ref)}）且放量，先减仓"
+    if ma20:
+        return f"跌破20日线附近（约 {_fmt_price(ma20)}）且两日未收回，降为观察"
+    return f"跌破 {_fmt_price(current * 0.92)} 且逻辑未兑现，降为观察"
 
 
 def _entry_reference(stock: dict) -> str:
@@ -1644,6 +1799,7 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
     trend_scores = trend_data.get("scores", {})
     sector_groups = trend_data.get("groups", {})
     sector_logic_map = trend_data.get("logic_map", {})
+    market_filter = trend_data.get("market_filter", {})
     # 先移除 JSON 代码块，避免泄露到最终输出
     original_markdown = _strip_json_block(original_markdown)
     parts = []
@@ -1653,7 +1809,7 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
         s for s in enriched
         if s.get("buy_score", 0) >= 6.5
         and s.get("score", 0) >= 6.2
-        and s.get("action") in {"适合买入", "低吸观察"}
+        and s.get("action") in {"立即可买", "等回踩买"}
     ]
     buy_candidates.sort(
         key=lambda s: (s.get("buy_score", 0), s.get("score", 0)),
@@ -1661,17 +1817,24 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
     )
     if buy_candidates:
         parts.append("## 最适合买入清单（结合技术指标）\n")
+        if market_filter:
+            parts.append(
+                f"> 市场环境过滤：**{market_filter.get('level', '未知')}**，"
+                f"{market_filter.get('desc', '无市场环境数据')}\n"
+            )
         parts.append(
-            "| 优先级 | 股票名称 | 买卖建议 | 买点参考 | 技术面 | 买点分 | 推荐指数 | 核心逻辑 | 风险点/潜在利空 |"
+            "| 优先级 | 股票名称 | 买入档位 | 周期 | 买点参考 | 卖出/减仓触发 | 技术面 | 买点分 | 来源可信度 | 推荐指数 | 核心逻辑 | 风险点/潜在利空 |"
         )
         parts.append(
-            "|--------|----------|----------|----------|--------|--------|----------|----------|----------------|"
+            "|--------|----------|----------|------|----------|----------------|--------|--------|------------|----------|----------|----------------|"
         )
         for i, stock in enumerate(buy_candidates[:8], 1):
             parts.append(
                 f"| {i} | {_display_stock_name(stock)} | {stock.get('action', '-')} | "
-                f"{_technical_buy_reference(stock)} | {stock.get('technical_view', '-')} | "
-                f"**{stock.get('buy_score', 0):.1f}** | {_format_score_display(stock)} | "
+                f"{stock.get('trade_period', '-')} | {_technical_buy_reference(stock)} | "
+                f"{stock.get('exit_trigger', '-')} | {stock.get('technical_view', '-')} | "
+                f"**{stock.get('buy_score', 0):.1f}** | {_source_credibility_score(stock):.1f} | "
+                f"{_format_score_display(stock)} | "
                 f"{_emphasize_cell(stock.get('logic', '')[:70] if stock.get('logic') else '')} | "
                 f"{stock.get('risk_display', '-')[:90]} |"
             )
@@ -1680,15 +1843,15 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
     # ── 0. 快速选股总览 ──
     parts.append("## 快速选股清单（按推荐指数降序）\n")
     parts.append(
-        "| 买卖建议 | 股票名称 | 当前市值 | 买入参考 | 技术面 | 买点分 | 核心逻辑 | 目标参考 | 风险点/潜在利空 | 推荐指数 | 趋势 |"
+        "| 买卖建议 | 股票名称 | 周期 | 当前市值 | 买入参考 | 卖出/减仓触发 | 技术面 | 买点分 | 来源可信度 | 核心逻辑 | 目标参考 | 风险点/潜在利空 | 推荐指数 | 趋势 |"
     )
     parts.append(
-        "|----------|----------|----------|----------|--------|--------|----------|----------|----------------|----------|------|"
+        "|----------|----------|------|----------|----------|----------------|--------|--------|------------|----------|----------|----------------|----------|------|"
     )
 
     if not enriched:
         parts.append(
-            "| - | 本次未形成可评分个股 | - | - | - | - | AI 未返回可进入量化/弹性评分的 A 股标的 | - | "
+            "| - | 本次未形成可评分个股 | - | - | - | - | - | - | - | AI 未返回可进入量化/弹性评分的 A 股标的 | - | "
             "请检查下方细分板块/风险提示；若日志出现 1059，优先更新 Cookie 或等待限流恢复 | - | - |"
         )
 
@@ -1703,9 +1866,10 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
         trend_badge = _trend_badge(stock)
 
         parts.append(
-            f"| {stock.get('action', '-')} | {name} | {market_cap_str} | "
-            f"{stock.get('entry_ref', '-')} | {stock.get('technical_view', '-')} | "
-            f"**{stock.get('buy_score', 0):.1f}** | {logic} | {target_str} | "
+            f"| {stock.get('action', '-')} | {name} | {stock.get('trade_period', '-')} | "
+            f"{market_cap_str} | {stock.get('entry_ref', '-')} | "
+            f"{stock.get('exit_trigger', '-')} | {stock.get('technical_view', '-')} | "
+            f"**{stock.get('buy_score', 0):.1f}** | {_source_credibility_score(stock):.1f} | {logic} | {target_str} | "
             f"{risk} | {score_str} | {trend_badge} |"
         )
 
