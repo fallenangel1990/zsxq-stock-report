@@ -255,6 +255,8 @@ def build_review_report(
     top_signal = signal_boards[0] if signal_boards else (strongest[0] if strongest else {})
     breadth_source = breadth.get("source", "东方财富全A快照")
     breadth_status = breadth.get("data_status", "正常")
+    market_status = market.get("data_status", "正常")
+    data_status = "；".join(status for status in (market_status, breadth_status) if status and status != "正常") or "正常"
     amount_label = "全A约" if breadth_source == "东方财富全A快照" else "主要指数合计约"
 
     lines = [
@@ -262,7 +264,7 @@ def build_review_report(
         "",
         f"> 生成时间: {now}",
         "> 数据源: 东方财富指数/板块/个股快照；龙虎榜、北向资金和真实持仓需接入独立数据源后补齐。",
-        f"> 数据完整性: {breadth_status}",
+        f"> 数据完整性: {data_status}",
         "",
         "## 一、大盘行情与市场情绪",
         "",
@@ -420,7 +422,11 @@ def _mainline_state(signal_boards: list[dict], emotion: float) -> str:
 
 
 def generate_market_review(top_n: int = 10, board_type: str = "all") -> tuple[str, dict]:
-    indices = fetch_market_indices()
+    try:
+        indices = fetch_market_indices()
+    except Exception as exc:
+        print(f"[复盘] 主要指数获取失败，继续生成降级报告: {exc}", flush=True)
+        indices = []
     market = evaluate_market_environment(indices)
     all_stocks = fetch_a_share_snapshot()
     breadth = summarize_breadth(all_stocks, market=market)

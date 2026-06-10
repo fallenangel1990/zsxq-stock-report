@@ -259,3 +259,4 @@
 | 16:30 | Slimmed stock report output | stock_extractor.py, .wolf/* | removed exclusion table, decision tier/buy score/source credibility columns, source score in breakdown, and filtered displayed stocks to score >=3; validations passed | ~2500 |
 | 17:08 | Built A-share after-market review task | market_review.py, market-review.yml, main.py, storage.py, email_sender.py, .wolf/* | added review CLI/workflow/report storage, subject override, and offline sample validation; PyYAML local gap logged | ~6500 |
 | 01:03 | Fixed market review Eastmoney 502 degradation | market_review.py, sector_monitor.py, .wolf/* | review now uses partial/all-index fallback and reports data completeness; CLI verified | ~4500 |
+| 01:15 | Hardened market review index fallback | sector_monitor.py, market_review.py, .wolf/* | ulist RetryError now degrades to Tencent/empty indices and report data status | ~2500 |

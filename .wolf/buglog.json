@@ -1009,6 +1009,27 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-11T01:03:00+08:00"
+    },
+    {
+      "id": "bug-058",
+      "timestamp": "2026-06-11T01:15:00+08:00",
+      "error_message": "requests.exceptions.RetryError: HTTPSConnectionPool(host='push2.eastmoney.com', port=443): Max retries exceeded with url /api/qt/ulist.np/get during market review",
+      "file": "sector_monitor.py, market_review.py",
+      "root_cause": "上一轮只把全A快照和板块阶段做成软失败，但盘后复盘第一步仍直接调用 fetch_market_indices()；CI 中东方财富 ulist 指数接口连续 502 时，RetryError 会在生成 report 前终止任务。",
+      "fix": "fetch_market_indices() 外层捕获 _request_ulist_json 异常并尝试腾讯指数兜底；腾讯兜底失败时返回空列表。evaluate_market_environment() 对空指数补充 total_up/total_down/total_flat 和 data_status；generate_market_review() 再包一层指数阶段异常，并把指数/宽度数据完整性合并写入报告。",
+      "tags": [
+        "market-review",
+        "eastmoney",
+        "ulist",
+        "502",
+        "fallback",
+        "github-actions"
+      ],
+      "related_bugs": [
+        "bug-057"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-11T01:15:00+08:00"
     }
   ]
 }

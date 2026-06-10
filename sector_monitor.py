@@ -297,11 +297,19 @@ def fetch_market_indices() -> list[dict]:
         "fields": INDEX_FIELDS,
         "secids": MAIN_INDEX_SECIDS,
     }
-    data = _request_ulist_json(params)
+    try:
+        data = _request_ulist_json(params)
+    except Exception as exc:
+        print(f"[WARN] eastmoney indices request raised unexpectedly: {exc}", flush=True)
+        data = {"data": {"diff": [], "total": 0}}
     rows = data.get("data", {}).get("diff", []) or []
     if not rows:
         print("[INFO] eastmoney indices failed, falling back to tencent...", flush=True)
-        return _fetch_indices_from_tencent()
+        try:
+            return _fetch_indices_from_tencent()
+        except Exception as exc:
+            print(f"[WARN] tencent indices fallback failed: {exc}", flush=True)
+            return []
 
     indices = []
     for raw in rows:
@@ -372,6 +380,10 @@ def evaluate_market_environment(indices: list[dict]) -> dict:
             "avg_change_pct": 0,
             "up_ratio": 0,
             "total_amount_yi": 0,
+            "total_up": 0,
+            "total_down": 0,
+            "total_flat": 0,
+            "data_status": "主要指数行情不可用，已生成降级复盘。",
         }
 
     total_up = sum(i["up_count"] for i in indices)
@@ -420,6 +432,7 @@ def evaluate_market_environment(indices: list[dict]) -> dict:
         "total_up": total_up,
         "total_down": total_down,
         "total_flat": total_flat,
+        "data_status": "正常",
     }
 
 
