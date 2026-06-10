@@ -1067,6 +1067,27 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-11T01:38:00+08:00"
+    },
+    {
+      "id": "bug-061",
+      "timestamp": "2026-06-11T01:55:00+08:00",
+      "error_message": "盘后复盘市场涨跌数量需接入同花顺，涨跌停数量需接入实际数据源，并统计强势板块和题材",
+      "file": "market_review.py, .github/workflows/market-review.yml",
+      "root_cause": "复盘仍主要依赖东方财富全A快照或指数成分兜底计算市场涨跌家数，涨跌停数量曾由涨跌幅阈值近似，板块统计未单独拆分强势行业和强势题材；market-review workflow 也未写入 THS_COOKIES，CI 无法请求同花顺 indexflash。",
+      "fix": "新增同花顺 indexflash 市场宽度抓取，复用 THS_COOKIES/cookies_ths.json 并自动设置 Hexin-V；新增东方财富涨停池/跌停池真实计数；summarize_breadth 优先使用同花顺涨跌家数和真实涨跌停池；报告展示数据源；板块统计新增强势行业和强势题材；market-review workflow 写入 cookies_ths.json。",
+      "tags": [
+        "market-review",
+        "ths",
+        "breadth",
+        "limit-pool",
+        "sector-stats"
+      ],
+      "related_bugs": [
+        "bug-059",
+        "bug-060"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-11T01:55:00+08:00"
     }
   ]
 }

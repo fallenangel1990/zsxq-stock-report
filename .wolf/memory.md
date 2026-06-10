@@ -262,3 +262,4 @@
 | 01:15 | Hardened market review index fallback | sector_monitor.py, market_review.py, .wolf/* | ulist RetryError now degrades to Tencent/empty indices and report data status | ~2500 |
 | 01:26 | Connected LHB data and completed sector stats | market_review.py, .wolf/* | removed northbound placeholders, added Eastmoney LHB and richer board summary; validations passed | ~5000 |
 | 01:38 | Fixed market review up/down fallback breadth | sector_monitor.py, market_review.py, .wolf/* | fallback now uses 上证指数+深证成指 only; northbound wording removed from active files | ~2600 |
+| 01:55 | Connected THS breadth and real limit pools | market_review.py, market-review.yml, .wolf/* | breadth prefers 同花顺 indexflash, limit counts use Eastmoney pools, strong industries/concepts added | ~5200 |

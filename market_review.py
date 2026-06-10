@@ -5,6 +5,8 @@
 
 import json
 import math
+import os
+import time
 from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -28,6 +30,9 @@ STATE_FILE = Path(__file__).parent / "data" / "state" / "market_review.json"
 A_SHARE_FIELDS = "f12,f14,f3,f6,f8,f20,f62,f100"
 A_SHARE_FS = "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23"
 EASTMONEY_DATACENTER_URL = "https://datacenter-web.eastmoney.com/api/data/v1/get"
+THS_INDEXFLASH_URL = "https://q.10jqka.com.cn/api.php?t=indexflash"
+EASTMONEY_LIMIT_UP_URL = "https://push2ex.eastmoney.com/getTopicZTPool"
+EASTMONEY_LIMIT_DOWN_URL = "https://push2ex.eastmoney.com/getTopicDTPool"
 
 
 def _now_shanghai() -> datetime:
@@ -104,42 +109,211 @@ def fetch_a_share_snapshot(limit_pages: int = 20, page_size: int = 300) -> list[
     return stocks
 
 
-def summarize_breadth(stocks: list[dict], market: Optional[dict] = None) -> dict:
+def _cookie_header_from_json_text(text: str) -> str:
+    if not text:
+        return ""
+    stripped = text.strip()
+    if not stripped:
+        return ""
+    if "=" in stripped and not stripped.startswith(("[", "{")):
+        return stripped
+    try:
+        data = json.loads(stripped)
+    except Exception:
+        return ""
+    if isinstance(data, list):
+        pairs = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            name = item.get("name")
+            value = item.get("value")
+            if name and value is not None:
+                pairs.append(f"{name}={value}")
+        return "; ".join(pairs)
+    if isinstance(data, dict):
+        if "cookies" in data:
+            return _cookie_header_from_json_text(json.dumps(data.get("cookies")))
+        return "; ".join(f"{key}={value}" for key, value in data.items() if value is not None)
+    return ""
+
+
+def _load_ths_cookie_header() -> str:
+    for env_name in ("THS_MARKET_COOKIE", "THS_COOKIES"):
+        header = _cookie_header_from_json_text(os.environ.get(env_name, ""))
+        if header:
+            return header
+    cookies_path = Path(__file__).parent / "cookies_ths.json"
+    if cookies_path.exists():
+        return _cookie_header_from_json_text(cookies_path.read_text(encoding="utf-8"))
+    return ""
+
+
+def _extract_cookie_value(cookie_header: str, name: str) -> str:
+    for part in cookie_header.split(";"):
+        if "=" not in part:
+            continue
+        key, value = part.strip().split("=", 1)
+        if key == name:
+            return value
+    return ""
+
+
+def fetch_ths_market_breadth() -> dict:
+    """从同花顺 indexflash 获取市场上涨/下跌家数。"""
+    cookie_header = _load_ths_cookie_header()
+    if not cookie_header:
+        return {"valid": False, "data_status": "同花顺市场宽度 Cookie 未配置，无法获取同花顺涨跌家数。"}
+    hexin_v = _extract_cookie_value(cookie_header, "v") or _extract_cookie_value(cookie_header, "hexin-v")
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+        "Host": "q.10jqka.com.cn",
+        "Referer": "https://q.10jqka.com.cn/",
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+        "Accept-Language": "zh-CN,zh;q=0.9",
+        "Cookie": cookie_header,
+    }
+    if hexin_v:
+        headers["Hexin-V"] = hexin_v
+    try:
+        resp = requests.get(THS_INDEXFLASH_URL, headers=headers, timeout=15)
+        resp.raise_for_status()
+        resp.encoding = resp.apparent_encoding or "gbk"
+        data = resp.json()
+        zdfb = data.get("zdfb_data") or {}
+        up = int(zdfb.get("znum") or 0)
+        down = int(zdfb.get("dnum") or 0)
+        distribution = zdfb.get("zdfb") or []
+        if up <= 0 and down <= 0:
+            return {"valid": False, "data_status": "同花顺市场宽度返回空数据。"}
+        return {
+            "valid": True,
+            "up": up,
+            "down": down,
+            "flat": 0,
+            "distribution": distribution,
+            "source": "同花顺 indexflash",
+            "data_status": "正常",
+        }
+    except Exception as exc:
+        return {"valid": False, "data_status": f"同花顺市场宽度获取失败：{exc}"}
+
+
+def _request_limit_pool(url: str, trade_date: str, sort: str) -> dict:
+    params = {
+        "ut": "7eea3edcaed734bea9cbfc24409ed989",
+        "dpt": "wz.ztzt",
+        "Pageindex": "0",
+        "pagesize": "10000",
+        "sort": sort,
+        "date": trade_date,
+        "_": str(int(time.time() * 1000)),
+    }
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+        "Referer": "https://quote.eastmoney.com/ztb/ztb.html",
+        "Accept": "application/json, text/plain, */*",
+    }
+    resp = requests.get(url, params=params, headers=headers, timeout=15)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def fetch_limit_pool_stats(max_days: int = 10) -> dict:
+    """获取真实涨停/跌停池数量。"""
+    last_error = ""
+    today = _now_shanghai().date()
+    for offset in range(max_days):
+        trade_date = (today - timedelta(days=offset)).strftime("%Y%m%d")
+        try:
+            zt_data = _request_limit_pool(EASTMONEY_LIMIT_UP_URL, trade_date, "fbt:asc")
+            dt_data = _request_limit_pool(EASTMONEY_LIMIT_DOWN_URL, trade_date, "fund:asc")
+            zt = zt_data.get("data") or {}
+            dt = dt_data.get("data") or {}
+            limit_up = int(zt.get("tc") or 0)
+            limit_down = int(dt.get("tc") or 0)
+            if limit_up <= 0 and limit_down <= 0:
+                continue
+            return {
+                "valid": True,
+                "date": str(zt.get("qdate") or dt.get("qdate") or trade_date),
+                "limit_up": limit_up,
+                "limit_down": limit_down,
+                "limit_up_pool": zt.get("pool") or [],
+                "limit_down_pool": dt.get("pool") or [],
+                "source": "东方财富涨跌停池",
+                "data_status": "正常",
+            }
+        except Exception as exc:
+            last_error = str(exc)
+            print(f"[复盘] 涨跌停池 {trade_date} 获取失败: {exc}", flush=True)
+            continue
+    return {
+        "valid": False,
+        "date": "",
+        "limit_up": 0,
+        "limit_down": 0,
+        "limit_up_pool": [],
+        "limit_down_pool": [],
+        "source": "东方财富涨跌停池",
+        "data_status": f"涨跌停池数据暂不可用{f'：{last_error}' if last_error else ''}",
+    }
+
+
+def summarize_breadth(
+    stocks: list[dict],
+    market: Optional[dict] = None,
+    ths_breadth: Optional[dict] = None,
+    limit_stats: Optional[dict] = None,
+) -> dict:
     market = market or {}
-    if not stocks:
+    ths_breadth = ths_breadth or {}
+    limit_stats = limit_stats or {}
+    statuses = []
+
+    if ths_breadth.get("valid"):
+        up = int(ths_breadth.get("up") or 0)
+        down = int(ths_breadth.get("down") or 0)
+        flat = int(ths_breadth.get("flat") or 0)
+        breadth_source = ths_breadth.get("source", "同花顺 indexflash")
+    elif stocks:
+        up = sum(1 for s in stocks if s.get("change_pct", 0) > 0)
+        down = sum(1 for s in stocks if s.get("change_pct", 0) < 0)
+        flat = max(0, len(stocks) - up - down)
+        breadth_source = "东方财富全A快照"
+        statuses.append(ths_breadth.get("data_status", "同花顺市场宽度不可用，已使用东方财富全A快照涨跌数。"))
+    else:
         up = int(market.get("total_up") or 0)
         down = int(market.get("total_down") or 0)
         flat = int(market.get("total_flat") or 0)
-        source = market.get("breadth_source") or "上证指数+深证成指"
-        money_effect = "强" if up > down * 1.5 else "弱" if down > up * 1.3 else "中性"
-        return {
-            "total": up + down + flat,
-            "up": up,
-            "down": down,
-            "flat": flat,
-            "limit_up": 0,
-            "limit_down": 0,
-            "total_amount_yi": market.get("total_amount_yi", 0),
-            "avg_turnover_rate": 0.0,
-            "money_effect": money_effect,
-            "source": source,
-            "data_status": f"全A快照不可用，已使用{source}涨跌家数近似；涨停/跌停和平均换手率暂不可用。",
-        }
+        breadth_source = market.get("breadth_source") or "上证指数+深证成指"
+        statuses.append(ths_breadth.get("data_status", "同花顺市场宽度不可用。"))
+        statuses.append(f"全A快照不可用，已使用{breadth_source}涨跌家数近似。")
 
-    up = sum(1 for s in stocks if s.get("change_pct", 0) > 0)
-    down = sum(1 for s in stocks if s.get("change_pct", 0) < 0)
-    flat = max(0, len(stocks) - up - down)
-    limit_up = sum(1 for s in stocks if s.get("change_pct", 0) >= 9.8)
-    limit_down = sum(1 for s in stocks if s.get("change_pct", 0) <= -9.8)
-    total_amount = round(sum(s.get("amount_yi", 0) for s in stocks), 2)
+    if limit_stats.get("valid"):
+        limit_up = int(limit_stats.get("limit_up") or 0)
+        limit_down = int(limit_stats.get("limit_down") or 0)
+        limit_source = limit_stats.get("source", "东方财富涨跌停池")
+    else:
+        limit_up = 0
+        limit_down = 0
+        limit_source = limit_stats.get("source", "东方财富涨跌停池")
+        statuses.append(limit_stats.get("data_status", "涨跌停池数据暂不可用。"))
+
+    total_amount = (
+        round(sum(s.get("amount_yi", 0) for s in stocks), 2)
+        if stocks else market.get("total_amount_yi", 0)
+    )
+    amount_source = "东方财富全A快照" if stocks else (market.get("breadth_source") or "主要指数合计")
     avg_turnover = 0.0
     turnover_values = [s.get("turnover_rate", 0) for s in stocks if s.get("turnover_rate")]
     if turnover_values:
         avg_turnover = round(sum(turnover_values) / len(turnover_values), 2)
     money_effect = "强" if up > down * 1.5 else "弱" if down > up * 1.3 else "中性"
-    data_status = "正常" if len(stocks) >= 3000 else f"全A快照仅获取 {len(stocks)} 只样本，按已获取样本计算。"
+    if stocks and len(stocks) < 3000:
+        statuses.append(f"全A快照仅获取 {len(stocks)} 只样本，仅用于成交额/换手率等辅助字段。")
     return {
-        "total": len(stocks),
+        "total": up + down + flat,
         "up": up,
         "down": down,
         "flat": flat,
@@ -148,8 +322,11 @@ def summarize_breadth(stocks: list[dict], market: Optional[dict] = None) -> dict
         "total_amount_yi": total_amount,
         "avg_turnover_rate": avg_turnover,
         "money_effect": money_effect,
-        "source": "东方财富全A快照",
-        "data_status": data_status,
+        "source": breadth_source,
+        "amount_source": amount_source,
+        "limit_source": limit_source,
+        "limit_date": limit_stats.get("date", ""),
+        "data_status": "；".join(status for status in statuses if status) or "正常",
     }
 
 
@@ -380,6 +557,8 @@ def summarize_board_stats(boards: list[dict]) -> dict:
             "top_amount": [],
             "top_inflow": [],
             "top_outflow": [],
+            "strong_industries": [],
+            "strong_concepts": [],
             "data_status": "板块数据不可用",
         }
 
@@ -389,6 +568,10 @@ def summarize_board_stats(boards: list[dict]) -> dict:
     top_amount = sorted(boards, key=lambda b: b.get("amount_yi", 0), reverse=True)[:5]
     top_inflow = sorted(boards, key=lambda b: b.get("main_net_yi", 0), reverse=True)[:5]
     top_outflow = sorted(boards, key=lambda b: b.get("main_net_yi", 0))[:5]
+    strong_boards = [
+        board for board in boards
+        if board.get("change_pct", 0) >= 1.5 and board.get("up_ratio", 0) >= 55
+    ]
     return {
         "total": len(boards),
         "industry_count": sum(1 for board in boards if board.get("type") == "industry"),
@@ -406,6 +589,20 @@ def summarize_board_stats(boards: list[dict]) -> dict:
         "top_amount": top_amount,
         "top_inflow": top_inflow,
         "top_outflow": top_outflow,
+        "strong_industries": [
+            board for board in sorted(
+                [b for b in strong_boards if b.get("type") == "industry"],
+                key=lambda b: (b.get("change_pct", 0), b.get("main_net_yi", 0)),
+                reverse=True,
+            )[:5]
+        ],
+        "strong_concepts": [
+            board for board in sorted(
+                [b for b in strong_boards if b.get("type") == "concept"],
+                key=lambda b: (b.get("change_pct", 0), b.get("main_net_yi", 0)),
+                reverse=True,
+            )[:5]
+        ],
         "data_status": "正常",
     }
 
@@ -443,7 +640,8 @@ def build_review_report(
         status for status in (market_status, breadth_status, board_status, lhb_status)
         if status and status != "正常"
     ) or "正常"
-    amount_label = "全A约" if breadth_source == "东方财富全A快照" else "主要指数合计约"
+    amount_source = breadth.get("amount_source", breadth_source)
+    amount_label = "全A约" if amount_source == "东方财富全A快照" else f"{amount_source}约"
 
     lines = [
         "# A股盘后复盘报告",
@@ -456,9 +654,9 @@ def build_review_report(
         "",
         f"- 指数环境: **{market.get('level', '未知')}**，大盘评分 {market.get('score', 0)} / 100。",
         f"- 今日成交额: {amount_label} **{_fmt_yi(breadth.get('total_amount_yi'))}**；{volume_desc}。",
-        f"- 市场宽度: {breadth.get('up', 0)} 涨 / {breadth.get('down', 0)} 跌 / {breadth.get('flat', 0)} 平，赚钱效应 **{breadth.get('money_effect', '未知')}**。",
+        f"- 市场宽度: {breadth.get('up', 0)} 涨 / {breadth.get('down', 0)} 跌 / {breadth.get('flat', 0)} 平（{breadth_source}），赚钱效应 **{breadth.get('money_effect', '未知')}**。",
         f"- 市场风格: **{style}**；平均换手率约 {breadth.get('avg_turnover_rate', 0):.2f}%。",
-        f"- 涨停/跌停: 涨停 {breadth.get('limit_up', 0)} 只，跌停 {breadth.get('limit_down', 0)} 只；连板数据待接入涨停池数据源。",
+        f"- 涨停/跌停: 涨停 {breadth.get('limit_up', 0)} 只，跌停 {breadth.get('limit_down', 0)} 只（{breadth.get('limit_source', '实际涨跌停池')} {breadth.get('limit_date', '')}）；连板数据待接入涨停池明细统计。",
         f"- 主线情绪评分: **{emotion} / 10**。",
         "",
     ]
@@ -480,6 +678,8 @@ def build_review_report(
         f"- 板块接力: 主力净流入 {_fmt_yi(top_signal.get('main_net_yi'))}，上涨家数占比 {top_signal.get('up_ratio', 0):.1f}%。",
         f"- 板块统计: 共 {board_stats.get('total', 0)} 个板块（行业 {board_stats.get('industry_count', 0)} / 概念 {board_stats.get('concept_count', 0)}），{board_stats.get('up', 0)} 涨 / {board_stats.get('down', 0)} 跌 / {board_stats.get('flat', 0)} 平。",
         f"- 板块强弱: 强势扩散 {board_stats.get('strong_count', 0)} 个，弱势下跌 {board_stats.get('weak_count', 0)} 个；平均上涨家数占比 {board_stats.get('avg_up_ratio', 0):.1f}%。",
+        f"- 强势行业: {_format_board_names(board_stats.get('strong_industries', []), 5)}。",
+        f"- 强势题材: {_format_board_names(board_stats.get('strong_concepts', []), 5)}。",
         f"- 板块资金: 总成交 {_fmt_yi(board_stats.get('total_amount_yi'))}，主力净流入合计 {_fmt_yi(board_stats.get('total_main_net_yi'))}；主力净流入 {board_stats.get('main_in_count', 0)} 个 / 净流出 {board_stats.get('main_out_count', 0)} 个。",
         "",
     ])
@@ -688,7 +888,14 @@ def generate_market_review(top_n: int = 10, board_type: str = "all") -> tuple[st
         indices = []
     market = evaluate_market_environment(indices)
     all_stocks = fetch_a_share_snapshot()
-    breadth = summarize_breadth(all_stocks, market=market)
+    ths_breadth = fetch_ths_market_breadth()
+    limit_stats = fetch_limit_pool_stats()
+    breadth = summarize_breadth(
+        all_stocks,
+        market=market,
+        ths_breadth=ths_breadth,
+        limit_stats=limit_stats,
+    )
     previous = _load_previous_state()
     try:
         all_boards = fetch_boards(board_type=board_type, limit=500)
@@ -729,6 +936,12 @@ def generate_market_review(top_n: int = 10, board_type: str = "all") -> tuple[st
         "total_amount_yi": breadth.get("total_amount_yi", 0),
         "market": market,
         "breadth": breadth,
+        "ths_breadth": ths_breadth,
+        "limit_stats": {
+            key: value
+            for key, value in limit_stats.items()
+            if key not in ("limit_up_pool", "limit_down_pool")
+        },
         "board_stats": {
             key: value
             for key, value in board_stats.items()

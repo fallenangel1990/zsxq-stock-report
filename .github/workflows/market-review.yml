@@ -90,6 +90,17 @@ jobs:
                   f.write(f"{key}<<{marker}\n{value}\n{marker}\n")
           PY
 
+      - name: 写入同花顺 Cookie
+        env:
+          THS_COOKIES: ${{ secrets.THS_COOKIES }}
+        run: |
+          if [ -n "$THS_COOKIES" ]; then
+            echo "$THS_COOKIES" > cookies_ths.json
+            echo "✅ cookies_ths.json 已写入，盘后复盘将尝试使用同花顺市场涨跌家数"
+          else
+            echo "ℹ️  THS_COOKIES secret 未设置，同花顺涨跌家数将降级"
+          fi
+
       - name: 生成并发送盘后复盘
         env:
           TOP: ${{ inputs.top }}
