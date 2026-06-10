@@ -265,3 +265,4 @@
 | 01:55 | Connected THS breadth and real limit pools | market_review.py, market-review.yml, .wolf/* | breadth prefers 同花顺 indexflash, limit counts use Eastmoney pools, strong industries/concepts added | ~5200 |
 | 07:08 | Connected remaining market-review data sources | market_review.py, market-review.yml, .wolf/* | added limit-board stats, announcements, portfolio/journal inputs, and validation passed | ~6500 |
 | 07:24 | Fixed unknown market style fallback | market_review.py, .wolf/* | style now always outputs explicit category with reason; py_compile and render checks passed | ~2600 |
+| 07:39 | Improved LHB report readability | market_review.py, .wolf/* | replaced wide tables with summary, Top3 buy focus, Top3 sell risk; validation passed | ~2800 |

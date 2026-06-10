@@ -1035,47 +1035,43 @@ def build_review_report(
         ],
     )
 
+    lhb_view = format_lhb_readable_view(lhb_summary, strongest)
     lines.extend([
         "",
         "## 三、龙虎榜与短线资金",
         "",
-        f"- 板块主力资金主要押注: {_format_board_names([b for b in strongest if b.get('main_net_yi', 0) > 0], 5)}。",
-        f"- 龙虎榜日期: {lhb_summary.get('date') or '暂无'}；上榜 {lhb_summary.get('count', 0)} 只（明细 {lhb_summary.get('row_count', 0)} 条），净买入 {lhb_summary.get('net_buy_count', 0)} 只 / 净卖出 {lhb_summary.get('net_sell_count', 0)} 只。",
-        f"- 龙虎榜金额: 买入合计 {_fmt_yi(lhb_summary.get('total_buy_yi'))}，卖出合计 {_fmt_yi(lhb_summary.get('total_sell_yi'))}，净额 {_fmt_yi(lhb_summary.get('total_net_yi'))}，上榜成交 {_fmt_yi(lhb_summary.get('total_deal_yi'))}。",
-        f"- 上榜原因集中: {_format_lhb_reasons(lhb_summary.get('reason_counts', []))}。",
-        "- 热点追逐判断: 若强势板块主力净流入为正且龙虎榜净买入集中在同方向，短线资金仍在追逐热点；否则以轮动为主。",
+        f"- **资金结论**: {lhb_view['conclusion']}",
+        f"- **上榜概览**: {lhb_summary.get('date') or '暂无日期'}，上榜 {lhb_summary.get('count', 0)} 只，净买入 {lhb_summary.get('net_buy_count', 0)} / 净卖出 {lhb_summary.get('net_sell_count', 0)}，整体净额 **{_fmt_yi(lhb_summary.get('total_net_yi'))}**。",
+        f"- **热点方向**: {lhb_view['hot_direction']}。",
+        f"- **上榜原因**: {_format_lhb_reasons(lhb_summary.get('reason_counts', []))}。",
         "",
-        "龙虎榜净买入前五：",
+        "买入焦点 Top3：",
     ])
     _append_table(
         lines,
-        ["股票", "涨跌幅", "净买入", "买入", "卖出", "上榜原因/解读"],
+        ["股票", "涨跌幅", "净额", "看点"],
         [
             [
                 row.get("name", "-"),
                 _fmt_pct(row.get("change_pct")),
                 _fmt_yi(row.get("net_yi")),
-                _fmt_yi(row.get("buy_yi")),
-                _fmt_yi(row.get("sell_yi")),
-                row.get("explain") or row.get("reason", "-"),
+                _format_lhb_row_focus(row),
             ]
-            for row in lhb_summary.get("top_buy", [])
+            for row in lhb_summary.get("top_buy", [])[:3]
         ],
     )
-    lines.extend(["", "龙虎榜净卖出前五："])
+    lines.extend(["", "卖出风险 Top3："])
     _append_table(
         lines,
-        ["股票", "涨跌幅", "净买入", "买入", "卖出", "上榜原因/解读"],
+        ["股票", "涨跌幅", "净额", "风险信号"],
         [
             [
                 row.get("name", "-"),
                 _fmt_pct(row.get("change_pct")),
                 _fmt_yi(row.get("net_yi")),
-                _fmt_yi(row.get("buy_yi")),
-                _fmt_yi(row.get("sell_yi")),
-                row.get("explain") or row.get("reason", "-"),
+                _format_lhb_row_focus(row),
             ]
-            for row in lhb_summary.get("top_sell", [])
+            for row in lhb_summary.get("top_sell", [])[:3]
         ],
     )
 
@@ -1305,6 +1301,49 @@ def _format_lhb_reasons(reason_counts: list[tuple[str, int]]) -> str:
     if not reason_counts:
         return "暂无龙虎榜原因分布"
     return "、".join(f"{reason}({count})" for reason, count in reason_counts[:5])
+
+
+def format_lhb_readable_view(lhb_summary: dict, strongest_boards: list[dict]) -> dict:
+    net = lhb_summary.get("total_net_yi", 0) or 0
+    buy_count = lhb_summary.get("net_buy_count", 0) or 0
+    sell_count = lhb_summary.get("net_sell_count", 0) or 0
+    hot_boards = [b for b in strongest_boards if b.get("main_net_yi", 0) > 0]
+    direction = _format_board_names(hot_boards, 3)
+
+    if not lhb_summary.get("count"):
+        conclusion = "暂无龙虎榜明细，短线资金方向不明确。"
+    elif net > 0 and buy_count >= sell_count:
+        conclusion = f"短线资金偏进攻，龙虎榜净流入 {_fmt_yi(net)}，买方席位占优。"
+    elif net < 0 and sell_count > buy_count:
+        conclusion = f"短线资金偏兑现，龙虎榜净流出 {_fmt_yi(abs(net))}，卖方压力更明显。"
+    elif net > 0:
+        conclusion = f"金额净流入 {_fmt_yi(net)}，但买卖家数分化，适合看结构不追总量。"
+    elif net < 0:
+        conclusion = f"金额净流出 {_fmt_yi(abs(net))}，但个股仍有分化，重点避开放量净卖出票。"
+    else:
+        conclusion = "龙虎榜买卖大体均衡，短线资金更偏轮动。"
+
+    if direction == "暂无明确方向":
+        direction = "暂无明确板块共振，优先看个股独立逻辑。"
+    else:
+        direction = f"{direction}；若买入榜与这些方向重合，说明热点承接更强"
+    return {"conclusion": conclusion, "hot_direction": direction}
+
+
+def _format_lhb_row_focus(row: dict) -> str:
+    reason = (row.get("explain") or row.get("reason") or "").strip()
+    if reason:
+        reason = reason.split("，")[0][:22]
+    else:
+        reason = "席位异动"
+    buy = row.get("buy_yi", 0) or 0
+    sell = row.get("sell_yi", 0) or 0
+    net = row.get("net_yi", 0) or 0
+    if net > 0:
+        return f"{reason}；买入 {_fmt_yi(buy)} > 卖出 {_fmt_yi(sell)}"
+    if net < 0:
+        return f"{reason}；卖出 {_fmt_yi(sell)} > 买入 {_fmt_yi(buy)}"
+    return f"{reason}；买卖接近平衡"
 
 
 def _format_announcement_counts(category_counts: list[tuple[str, int]]) -> str:

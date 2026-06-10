@@ -1131,6 +1131,26 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-11T07:24:00+08:00"
+    },
+    {
+      "id": "bug-064",
+      "timestamp": "2026-06-11T07:39:00+08:00",
+      "error_message": "龙虎榜数据展示 UI 不友好，格式不利于一眼阅读",
+      "file": "market_review.py",
+      "root_cause": "龙虎榜章节直接展示净买入/买入/卖出/原因的宽表格，字段过多且结论分散，邮件和 Markdown 中横向拥挤，用户需要先读多行数据才能判断短线资金方向。",
+      "fix": "将龙虎榜章节重排为资金结论、上榜概览、热点方向、上榜原因、买入焦点 Top3 和卖出风险 Top3；精简表格列为股票、涨跌幅、净额、看点/风险信号，并用一句话解释买卖强弱。",
+      "tags": [
+        "market-review",
+        "lhb",
+        "ui",
+        "readability",
+        "report-content"
+      ],
+      "related_bugs": [
+        "bug-059"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-11T07:39:00+08:00"
     }
   ]
 }
