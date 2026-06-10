@@ -3,6 +3,7 @@
 
 import json
 import math
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -48,7 +49,7 @@ def _load_config() -> dict:
     return {}
 
 
-def _request_json(params: dict, timeout: int = 12) -> dict:
+def _request_json(params: dict, timeout: int = 12, retries: int = 3, backoff: float = 2.0) -> dict:
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -56,12 +57,20 @@ def _request_json(params: dict, timeout: int = 12) -> dict:
         ),
         "Referer": "https://quote.eastmoney.com/",
     }
-    resp = requests.get(EASTMONEY_CLIST_URL, params=params, headers=headers, timeout=timeout)
-    resp.raise_for_status()
-    return resp.json()
+    last_exc = None
+    for attempt in range(1, retries + 1):
+        try:
+            resp = requests.get(EASTMONEY_CLIST_URL, params=params, headers=headers, timeout=timeout)
+            resp.raise_for_status()
+            return resp.json()
+        except requests.RequestException as e:
+            last_exc = e
+            if attempt < retries:
+                time.sleep(backoff * attempt)
+    raise last_exc
 
 
-def _request_ulist_json(params: dict, timeout: int = 12) -> dict:
+def _request_ulist_json(params: dict, timeout: int = 12, retries: int = 3, backoff: float = 2.0) -> dict:
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -69,9 +78,17 @@ def _request_ulist_json(params: dict, timeout: int = 12) -> dict:
         ),
         "Referer": "https://quote.eastmoney.com/",
     }
-    resp = requests.get(EASTMONEY_ULIST_URL, params=params, headers=headers, timeout=timeout)
-    resp.raise_for_status()
-    return resp.json()
+    last_exc = None
+    for attempt in range(1, retries + 1):
+        try:
+            resp = requests.get(EASTMONEY_ULIST_URL, params=params, headers=headers, timeout=timeout)
+            resp.raise_for_status()
+            return resp.json()
+        except requests.RequestException as e:
+            last_exc = e
+            if attempt < retries:
+                time.sleep(backoff * attempt)
+    raise last_exc
 
 
 def _safe_float(value, default: float = 0.0) -> float:
