@@ -876,6 +876,24 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-10T15:29:14+08:00"
+    },
+    {
+      "id": "bug-051",
+      "timestamp": "2026-06-10T15:36:00+08:00",
+      "error_message": "发送的邮件展示中，生成时间和实际的北京时间不一致",
+      "file": "email_sender.py, summarizer.py, stock_extractor.py, sector_monitor.py, pdf_generator.py",
+      "root_cause": "GitHub Actions 运行环境默认时区不是北京时间；邮件 Date 头、失败通知时间、报告正文生成时间和 PDF 页脚使用 naive datetime.now()，其中邮件 Date 头还手动标记 +0800，导致展示时间与实际北京时间不一致。",
+      "fix": "新增或复用 _now_shanghai()，统一使用 ZoneInfo(\"Asia/Shanghai\") 生成邮件头、错误邮件时间、股票报告、总结报告、板块报告和 PDF 页脚的可见时间，并在正文中明确标注“北京时间”。",
+      "tags": [
+        "github-actions",
+        "email",
+        "timezone",
+        "beijing-time",
+        "report"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-10T15:36:00+08:00"
     }
   ]
 }

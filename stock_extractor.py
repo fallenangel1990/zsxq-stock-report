@@ -11,8 +11,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 import yaml
+
+
+def _now_shanghai() -> datetime:
+    """返回北京时间当前时间，用于报告中展示的生成时间。"""
+    return datetime.now(ZoneInfo("Asia/Shanghai"))
 
 
 def _load_scoring_config() -> dict:
@@ -2001,11 +2007,12 @@ def _build_stock_report(merged: str, post_count: int) -> str:
     """包装最终的股票机会报告。"""
     # 最终防线：确保 JSON 已被移除
     merged = _strip_json_block(merged)
+    generated_at = _now_shanghai().strftime("%Y-%m-%d %H:%M:%S 北京时间")
     lines = [
         "# 知识星球股票投资机会提取（增强版）",
         "",
         f"> 分析帖子数: {post_count} 篇",
-        f"> 生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"> 生成时间: {generated_at}",
         f"> 数据来源: 腾讯行情 API（市值等行情数据）",
         "",
         merged,
@@ -2020,8 +2027,9 @@ def _build_stock_report(merged: str, post_count: int) -> str:
 
 def _empty_report() -> str:
     """无帖子时的空报告。"""
+    generated_at = _now_shanghai().strftime("%Y-%m-%d %H:%M:%S 北京时间")
     return (
         "# 知识星球股票投资机会提取\n\n"
-        f"> 生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+        f"> 生成时间: {generated_at}\n\n"
         "暂无帖子数据，无法提取股票机会。\n"
     )

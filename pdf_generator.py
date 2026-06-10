@@ -13,6 +13,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 import jinja2
 import markdown
@@ -21,6 +22,11 @@ import markdown
 # ── PDF 后端检测 ──
 
 _PDF_BACKEND = None  # "weasyprint" | "playwright" | None
+
+
+def _now_shanghai() -> datetime:
+    """返回北京时间当前时间，用于报告中展示的生成时间。"""
+    return datetime.now(ZoneInfo("Asia/Shanghai"))
 
 
 def _get_pdf_backend() -> str:
@@ -291,7 +297,7 @@ def _build_html(markdown_text: str, title: str = "股票机会提取报告") -> 
         title=title,
         css=css,
         body=body_html,
-        generated_at=datetime.now().strftime("%Y-%m-%d %H:%M"),
+        generated_at=_now_shanghai().strftime("%Y-%m-%d %H:%M 北京时间"),
         show_title=True,
         show_disclaimer=True,
     )

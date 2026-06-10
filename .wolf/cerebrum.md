@@ -75,6 +75,7 @@
 - **AI JSON 字段类型漂移**：Mimo 等模型可能把 schema 中声明为字符串的字段返回为 list/dict；处理 AI JSON 前要做类型归一，尤其是 `sectors[].stocks` 这类“列表语义”的字段。
 - **CI Cookie 认证失败处理**：GitHub Actions 中 ZSXQ HTTP/API 401/403 必须硬失败并提示更新 `ZSXQ_COOKIES`；不要回退 Playwright，也不要把 0 篇结果当作“无新增”或用旧报告发成功邮件。
 - **Cookie expires 元数据不可靠**：浏览器导出的 ZSXQ cookie `expires` 可能不准或与服务端会话状态不同；CI 只应要求存在 `zsxq_access_token`，真正有效性以 API 401/403 为准。
+- **报告展示时区**：所有会出现在邮件正文、邮件头、PDF 页脚或定时报告中的生成时间，都必须使用 `ZoneInfo("Asia/Shanghai")`；不要在 CI 可见输出中使用 naive `datetime.now()` 后再手动标注北京时间。
 
 ## Decision Log
 

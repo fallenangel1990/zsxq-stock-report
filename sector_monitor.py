@@ -6,6 +6,7 @@ import math
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 import requests
 import yaml
@@ -32,6 +33,11 @@ DEFAULT_MAINSTREAM_KEYWORDS = [
     "地产", "有色", "稀土", "黄金", "煤炭", "钢铁", "化工", "电力", "电网",
     "水泥", "玻璃", "农业", "猪肉", "旅游", "跨境电商",
 ]
+
+
+def _now_shanghai() -> datetime:
+    """返回北京时间当前时间，用于报告中展示的生成时间。"""
+    return datetime.now(ZoneInfo("Asia/Shanghai"))
 
 
 def _load_config() -> dict:
@@ -503,7 +509,7 @@ def _dedupe_boards(boards: list[dict]) -> list[dict]:
 
 
 def _build_sector_report(boards: list[dict], mode: str, with_ai: bool) -> str:
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now = _now_shanghai().strftime("%Y-%m-%d %H:%M:%S 北京时间")
     title = "A股盘后板块主力建仓复盘" if mode == "review" else "A股盘中板块异动信号"
     lines = [
         f"# {title}",
@@ -578,7 +584,7 @@ def _build_market_signal_report(
     mode: str,
     with_ai: bool,
 ) -> str:
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now = _now_shanghai().strftime("%Y-%m-%d %H:%M:%S 北京时间")
     title = "A股大盘与主流板块建仓/加仓信号"
     lines = [
         f"# {title}",

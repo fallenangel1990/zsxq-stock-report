@@ -69,7 +69,7 @@ def _build_message(
     msg["From"] = SMTP_USER
     msg["To"] = to_email
     msg["Subject"] = subject
-    msg["Date"] = datetime.now().strftime("%a, %d %b %Y %H:%M:%S +0800")
+    msg["Date"] = _now_shanghai().strftime("%a, %d %b %Y %H:%M:%S +0800")
 
     # 正文（纯 HTML，无附件）
     msg.attach(MIMEText(body_html, "html", "utf-8"))
@@ -369,7 +369,7 @@ def send_error_email(
         to_email: 收件人邮箱。
         step: 失败的步骤名称。
     """
-    today = datetime.now().strftime("%Y-%m-%d %H:%M")
+    today = _now_shanghai().strftime("%Y-%m-%d %H:%M 北京时间")
     step_info = f"（步骤：{step}）" if step else ""
 
     body = f"""\

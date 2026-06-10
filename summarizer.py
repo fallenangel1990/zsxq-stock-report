@@ -6,9 +6,16 @@
 
 import json
 import os
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import yaml
+
+
+def _now_shanghai() -> datetime:
+    """返回北京时间当前时间，用于报告中展示的生成时间。"""
+    return datetime.now(ZoneInfo("Asia/Shanghai"))
 
 
 def _load_config() -> dict:
@@ -294,12 +301,11 @@ def _summarize_overview(client, batch_summaries: list[str], stats: dict) -> str:
 
 def _build_report(stats: dict, batch_summaries: list[str], overview: str) -> str:
     """组装完整的 Markdown 报告。"""
-    from datetime import datetime
-
     parts = []
 
     parts.append(f"# 知识星球专栏内容总结")
-    parts.append(f"\n> 生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+    generated_at = _now_shanghai().strftime("%Y-%m-%d %H:%M:%S 北京时间")
+    parts.append(f"\n> 生成时间: {generated_at}\n")
 
     parts.append("## 数据概览\n")
     parts.append(f"| 指标 | 数值 |")
