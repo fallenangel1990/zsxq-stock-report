@@ -1792,7 +1792,6 @@ def _score_breakdown(stock: dict) -> str:
         f"共识{detail.get('consensus', 0):.1f}",
         f"基本面{detail.get('fundamentals', 0):.1f}",
         f"技术{stock.get('technical_score', 0):.1f}",
-        f"来源{stock.get('source_credibility', _source_credibility_score(stock)):.1f}",
     ]
     market = stock.get("market_filter") or {}
     if market.get("level"):
@@ -1997,10 +1996,8 @@ def _append_trader_summary(
     """报告顶部的交易员视角摘要。"""
     executable = [s for s in enriched if s.get("decision_tier") == "可执行清单"]
     watch = [s for s in enriched if s.get("decision_tier") == "观察清单"]
-    excluded = [s for s in enriched if s.get("decision_tier") == "剔除/暂不买入"]
     executable.sort(key=lambda s: (s.get("buy_score", 0), s.get("score", 0)), reverse=True)
     watch.sort(key=lambda s: (s.get("score", 0), s.get("buy_score", 0)), reverse=True)
-    excluded.sort(key=lambda s: s.get("score", 0), reverse=True)
 
     market_level = market_filter.get("level", "未知") if market_filter else "未知"
     market_desc = market_filter.get("desc", "无市场环境数据") if market_filter else "无市场环境数据"
@@ -2008,7 +2005,6 @@ def _append_trader_summary(
     parts.append(f"- 市场环境：**{market_level}**，{market_desc}")
     parts.append(f"- 今日可执行：**{_short_stock_names(executable, 3)}**")
     parts.append(f"- 等回踩观察：{_short_stock_names(watch, 5)}")
-    parts.append(f"- 高风险/暂不追：{_short_stock_names(excluded, 5)}")
     parts.append(f"- 今日主线板块：{_top_sector_line(trend_scores)}")
     if market_level in {"偏弱", "过热"}:
         parts.append("- 操作纪律：市场环境不友好时，立即买入降级为轻仓或等待确认。")
@@ -2018,11 +2014,10 @@ def _append_trader_summary(
 
 
 def _append_decision_tables(parts: list[str], enriched: list[dict]) -> None:
-    """输出可执行/观察/排除三层决策表。"""
+    """输出可执行/观察决策表，保持邮件篇幅紧凑。"""
     groups = [
         ("可执行清单（最多 3 只，优先考虑）", "可执行清单", 3),
         ("观察清单（逻辑较好，等待买点）", "观察清单", 8),
-        ("剔除/暂不买入清单", "剔除/暂不买入", 8),
     ]
     for title, tier, limit in groups:
         stocks = [s for s in enriched if s.get("decision_tier") == tier]
@@ -2042,8 +2037,6 @@ def _append_decision_tables(parts: list[str], enriched: list[dict]) -> None:
         )
         for stock in stocks[:limit]:
             entry = stock.get("entry_ref", "-")
-            if tier == "剔除/暂不买入":
-                entry = stock.get("exclusion_reason") or entry
             parts.append(
                 f"| {_display_stock_name(stock)} | {stock.get('opportunity_type', '-')} / "
                 f"{stock.get('repeat_strength', '-')} | {stock.get('position_advice', '-')} | "
@@ -2060,6 +2053,7 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
     """
     if trend_data is None:
         trend_data = {}
+    enriched = [s for s in enriched if s.get("score", 0) >= 3.0]
     trend_scores = trend_data.get("scores", {})
     sector_groups = trend_data.get("groups", {})
     sector_logic_map = trend_data.get("logic_map", {})
@@ -2090,10 +2084,10 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
                 f"{market_filter.get('desc', '无市场环境数据')}\n"
             )
         parts.append(
-            "| 优先级 | 股票名称 | 机会类型 | 买入档位 | 仓位 | 周期 | 买点参考 | 加仓条件 | 卖出/减仓触发 | 技术面 | 买点分 | 来源可信度 | 推荐指数 | 核心逻辑 | 风险点/潜在利空 |"
+            "| 优先级 | 股票名称 | 机会类型 | 买入档位 | 仓位 | 周期 | 买点参考 | 加仓条件 | 卖出/减仓触发 | 技术面 | 推荐指数 | 核心逻辑 | 风险点/潜在利空 |"
         )
         parts.append(
-            "|--------|----------|----------|----------|------|------|----------|----------|----------------|--------|--------|------------|----------|----------|----------------|"
+            "|--------|----------|----------|----------|------|------|----------|----------|----------------|--------|----------|----------|----------------|"
         )
         for i, stock in enumerate(buy_candidates[:8], 1):
             parts.append(
@@ -2102,7 +2096,6 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
                 f"{stock.get('trade_period', '-')} | {_technical_buy_reference(stock)} | "
                 f"{stock.get('add_trigger', '-')} | "
                 f"{stock.get('exit_trigger', '-')} | {stock.get('technical_view', '-')} | "
-                f"**{stock.get('buy_score', 0):.1f}** | {stock.get('source_credibility', _source_credibility_score(stock)):.1f} | "
                 f"{_format_score_display(stock)} | "
                 f"{_emphasize_cell(stock.get('logic', '')[:70] if stock.get('logic') else '')} | "
                 f"{stock.get('risk_display', '-')[:90]} |"
@@ -2112,15 +2105,15 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
     # ── 0. 快速选股总览 ──
     parts.append("## 快速选股清单（按推荐指数降序）\n")
     parts.append(
-        "| 决策层级 | 买卖建议 | 股票名称 | 机会类型 | 周期 | 当前市值 | 买入参考 | 仓位 | 卖出/减仓触发 | 技术面 | 买点分 | 来源可信度 | 评分拆解 | 核心逻辑 | 目标参考 | 风险点/潜在利空 | 推荐指数 | 趋势 |"
+        "| 买卖建议 | 股票名称 | 机会类型 | 周期 | 当前市值 | 买入参考 | 仓位 | 卖出/减仓触发 | 技术面 | 评分拆解 | 核心逻辑 | 目标参考 | 风险点/潜在利空 | 推荐指数 | 趋势 |"
     )
     parts.append(
-        "|----------|----------|----------|----------|------|----------|----------|------|----------------|--------|--------|------------|----------|----------|----------|----------------|----------|------|"
+        "|----------|----------|----------|------|----------|----------|------|----------------|--------|----------|----------|----------|----------------|----------|------|"
     )
 
     if not enriched:
         parts.append(
-            "| - | - | 本次未形成可评分个股 | - | - | - | - | - | - | - | - | - | - | "
+            "| - | 本次未形成 3 分以上可展示个股 | - | - | - | - | - | - | - | - | "
             "AI 未返回可进入量化/弹性评分的 A 股标的 | - | "
             "请检查下方细分板块/风险提示；若日志出现 1059，优先更新 Cookie 或等待限流恢复 | - | - |"
         )
@@ -2136,12 +2129,11 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
         trend_badge = _trend_badge(stock)
 
         parts.append(
-            f"| {stock.get('decision_tier', '-')} | {stock.get('action', '-')} | {name} | "
+            f"| {stock.get('action', '-')} | {name} | "
             f"{stock.get('opportunity_type', '-')} | {stock.get('trade_period', '-')} | "
             f"{market_cap_str} | {stock.get('entry_ref', '-')} | "
             f"{stock.get('position_advice', '-')} | "
             f"{stock.get('exit_trigger', '-')} | {stock.get('technical_view', '-')} | "
-            f"**{stock.get('buy_score', 0):.1f}** | {stock.get('source_credibility', _source_credibility_score(stock)):.1f} | "
             f"{stock.get('score_breakdown', '-')} | {logic} | {target_str} | "
             f"{risk} | {score_str} | {trend_badge} |"
         )
