@@ -49,46 +49,53 @@ def _load_config() -> dict:
     return {}
 
 
-def _request_json(params: dict, timeout: int = 12, retries: int = 3, backoff: float = 2.0) -> dict:
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
-        ),
-        "Referer": "https://quote.eastmoney.com/",
-    }
-    last_exc = None
-    for attempt in range(1, retries + 1):
-        try:
-            resp = requests.get(EASTMONEY_CLIST_URL, params=params, headers=headers, timeout=timeout)
-            resp.raise_for_status()
-            return resp.json()
-        except requests.RequestException as e:
-            last_exc = e
-            if attempt < retries:
-                time.sleep(backoff * attempt)
-    raise last_exc
+# 共享 Session + HTTPAdapter，统一处理所有东方财富请求的重试
+_em_session = None
 
 
-def _request_ulist_json(params: dict, timeout: int = 12, retries: int = 3, backoff: float = 2.0) -> dict:
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
-        ),
-        "Referer": "https://quote.eastmoney.com/",
-    }
-    last_exc = None
-    for attempt in range(1, retries + 1):
-        try:
-            resp = requests.get(EASTMONEY_ULIST_URL, params=params, headers=headers, timeout=timeout)
-            resp.raise_for_status()
-            return resp.json()
-        except requests.RequestException as e:
-            last_exc = e
-            if attempt < retries:
-                time.sleep(backoff * attempt)
-    raise last_exc
+def _get_em_session(timeout: int = 15) -> requests.Session:
+    """获取配置了重试的共享 Session（懒加载单例）。"""
+    global _em_session
+    if _em_session is None:
+        from urllib3.util.retry import Retry
+        from requests.adapters import HTTPAdapter
+
+        retry_conf = Retry(
+            total=4,
+            backoff_factor=1.5,
+            status_forcelist={502, 503, 504, 429, 500},
+            allowed_methods=["GET"],
+            connect=3,
+            read=3,
+        )
+        adapter = HTTPAdapter(max_retries=retry_conf, pool_connections=1, pool_maxsize=1)
+        _em_session = requests.Session()
+        _em_session.mount("https://", adapter)
+        _em_session.headers.update({
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
+            ),
+            "Referer": "https://quote.eastmoney.com/",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            "Connection": "keep-alive",
+        })
+    return _em_session
+
+
+def _request_json(params: dict, timeout: int = 15) -> dict:
+    session = _get_em_session()
+    resp = session.get(EASTMONEY_CLIST_URL, params=params, timeout=timeout)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _request_ulist_json(params: dict, timeout: int = 15) -> dict:
+    session = _get_em_session()
+    resp = session.get(EASTMONEY_ULIST_URL, params=params, timeout=timeout)
+    resp.raise_for_status()
+    return resp.json()
 
 
 def _safe_float(value, default: float = 0.0) -> float:
