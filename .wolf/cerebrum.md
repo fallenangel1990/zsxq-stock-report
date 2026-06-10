@@ -83,6 +83,7 @@
 - **ZSXQ Cookie 自动刷新边界**：GitHub Actions 不能无交互扫码登录，也不能凭默认权限自动改仓库 Secret；Cookie 即将过期时只能本地扫码刷新，或通过 `ZSXQ_COOKIES_REFRESH_URL` 私有端点返回新 Cookie 供本次 CI 使用。
 - **报告展示时区**：所有会出现在邮件正文、邮件头、PDF 页脚或定时报告中的生成时间，都必须使用 `ZoneInfo("Asia/Shanghai")`；不要在 CI 可见输出中使用 naive `datetime.now()` 后再手动标注北京时间。
 - **盘后复盘行情源降级**：东方财富 `push2.eastmoney.com` 在 GitHub Actions 中可能连续返回 502；盘后复盘不能把主要指数、全A快照或板块快照作为硬依赖，应返回空/部分样本、尝试腾讯兜底，并在报告中标记数据完整性。
+- **盘后复盘私有数据接入**：真实持仓和交易心理日志不提交到仓库；本地分别读取 `data/holdings.json`、`data/trading_journal.json`，CI 通过 `PORTFOLIO_JSON`、`TRADING_JOURNAL_JSON` Secrets 写入运行时文件。报告应展示明确数据状态，不再输出“待接入”占位。
 
 ## Decision Log
 

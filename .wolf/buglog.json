@@ -1088,6 +1088,28 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-11T01:55:00+08:00"
+    },
+    {
+      "id": "bug-062",
+      "timestamp": "2026-06-11T07:08:00+08:00",
+      "error_message": "盘后复盘仍有未接入数据占位：连板、真实持仓/仓位、公告信息、心理复盘",
+      "file": "market_review.py, .github/workflows/market-review.yml",
+      "root_cause": "复盘报告已经接入了市场宽度、涨跌停、龙虎榜和板块统计，但部分章节仍用模板占位输出；CI 也没有给私有持仓和交易日志预留 Secret 注入路径，导致定时报告无法展示真实账户复盘内容。",
+      "fix": "新增涨停池明细连板统计和涨停集中行业；新增东方财富公告抓取与分类；新增 data/holdings.json 持仓快照读取、行情补齐、仓位和浮盈亏计算；新增 data/trading_journal.json 心理/纪律日志读取；market-review workflow 支持 PORTFOLIO_JSON 和 TRADING_JOURNAL_JSON 写入运行时文件；报告移除待接入与北向/北方残留。",
+      "tags": [
+        "market-review",
+        "portfolio",
+        "announcements",
+        "limit-pool",
+        "trading-journal",
+        "github-actions"
+      ],
+      "related_bugs": [
+        "bug-059",
+        "bug-061"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-11T07:08:00+08:00"
     }
   ]
 }

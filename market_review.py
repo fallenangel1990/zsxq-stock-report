@@ -33,6 +33,9 @@ EASTMONEY_DATACENTER_URL = "https://datacenter-web.eastmoney.com/api/data/v1/get
 THS_INDEXFLASH_URL = "https://q.10jqka.com.cn/api.php?t=indexflash"
 EASTMONEY_LIMIT_UP_URL = "https://push2ex.eastmoney.com/getTopicZTPool"
 EASTMONEY_LIMIT_DOWN_URL = "https://push2ex.eastmoney.com/getTopicDTPool"
+EASTMONEY_NOTICE_URL = "https://np-anotice-stock.eastmoney.com/api/security/ann"
+PORTFOLIO_FILE = Path(__file__).parent / "data" / "holdings.json"
+TRADING_JOURNAL_FILE = Path(__file__).parent / "data" / "trading_journal.json"
 
 
 def _now_shanghai() -> datetime:
@@ -49,6 +52,12 @@ def _fmt_yi(value) -> str:
     if value is None:
         return "-"
     return f"{value:.2f}亿"
+
+
+def _fmt_money(value) -> str:
+    if value is None:
+        return "-"
+    return f"{value:.2f}"
 
 
 def _load_previous_state() -> dict:
@@ -328,6 +337,257 @@ def summarize_breadth(
         "limit_date": limit_stats.get("date", ""),
         "data_status": "；".join(status for status in statuses if status) or "正常",
     }
+
+
+def _limit_board_count(row: dict) -> int:
+    zttj = row.get("zttj") or {}
+    candidates = [
+        zttj.get("ct"),
+        zttj.get("days"),
+        row.get("lbc"),
+        row.get("days"),
+    ]
+    for value in candidates:
+        try:
+            count = int(value)
+            if count > 0:
+                return count
+        except (TypeError, ValueError):
+            continue
+    return 1
+
+
+def summarize_limit_pool(limit_stats: dict) -> dict:
+    """从真实涨停池明细统计连板和涨停集中方向。"""
+    pool = limit_stats.get("limit_up_pool") or []
+    if not pool:
+        return {
+            "consecutive_count": 0,
+            "max_consecutive": 0,
+            "top_consecutive": [],
+            "hot_industries": [],
+            "data_status": limit_stats.get("data_status", "涨停池明细不可用"),
+        }
+
+    rows = []
+    industries = Counter()
+    for raw in pool:
+        board_count = _limit_board_count(raw)
+        industry = raw.get("hybk") or raw.get("industry") or "未分类"
+        if industry:
+            industries[industry] += 1
+        rows.append({
+            "code": raw.get("c") or raw.get("code", ""),
+            "name": raw.get("n") or raw.get("name", ""),
+            "industry": industry,
+            "board_count": board_count,
+            "change_pct": _safe_float(raw.get("zdp")),
+            "amount_yi": _money_yi(raw.get("amount")),
+        })
+
+    consecutive_rows = [row for row in rows if row["board_count"] >= 2]
+    return {
+        "consecutive_count": len(consecutive_rows),
+        "max_consecutive": max((row["board_count"] for row in rows), default=0),
+        "top_consecutive": sorted(
+            consecutive_rows,
+            key=lambda row: (row.get("board_count", 0), row.get("amount_yi", 0)),
+            reverse=True,
+        )[:5],
+        "hot_industries": industries.most_common(5),
+        "data_status": "正常",
+    }
+
+
+def _data_file_path(env_name: str, default: Path) -> Path:
+    value = os.environ.get(env_name, "").strip()
+    return Path(value).expanduser() if value else default
+
+
+def _load_json_file(path: Path) -> Optional[object]:
+    if not path.exists():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _normalize_holding(raw: dict, quote: Optional[dict] = None) -> dict:
+    quote = quote or {}
+    code = str(raw.get("code") or quote.get("code") or "").zfill(6)
+    name = raw.get("name") or quote.get("name") or code
+    shares = _safe_float(raw.get("shares") or raw.get("volume") or raw.get("quantity")) or 0.0
+    cost = _safe_float(raw.get("cost") or raw.get("cost_price") or raw.get("avg_cost"))
+    price = _safe_float(raw.get("price") or raw.get("current_price")) or quote.get("price")
+    market_value = _safe_float(raw.get("market_value"))
+    if market_value is None and price is not None and shares:
+        market_value = round(price * shares, 2)
+    pnl = _safe_float(raw.get("pnl") or raw.get("profit"))
+    if pnl is None and market_value is not None and cost is not None and shares:
+        pnl = round(market_value - cost * shares, 2)
+    pnl_pct = _safe_float(raw.get("pnl_pct") or raw.get("profit_pct"))
+    if pnl_pct is None and pnl is not None and cost and shares:
+        base = cost * shares
+        if base:
+            pnl_pct = round(pnl / base * 100, 2)
+    return {
+        "code": code,
+        "name": name,
+        "shares": shares,
+        "cost": cost,
+        "price": price,
+        "market_value": market_value or 0.0,
+        "pnl": pnl,
+        "pnl_pct": pnl_pct,
+        "change_pct": quote.get("change_pct"),
+    }
+
+
+def load_portfolio_snapshot() -> dict:
+    """加载真实持仓快照；CI 可通过 PORTFOLIO_JSON 写入 data/holdings.json。"""
+    path = _data_file_path("PORTFOLIO_FILE", PORTFOLIO_FILE)
+    if not path.exists():
+        return {
+            "holdings": [],
+            "cash": None,
+            "total_assets": None,
+            "position_ratio": None,
+            "total_market_value": 0.0,
+            "total_pnl": None,
+            "data_status": "未配置持仓文件 data/holdings.json，持仓和现金按空数据展示。",
+        }
+    try:
+        data = _load_json_file(path)
+        if isinstance(data, list):
+            holdings_raw = data
+            cash = None
+            total_assets = None
+        else:
+            data = data or {}
+            holdings_raw = data.get("holdings") or data.get("positions") or []
+            cash = _safe_float(data.get("cash"))
+            total_assets = _safe_float(data.get("total_assets") or data.get("asset"))
+        codes = [str(item.get("code", "")).zfill(6) for item in holdings_raw if item.get("code")]
+        try:
+            from price_fetcher import fetch_prices
+            quotes = fetch_prices(codes) if codes else {}
+        except Exception as exc:
+            print(f"[复盘] 持仓行情补齐失败: {exc}", flush=True)
+            quotes = {}
+        holdings = [
+            _normalize_holding(item, quotes.get(str(item.get("code", "")).zfill(6)))
+            for item in holdings_raw
+            if isinstance(item, dict)
+        ]
+        total_market_value = round(sum(item.get("market_value", 0) for item in holdings), 2)
+        if total_assets is None and cash is not None:
+            total_assets = round(total_market_value + cash, 2)
+        position_ratio = round(total_market_value / total_assets * 100, 2) if total_assets else None
+        pnl_values = [item.get("pnl") for item in holdings if item.get("pnl") is not None]
+        total_pnl = round(sum(pnl_values), 2) if pnl_values else None
+        return {
+            "holdings": holdings,
+            "cash": cash,
+            "total_assets": total_assets,
+            "position_ratio": position_ratio,
+            "total_market_value": total_market_value,
+            "total_pnl": total_pnl,
+            "data_status": "正常",
+        }
+    except Exception as exc:
+        return {
+            "holdings": [],
+            "cash": None,
+            "total_assets": None,
+            "position_ratio": None,
+            "total_market_value": 0.0,
+            "total_pnl": None,
+            "data_status": f"持仓文件解析失败：{exc}",
+        }
+
+
+def _announcement_category(title: str, columns: str) -> str:
+    text = f"{title} {columns}"
+    if any(keyword in text for keyword in ("立案", "处罚", "风险", "退市", "ST", "减持", "诉讼", "仲裁", "亏损")):
+        return "风险"
+    if any(keyword in text for keyword in ("增持", "回购", "中标", "合同", "订单", "重组", "并购", "预增", "分红")):
+        return "机会"
+    if any(keyword in text for keyword in ("业绩", "年报", "季报", "快报", "预告")):
+        return "业绩"
+    if any(keyword in text for keyword in ("定增", "债券", "募集", "融资")):
+        return "融资"
+    return "常规"
+
+
+def fetch_market_announcements(page_size: int = 30) -> dict:
+    """抓取 A 股公告列表，用于信息与新闻复盘。"""
+    params = {
+        "ann_type": "A",
+        "client_source": "web",
+        "page_index": 1,
+        "page_size": page_size,
+    }
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+        "Referer": "https://data.eastmoney.com/notices/",
+        "Accept": "application/json, text/plain, */*",
+    }
+    try:
+        resp = requests.get(EASTMONEY_NOTICE_URL, params=params, headers=headers, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        items = (data.get("data") or {}).get("list") or []
+    except Exception as exc:
+        return {"rows": [], "category_counts": [], "data_status": f"公告数据获取失败：{exc}"}
+
+    rows = []
+    counter = Counter()
+    for item in items:
+        codes = item.get("codes") or []
+        first_code = codes[0] if codes else {}
+        columns = "、".join(
+            column.get("column_name", "")
+            for column in (item.get("columns") or [])
+            if column.get("column_name")
+        )
+        title = item.get("title") or ""
+        category = _announcement_category(title, columns)
+        counter[category] += 1
+        rows.append({
+            "title": title,
+            "company": first_code.get("short_name", ""),
+            "code": first_code.get("stock_code", ""),
+            "columns": columns,
+            "category": category,
+            "time": (item.get("display_time") or item.get("notice_date") or "")[:16],
+        })
+    return {
+        "rows": rows,
+        "category_counts": counter.most_common(),
+        "data_status": "正常" if rows else "公告列表为空",
+        "source": "东方财富公告",
+    }
+
+
+def load_trading_journal() -> dict:
+    """加载交易日志；CI 可通过 TRADING_JOURNAL_JSON 写入 data/trading_journal.json。"""
+    path = _data_file_path("TRADING_JOURNAL_FILE", TRADING_JOURNAL_FILE)
+    if not path.exists():
+        return {
+            "data_status": "未配置交易日志 data/trading_journal.json，心理复盘按空记录展示。",
+        }
+    try:
+        data = _load_json_file(path)
+        if isinstance(data, list):
+            entries = data
+        else:
+            entries = (data or {}).get("entries") if isinstance(data, dict) else []
+            if not entries and isinstance(data, dict):
+                entries = [data]
+        entries = [entry for entry in entries if isinstance(entry, dict)]
+        latest = sorted(entries, key=lambda item: str(item.get("date") or item.get("time") or ""), reverse=True)[0] if entries else {}
+        latest["data_status"] = "正常" if latest else "交易日志为空"
+        return latest
+    except Exception as exc:
+        return {"data_status": f"交易日志解析失败：{exc}"}
 
 
 def _request_lhb_json(trade_date: str, page_size: int = 80) -> dict:
@@ -618,9 +878,13 @@ def build_review_report(
     indices: list[dict],
     market: dict,
     breadth: dict,
+    limit_summary: dict,
     all_boards: list[dict],
     board_stats: dict,
     lhb_summary: dict,
+    portfolio: dict,
+    announcements: dict,
+    journal: dict,
     signal_boards: list[dict],
     watchlist: list[dict],
     previous: dict,
@@ -636,18 +900,36 @@ def build_review_report(
     market_status = market.get("data_status", "正常")
     board_status = board_stats.get("data_status", "正常")
     lhb_status = lhb_summary.get("data_status", "正常")
+    limit_status = limit_summary.get("data_status", "正常")
+    portfolio_status = portfolio.get("data_status", "正常")
+    announcement_status = announcements.get("data_status", "正常")
+    journal_status = journal.get("data_status", "正常")
     data_status = "；".join(
-        status for status in (market_status, breadth_status, board_status, lhb_status)
+        status for status in (
+            market_status,
+            breadth_status,
+            limit_status,
+            board_status,
+            lhb_status,
+            portfolio_status,
+            announcement_status,
+            journal_status,
+        )
         if status and status != "正常"
     ) or "正常"
     amount_source = breadth.get("amount_source", breadth_source)
     amount_label = "全A约" if amount_source == "东方财富全A快照" else f"{amount_source}约"
+    consecutive_count = limit_summary.get("consecutive_count", 0)
+    max_consecutive = limit_summary.get("max_consecutive", 0)
+    hot_limit_industries = "、".join(
+        f"{name}({count})" for name, count in limit_summary.get("hot_industries", [])[:5]
+    ) or "暂无集中方向"
 
     lines = [
         "# A股盘后复盘报告",
         "",
         f"> 生成时间: {now}",
-        "> 数据源: 东方财富指数/板块/个股快照/龙虎榜；真实持仓需接入券商或手工持仓数据后补齐。",
+        "> 数据源: 同花顺市场宽度；东方财富指数/板块/个股快照/涨跌停池/龙虎榜/公告；本地持仓与交易日志。",
         f"> 数据完整性: {data_status}",
         "",
         "## 一、大盘行情与市场情绪",
@@ -656,7 +938,7 @@ def build_review_report(
         f"- 今日成交额: {amount_label} **{_fmt_yi(breadth.get('total_amount_yi'))}**；{volume_desc}。",
         f"- 市场宽度: {breadth.get('up', 0)} 涨 / {breadth.get('down', 0)} 跌 / {breadth.get('flat', 0)} 平（{breadth_source}），赚钱效应 **{breadth.get('money_effect', '未知')}**。",
         f"- 市场风格: **{style}**；平均换手率约 {breadth.get('avg_turnover_rate', 0):.2f}%。",
-        f"- 涨停/跌停: 涨停 {breadth.get('limit_up', 0)} 只，跌停 {breadth.get('limit_down', 0)} 只（{breadth.get('limit_source', '实际涨跌停池')} {breadth.get('limit_date', '')}）；连板数据待接入涨停池明细统计。",
+        f"- 涨停/跌停: 涨停 {breadth.get('limit_up', 0)} 只，跌停 {breadth.get('limit_down', 0)} 只（{breadth.get('limit_source', '实际涨跌停池')} {breadth.get('limit_date', '')}）；连板 {consecutive_count} 只，最高 {max_consecutive} 连板。",
         f"- 主线情绪评分: **{emotion} / 10**。",
         "",
     ]
@@ -668,6 +950,22 @@ def build_review_report(
             for i in indices
         ],
     )
+    if limit_summary.get("top_consecutive"):
+        lines.extend(["", "连板股观察："])
+        _append_table(
+            lines,
+            ["股票", "行业", "连板数", "涨幅", "成交额"],
+            [
+                [
+                    row.get("name", "-"),
+                    row.get("industry", "-"),
+                    row.get("board_count", "-"),
+                    _fmt_pct(row.get("change_pct")),
+                    _fmt_yi(row.get("amount_yi")),
+                ]
+                for row in limit_summary.get("top_consecutive", [])
+            ],
+        )
 
     lines.extend([
         "",
@@ -680,6 +978,7 @@ def build_review_report(
         f"- 板块强弱: 强势扩散 {board_stats.get('strong_count', 0)} 个，弱势下跌 {board_stats.get('weak_count', 0)} 个；平均上涨家数占比 {board_stats.get('avg_up_ratio', 0):.1f}%。",
         f"- 强势行业: {_format_board_names(board_stats.get('strong_industries', []), 5)}。",
         f"- 强势题材: {_format_board_names(board_stats.get('strong_concepts', []), 5)}。",
+        f"- 涨停集中行业: {hot_limit_industries}。",
         f"- 板块资金: 总成交 {_fmt_yi(board_stats.get('total_amount_yi'))}，主力净流入合计 {_fmt_yi(board_stats.get('total_main_net_yi'))}；主力净流入 {board_stats.get('main_in_count', 0)} 个 / 净流出 {board_stats.get('main_out_count', 0)} 个。",
         "",
     ])
@@ -784,8 +1083,32 @@ def build_review_report(
         "",
         "## 四、个股复盘",
         "",
-        "- 今日自选股表现使用最近一次推荐池近似；真实持仓盈亏需接入券商/手工持仓数据。",
+        f"- 持仓数据: {portfolio_status}",
     ])
+    if portfolio.get("holdings"):
+        _append_table(
+            lines,
+            ["股票", "持仓股数", "现价", "涨跌幅", "市值", "浮盈亏", "收益率"],
+            [
+                [
+                    row.get("name", "-"),
+                    f"{row.get('shares', 0):.0f}",
+                    _fmt_money(row.get("price")),
+                    _fmt_pct(row.get("change_pct")),
+                    _fmt_money(row.get("market_value")),
+                    _fmt_money(row.get("pnl")),
+                    _fmt_pct(row.get("pnl_pct")),
+                ]
+                for row in sorted(
+                    portfolio.get("holdings", []),
+                    key=lambda item: item.get("market_value", 0),
+                    reverse=True,
+                )[:12]
+            ],
+        )
+    else:
+        lines.append("- 当前未读取到真实持仓；若当日有交易，请用交易日志补充决策复盘。")
+    lines.extend(["", "推荐池观察："])
     if watchlist:
         _append_table(
             lines,
@@ -802,7 +1125,7 @@ def build_review_report(
             ],
         )
     else:
-        lines.append("- 暂无自选/推荐池行情数据。")
+        lines.append("- 暂无推荐池行情数据。")
 
     lines.extend([
         "",
@@ -816,15 +1139,36 @@ def build_review_report(
         "## 六、持仓与仓位管理",
         "",
         f"- 建议仓位上限: **{market.get('position_ceiling', '未知')}**。",
-        "- 今日总仓位/现金比例: 真实账户数据待接入。",
+        f"- 今日总资产: {_fmt_money(portfolio.get('total_assets'))}，股票市值 {_fmt_money(portfolio.get('total_market_value'))}，现金 {_fmt_money(portfolio.get('cash'))}，仓位 {portfolio.get('position_ratio') if portfolio.get('position_ratio') is not None else '-'}%。",
+        f"- 今日持仓浮盈亏: {_fmt_money(portfolio.get('total_pnl'))}。",
         "- 止损止盈: 对推荐池个股按各自买点/风控执行；跌破关键均线且板块弱化时优先减仓。",
         "",
         "## 七、信息与新闻",
         "",
-        "- 重大公告/政策/研报: 数据待接入公告与新闻源。",
+        f"- 公告数据: {announcement_status}。",
+        f"- 公告分类: {_format_announcement_counts(announcements.get('category_counts', []))}。",
         "- 过度反应识别: 涨幅靠前但主力净流入弱、板块上涨家数占比低的方向，按短线情绪过热处理。",
         "- 新机会: 重点观察新进入强势榜且主力净流入为正的板块。",
         "",
+    ])
+    if announcements.get("rows"):
+        _append_table(
+            lines,
+            ["公司", "类别", "公告", "时间"],
+            [
+                [
+                    row.get("company") or row.get("code") or "-",
+                    row.get("category", "-"),
+                    row.get("title", "-")[:48],
+                    row.get("time", "-"),
+                ]
+                for row in announcements.get("rows", [])[:8]
+            ],
+        )
+        lines.append("")
+    else:
+        lines.extend(["- 今日未获取到公告列表。", ""])
+    lines.extend([
         "## 八、明日交易计划",
         "",
         f"- 重点指数: 观察主要指数能否维持 {market.get('level', '未知')} 对应的成交额与上涨家数扩散。",
@@ -835,9 +1179,11 @@ def build_review_report(
         "",
         "## 九、心理与复盘总结",
         "",
-        "- 今日是否被涨跌影响: 需要在交易日志中记录主观情绪评分。",
-        "- 纪律检查: 是否只在计划内买卖、是否按止损/止盈执行、是否追高。",
-        "- 今日经验: 优先相信数据共振，不因单只股波动改变整体策略。",
+        f"- 情绪评分: {journal.get('emotion_score', '-')}/10；{journal_status}",
+        f"- 纪律检查: {journal.get('discipline') or '未记录；默认检查是否只在计划内买卖、是否按止损/止盈执行、是否追高。'}",
+        f"- 成功交易: {journal.get('success_trade') or journal.get('best_trade') or '未记录'}",
+        f"- 失败交易: {journal.get('failed_trade') or journal.get('worst_trade') or '未记录'}",
+        f"- 今日经验: {journal.get('lessons') or '优先相信数据共振，不因单只股波动改变整体策略。'}",
         "- 明日复盘重点: 成交额、上涨家数、涨停数量、主线板块持续性、龙头与跟风梯队。",
         "",
         "---",
@@ -872,6 +1218,12 @@ def _format_lhb_reasons(reason_counts: list[tuple[str, int]]) -> str:
     return "、".join(f"{reason}({count})" for reason, count in reason_counts[:5])
 
 
+def _format_announcement_counts(category_counts: list[tuple[str, int]]) -> str:
+    if not category_counts:
+        return "暂无公告分类"
+    return "、".join(f"{category} {count} 条" for category, count in category_counts[:5])
+
+
 def _mainline_state(signal_boards: list[dict], emotion: float) -> str:
     if emotion >= 7 and len(signal_boards) >= 3:
         return "强化"
@@ -890,6 +1242,7 @@ def generate_market_review(top_n: int = 10, board_type: str = "all") -> tuple[st
     all_stocks = fetch_a_share_snapshot()
     ths_breadth = fetch_ths_market_breadth()
     limit_stats = fetch_limit_pool_stats()
+    limit_summary = summarize_limit_pool(limit_stats)
     breadth = summarize_breadth(
         all_stocks,
         market=market,
@@ -920,13 +1273,20 @@ def generate_market_review(top_n: int = 10, board_type: str = "all") -> tuple[st
         print(f"[复盘] 板块信号获取失败，继续生成降级报告: {exc}", flush=True)
         signal_boards = []
     watchlist = load_watchlist_performance()
+    portfolio = load_portfolio_snapshot()
+    announcements = fetch_market_announcements()
+    journal = load_trading_journal()
     report = build_review_report(
         indices=indices,
         market=market,
         breadth=breadth,
+        limit_summary=limit_summary,
         all_boards=all_boards,
         board_stats=board_stats,
         lhb_summary=lhb_summary,
+        portfolio=portfolio,
+        announcements=announcements,
+        journal=journal,
         signal_boards=signal_boards,
         watchlist=watchlist,
         previous=previous,
@@ -942,6 +1302,7 @@ def generate_market_review(top_n: int = 10, board_type: str = "all") -> tuple[st
             for key, value in limit_stats.items()
             if key not in ("limit_up_pool", "limit_down_pool")
         },
+        "limit_summary": limit_summary,
         "board_stats": {
             key: value
             for key, value in board_stats.items()
@@ -954,6 +1315,17 @@ def generate_market_review(top_n: int = 10, board_type: str = "all") -> tuple[st
             "total_net_yi": lhb_summary.get("total_net_yi", 0),
             "data_status": lhb_summary.get("data_status", ""),
         },
+        "portfolio": {
+            key: value
+            for key, value in portfolio.items()
+            if key != "holdings"
+        },
+        "announcements": {
+            "count": len(announcements.get("rows", [])),
+            "category_counts": announcements.get("category_counts", []),
+            "data_status": announcements.get("data_status", ""),
+        },
+        "journal_status": journal.get("data_status", ""),
         "top_boards": [
             {
                 "name": b.get("name", ""),

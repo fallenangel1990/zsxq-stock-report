@@ -101,6 +101,25 @@ jobs:
             echo "ℹ️  THS_COOKIES secret 未设置，同花顺涨跌家数将降级"
           fi
 
+      - name: 写入持仓与交易日志
+        env:
+          PORTFOLIO_JSON: ${{ secrets.PORTFOLIO_JSON }}
+          TRADING_JOURNAL_JSON: ${{ secrets.TRADING_JOURNAL_JSON }}
+        run: |
+          mkdir -p data
+          if [ -n "$PORTFOLIO_JSON" ]; then
+            printf '%s' "$PORTFOLIO_JSON" > data/holdings.json
+            echo "✅ data/holdings.json 已写入，盘后复盘将展示真实持仓和仓位"
+          else
+            echo "ℹ️  PORTFOLIO_JSON secret 未设置，持仓和仓位按空数据展示"
+          fi
+          if [ -n "$TRADING_JOURNAL_JSON" ]; then
+            printf '%s' "$TRADING_JOURNAL_JSON" > data/trading_journal.json
+            echo "✅ data/trading_journal.json 已写入，盘后复盘将展示交易心理日志"
+          else
+            echo "ℹ️  TRADING_JOURNAL_JSON secret 未设置，心理复盘按空记录展示"
+          fi
+
       - name: 生成并发送盘后复盘
         env:
           TOP: ${{ inputs.top }}
