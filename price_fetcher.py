@@ -28,6 +28,7 @@ _FIELD_PB = 46
 _price_cache: dict[str, dict] = {}
 _change_5d_cache: dict[str, Optional[float]] = {}
 _technical_cache: dict[str, Optional[dict]] = {}
+_market_environment_cache: Optional[dict] = None
 
 
 def _code_to_tencent(code: str) -> str:
@@ -511,6 +512,77 @@ def fetch_technical_indicators(
                     result[code] = indicators
 
     return result
+
+
+def fetch_market_environment(timeout: int = 10) -> dict:
+    """获取主要指数技术环境，返回买入过滤所需的市场状态。"""
+    global _market_environment_cache
+    if _market_environment_cache is not None:
+        return _market_environment_cache
+
+    indices = [
+        ("sh000001", "上证指数"),
+        ("sz399001", "深证成指"),
+        ("sz399006", "创业板指"),
+        ("sh000300", "沪深300"),
+        ("sh000688", "科创50"),
+    ]
+    snapshots = []
+    for tc, name in indices:
+        technical = _fetch_one_technical(tc, tc, timeout)
+        if technical:
+            snapshots.append({"name": name, **technical})
+
+    if not snapshots:
+        _market_environment_cache = {
+            "level": "未知",
+            "desc": "主要指数技术数据不足，暂按候选池环境判断",
+            "buy_penalty": 0.0,
+            "buy_bonus": 0.0,
+            "indices": [],
+        }
+        return _market_environment_cache
+
+    total = len(snapshots)
+    above20 = sum(1 for item in snapshots if item.get("above_ma20")) / total
+    bullish = sum(1 for item in snapshots if item.get("ma_bullish")) / total
+    avg_change_5d = sum(item.get("change_5d") or 0 for item in snapshots) / total
+    overheated = sum(
+        1 for item in snapshots
+        if (item.get("change_5d") is not None and item["change_5d"] > 6)
+        or (item.get("position_20d") is not None and item["position_20d"] > 88)
+        or (item.get("distance_ma20_pct") is not None and item["distance_ma20_pct"] > 7)
+    ) / total
+
+    if above20 >= 0.6 and bullish >= 0.4 and avg_change_5d > -1 and overheated <= 0.4:
+        level = "偏强"
+        penalty = 0.0
+        bonus = 0.25
+    elif above20 <= 0.4 or avg_change_5d < -3:
+        level = "偏弱"
+        penalty = 0.8
+        bonus = 0.0
+    elif overheated > 0.5:
+        level = "过热"
+        penalty = 0.55
+        bonus = 0.0
+    else:
+        level = "中性"
+        penalty = 0.25
+        bonus = 0.0
+
+    desc = (
+        f"主要指数站上20日线占比{above20:.0%}，均线多头占比{bullish:.0%}，"
+        f"5日平均涨跌{avg_change_5d:+.2f}%，过热占比{overheated:.0%}"
+    )
+    _market_environment_cache = {
+        "level": level,
+        "desc": desc,
+        "buy_penalty": penalty,
+        "buy_bonus": bonus,
+        "indices": snapshots,
+    }
+    return _market_environment_cache
 
 
 def _safe_float(value: str) -> Optional[float]:

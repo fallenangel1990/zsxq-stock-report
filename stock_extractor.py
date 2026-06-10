@@ -260,8 +260,9 @@ def extract_stock_opportunities(
     # 保存增强后的股票数据到 JSON（供 ths_sync 等模块使用）
     if enriched:
         try:
-            from storage import save_enriched_stocks
+            from storage import append_recommendation_history, save_enriched_stocks
             save_enriched_stocks(enriched, group_name="latest")
+            append_recommendation_history(enriched, group_name="latest")
         except Exception:
             pass  # 保存失败不影响主流程
 
@@ -787,11 +788,18 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
     prices = {}
     changes_5d = {}
     technicals = {}
+    external_market = {}
     if valid_codes:
-        from price_fetcher import fetch_prices, fetch_5day_changes, fetch_technical_indicators
+        from price_fetcher import (
+            fetch_5day_changes,
+            fetch_market_environment,
+            fetch_prices,
+            fetch_technical_indicators,
+        )
         prices = fetch_prices(valid_codes)
         changes_5d = fetch_5day_changes(valid_codes)
         technicals = fetch_technical_indicators(valid_codes)
+        external_market = fetch_market_environment()
 
     if verbose and prices:
         print(f"  成功获取 {len(prices)} 只股票行情", flush=True)
@@ -958,7 +966,7 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
         })
 
     # 按推荐指数降序排列
-    market_filter = _market_filter(enriched)
+    market_filter = _market_filter(enriched, external_market)
     for stock in enriched:
         stock["market_filter"] = market_filter
         stock["buy_score"] = _buy_score(stock)
@@ -966,6 +974,7 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
         stock["action"] = _selection_action(stock)
         stock["trade_period"] = _trade_period(stock)
         stock["exit_trigger"] = _exit_trigger(stock)
+        _apply_expert_decision_fields(stock)
 
     enriched.sort(key=lambda x: x["score"], reverse=True)
 
@@ -1470,10 +1479,13 @@ def _is_overheated(stock: dict) -> bool:
     )
 
 
-def _market_filter(enriched: list[dict]) -> dict:
-    """用候选池整体技术面估算市场环境过滤。"""
+def _market_filter(enriched: list[dict], external_market: dict = None) -> dict:
+    """综合主要指数与候选池技术面生成市场环境过滤。"""
+    external_market = external_market or {}
     techs = [s.get("technical") or {} for s in enriched if s.get("technical")]
     if not techs:
+        if external_market:
+            return external_market
         return {
             "level": "未知",
             "desc": "技术样本不足，买入档位不做市场过滤",
@@ -1491,30 +1503,49 @@ def _market_filter(enriched: list[dict]) -> dict:
     ) / total
 
     if above20 >= 0.62 and bullish >= 0.35 and overheated <= 0.35:
-        level = "偏强"
-        penalty = 0.0
-        bonus = 0.2
+        pool_level = "偏强"
+        pool_penalty = 0.0
+        pool_bonus = 0.2
     elif above20 < 0.42 or bullish < 0.18:
-        level = "偏弱"
-        penalty = 0.7
-        bonus = 0.0
+        pool_level = "偏弱"
+        pool_penalty = 0.7
+        pool_bonus = 0.0
     elif overheated > 0.45:
-        level = "过热"
-        penalty = 0.5
-        bonus = 0.0
+        pool_level = "过热"
+        pool_penalty = 0.5
+        pool_bonus = 0.0
     else:
-        level = "中性"
-        penalty = 0.2
-        bonus = 0.0
+        pool_level = "中性"
+        pool_penalty = 0.2
+        pool_bonus = 0.0
+
+    ext_level = external_market.get("level", "")
+    if ext_level:
+        priority = {"偏弱": 4, "过热": 3, "中性": 2, "未知": 1, "偏强": 0}
+        level = ext_level if priority.get(ext_level, 1) >= priority.get(pool_level, 1) else pool_level
+        penalty = max(pool_penalty, external_market.get("buy_penalty", 0.0))
+        bonus = min(pool_bonus, external_market.get("buy_bonus", 0.0))
+        desc = (
+            f"大盘：{external_market.get('desc', '无指数数据')}；"
+            f"候选池：站上20日线占比{above20:.0%}，均线多头占比{bullish:.0%}，"
+            f"短线过热占比{overheated:.0%}"
+        )
+    else:
+        level = pool_level
+        penalty = pool_penalty
+        bonus = pool_bonus
+        desc = (
+            f"候选池站上20日线占比{above20:.0%}，均线多头占比{bullish:.0%}，"
+            f"短线过热占比{overheated:.0%}"
+        )
 
     return {
         "level": level,
-        "desc": (
-            f"候选池站上20日线占比{above20:.0%}，均线多头占比{bullish:.0%}，"
-            f"短线过热占比{overheated:.0%}"
-        ),
+        "desc": desc,
         "buy_penalty": penalty,
         "buy_bonus": bonus,
+        "index_level": ext_level or "",
+        "candidate_level": pool_level,
     }
 
 
@@ -1539,7 +1570,7 @@ def _buy_bucket(stock: dict) -> str:
     risk_text = stock.get("risk_display", "")
     if any(kw in risk_text for kw in ("回避", "看空", "退市", "重大利空")):
         return "只观察"
-    if stock.get("market_filter", {}).get("level") == "偏弱" and stock.get("score", 0) < 8.0:
+    if stock.get("market_filter", {}).get("level") in {"偏弱", "过热"}:
         return "只观察"
     if _is_overheated(stock):
         return "等回踩买"
@@ -1634,6 +1665,153 @@ def _exit_trigger(stock: dict) -> str:
     if ma20:
         return f"跌破20日线附近（约 {_fmt_price(ma20)}）且两日未收回，降为观察"
     return f"跌破 {_fmt_price(current * 0.92)} 且逻辑未兑现，降为观察"
+
+
+def _opportunity_type(stock: dict) -> str:
+    """识别机会类型，便于匹配不同交易规则。"""
+    text = " ".join([
+        stock.get("logic", ""),
+        stock.get("target_str", ""),
+        stock.get("sector", ""),
+        stock.get("source_note", ""),
+    ])
+    if any(kw in text for kw in ("研报", "目标价", "上调", "覆盖", "买入评级", "增持评级")):
+        return "研报驱动"
+    if any(kw in text for kw in ("事件", "催化", "政策", "订单", "涨价", "发布", "招标", "中标")):
+        return "事件驱动"
+    if any(kw in text for kw in ("反转", "拐点", "困境", "底部", "修复")):
+        return "困境反转"
+    if any(kw in text for kw in ("业绩", "利润", "营收", "增长", "增速", "EPS")):
+        return "业绩驱动"
+    if stock.get("trend_score", 0) >= 5.5 or any(
+        kw in text for kw in ("主线", "趋势", "景气", "产业链", "赛道")
+    ):
+        return "趋势驱动"
+    return "信息驱动"
+
+
+def _repeat_strength(stock: dict) -> str:
+    """把重复提及强度转成易读标签。"""
+    count = stock.get("post_count", 1) or 1
+    if count >= 5:
+        return f"强共识：{count}次提及"
+    if count >= 3:
+        return f"多次提及：{count}次"
+    if count == 2:
+        return "二次提及"
+    return "单次提及"
+
+
+def _exclusion_reason(stock: dict) -> str:
+    """识别应剔除或暂不买入的原因。"""
+    risk_text = stock.get("risk_display", "")
+    tech = stock.get("technical") or {}
+    market_cap = stock.get("market_cap_yi")
+    pe = stock.get("pe")
+    score = stock.get("score", 0)
+    buy_score = stock.get("buy_score", 0)
+    reasons = []
+
+    if any(kw in risk_text for kw in ("退市", "ST", "重大利空", "回避", "看空")):
+        reasons.append("存在明确回避/重大利空信号")
+    if market_cap is not None and market_cap < 50:
+        reasons.append("市值过小，流动性和波动风险高")
+    if pe is not None and pe <= 0:
+        reasons.append("盈利不稳定")
+    if _is_overheated(stock):
+        reasons.append("短线过热，不追高")
+    if tech and not tech.get("above_ma20") and stock.get("technical_score", 0) < 5.0:
+        reasons.append("技术趋势未修复")
+    if score < 5.4:
+        reasons.append("综合推荐指数偏低")
+    if buy_score < 5.2 and score < 7.0:
+        reasons.append("当前买点质量不足")
+
+    return "；".join(reasons[:3])
+
+
+def _position_advice(stock: dict) -> str:
+    """给出初始仓位建议。"""
+    tier = stock.get("decision_tier", "")
+    market_level = stock.get("market_filter", {}).get("level", "")
+    if stock.get("exclusion_reason"):
+        return "0仓，仅跟踪"
+    if tier == "可执行清单":
+        if market_level == "偏强" and stock.get("buy_score", 0) >= 8.0:
+            return "标准仓30%-40%，分2次"
+        return "观察仓20%-30%，分批"
+    if tier == "观察清单":
+        return "观察仓0%-20%，等触发"
+    return "不建仓"
+
+
+def _add_trigger(stock: dict) -> str:
+    """生成加仓或确认条件。"""
+    tech = stock.get("technical") or {}
+    ma10 = tech.get("ma10")
+    ma20 = tech.get("ma20")
+    if stock.get("exclusion_reason"):
+        return "排除项解除后再评估"
+    if stock.get("decision_tier") == "可执行清单":
+        if ma10:
+            return f"放量站稳10日线（约 {_fmt_price(ma10)}）可加"
+        return "放量突破并维持强势可加"
+    if ma20:
+        return f"回踩20日线（约 {_fmt_price(ma20)}）不破或放量转强"
+    return "出现明确催化或技术转强"
+
+
+def _decision_tier(stock: dict) -> str:
+    """最终三层决策清单。"""
+    if stock.get("exclusion_reason"):
+        return "剔除/暂不买入"
+    if stock.get("market_filter", {}).get("level") in {"偏弱", "过热"}:
+        if stock.get("score", 0) >= 7.8:
+            return "观察清单"
+        if stock.get("score", 0) >= 6.2:
+            return "信息清单"
+        return "剔除/暂不买入"
+    if (
+        stock.get("action") == "立即可买"
+        and stock.get("buy_score", 0) >= 7.4
+        and stock.get("score", 0) >= 7.0
+    ):
+        return "可执行清单"
+    if stock.get("action") in {"等回踩买", "持有等买点", "只观察"} and stock.get("score", 0) >= 6.2:
+        return "观察清单"
+    return "信息清单"
+
+
+def _score_breakdown(stock: dict) -> str:
+    """把评分拆解成报告中可读的一句话。"""
+    detail = stock.get("score_detail", {})
+    parts = [
+        f"逻辑{detail.get('logic', 0):.1f}",
+        f"目标{detail.get('target', 0):.1f}",
+        f"趋势{detail.get('trend', 0):.1f}",
+        f"共识{detail.get('consensus', 0):.1f}",
+        f"基本面{detail.get('fundamentals', 0):.1f}",
+        f"技术{stock.get('technical_score', 0):.1f}",
+        f"来源{stock.get('source_credibility', _source_credibility_score(stock)):.1f}",
+    ]
+    market = stock.get("market_filter") or {}
+    if market.get("level"):
+        parts.append(f"环境{market.get('level')}")
+    if stock.get("exclusion_reason"):
+        parts.append("风险扣分")
+    return " / ".join(parts)
+
+
+def _apply_expert_decision_fields(stock: dict) -> None:
+    """补齐专家交易决策字段。"""
+    stock["source_credibility"] = _source_credibility_score(stock)
+    stock["opportunity_type"] = _opportunity_type(stock)
+    stock["repeat_strength"] = _repeat_strength(stock)
+    stock["exclusion_reason"] = _exclusion_reason(stock)
+    stock["decision_tier"] = _decision_tier(stock)
+    stock["position_advice"] = _position_advice(stock)
+    stock["add_trigger"] = _add_trigger(stock)
+    stock["score_breakdown"] = _score_breakdown(stock)
 
 
 def _entry_reference(stock: dict) -> str:
@@ -1795,6 +1973,86 @@ def _trend_badge(stock: dict) -> str:
     return "-"
 
 
+def _top_sector_line(trend_scores: dict) -> str:
+    """生成主线板块摘要。"""
+    trending = [(s, ts) for s, ts in trend_scores.items() if ts >= 5.0]
+    if not trending:
+        return "暂无明确共振主线"
+    trending.sort(key=lambda x: x[1], reverse=True)
+    return "、".join(f"{name}({score:.1f})" for name, score in trending[:3])
+
+
+def _short_stock_names(stocks: list[dict], limit: int) -> str:
+    """摘要中展示若干股票名。"""
+    names = [_display_stock_name(s) for s in stocks[:limit]]
+    return "、".join(names) if names else "无"
+
+
+def _append_trader_summary(
+    parts: list[str],
+    enriched: list[dict],
+    trend_scores: dict,
+    market_filter: dict,
+) -> None:
+    """报告顶部的交易员视角摘要。"""
+    executable = [s for s in enriched if s.get("decision_tier") == "可执行清单"]
+    watch = [s for s in enriched if s.get("decision_tier") == "观察清单"]
+    excluded = [s for s in enriched if s.get("decision_tier") == "剔除/暂不买入"]
+    executable.sort(key=lambda s: (s.get("buy_score", 0), s.get("score", 0)), reverse=True)
+    watch.sort(key=lambda s: (s.get("score", 0), s.get("buy_score", 0)), reverse=True)
+    excluded.sort(key=lambda s: s.get("score", 0), reverse=True)
+
+    market_level = market_filter.get("level", "未知") if market_filter else "未知"
+    market_desc = market_filter.get("desc", "无市场环境数据") if market_filter else "无市场环境数据"
+    parts.append("## 交易员视角摘要\n")
+    parts.append(f"- 市场环境：**{market_level}**，{market_desc}")
+    parts.append(f"- 今日可执行：**{_short_stock_names(executable, 3)}**")
+    parts.append(f"- 等回踩观察：{_short_stock_names(watch, 5)}")
+    parts.append(f"- 高风险/暂不追：{_short_stock_names(excluded, 5)}")
+    parts.append(f"- 今日主线板块：{_top_sector_line(trend_scores)}")
+    if market_level in {"偏弱", "过热"}:
+        parts.append("- 操作纪律：市场环境不友好时，立即买入降级为轻仓或等待确认。")
+    else:
+        parts.append("- 操作纪律：只从可执行清单中选 1-3 只分批，观察清单等触发条件。")
+    parts.append("")
+
+
+def _append_decision_tables(parts: list[str], enriched: list[dict]) -> None:
+    """输出可执行/观察/排除三层决策表。"""
+    groups = [
+        ("可执行清单（最多 3 只，优先考虑）", "可执行清单", 3),
+        ("观察清单（逻辑较好，等待买点）", "观察清单", 8),
+        ("剔除/暂不买入清单", "剔除/暂不买入", 8),
+    ]
+    for title, tier, limit in groups:
+        stocks = [s for s in enriched if s.get("decision_tier") == tier]
+        if tier == "可执行清单":
+            stocks.sort(key=lambda s: (s.get("buy_score", 0), s.get("score", 0)), reverse=True)
+        else:
+            stocks.sort(key=lambda s: (s.get("score", 0), s.get("buy_score", 0)), reverse=True)
+        if not stocks:
+            continue
+
+        parts.append(f"## {title}\n")
+        parts.append(
+            "| 股票名称 | 类型 | 仓位 | 买点/触发条件 | 加仓条件 | 止损/减仓 | 评分拆解 | 主要风险 |"
+        )
+        parts.append(
+            "|----------|------|------|---------------|----------|-----------|----------|----------|"
+        )
+        for stock in stocks[:limit]:
+            entry = stock.get("entry_ref", "-")
+            if tier == "剔除/暂不买入":
+                entry = stock.get("exclusion_reason") or entry
+            parts.append(
+                f"| {_display_stock_name(stock)} | {stock.get('opportunity_type', '-')} / "
+                f"{stock.get('repeat_strength', '-')} | {stock.get('position_advice', '-')} | "
+                f"{entry} | {stock.get('add_trigger', '-')} | {stock.get('exit_trigger', '-')} | "
+                f"{stock.get('score_breakdown', '-')} | {stock.get('risk_display', '-')[:100]} |"
+            )
+        parts.append("")
+
+
 def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: dict = None) -> str:
     """用增强后的股票数据重建 Markdown 报告。
 
@@ -1809,6 +2067,9 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
     # 先移除 JSON 代码块，避免泄露到最终输出
     original_markdown = _strip_json_block(original_markdown)
     parts = []
+
+    _append_trader_summary(parts, enriched, trend_scores, market_filter)
+    _append_decision_tables(parts, enriched)
 
     # ── -1. 当前最佳买入清单 ──
     buy_candidates = [
@@ -1829,17 +2090,19 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
                 f"{market_filter.get('desc', '无市场环境数据')}\n"
             )
         parts.append(
-            "| 优先级 | 股票名称 | 买入档位 | 周期 | 买点参考 | 卖出/减仓触发 | 技术面 | 买点分 | 来源可信度 | 推荐指数 | 核心逻辑 | 风险点/潜在利空 |"
+            "| 优先级 | 股票名称 | 机会类型 | 买入档位 | 仓位 | 周期 | 买点参考 | 加仓条件 | 卖出/减仓触发 | 技术面 | 买点分 | 来源可信度 | 推荐指数 | 核心逻辑 | 风险点/潜在利空 |"
         )
         parts.append(
-            "|--------|----------|----------|------|----------|----------------|--------|--------|------------|----------|----------|----------------|"
+            "|--------|----------|----------|----------|------|------|----------|----------|----------------|--------|--------|------------|----------|----------|----------------|"
         )
         for i, stock in enumerate(buy_candidates[:8], 1):
             parts.append(
-                f"| {i} | {_display_stock_name(stock)} | {stock.get('action', '-')} | "
+                f"| {i} | {_display_stock_name(stock)} | {stock.get('opportunity_type', '-')} | "
+                f"{stock.get('action', '-')} | {stock.get('position_advice', '-')} | "
                 f"{stock.get('trade_period', '-')} | {_technical_buy_reference(stock)} | "
+                f"{stock.get('add_trigger', '-')} | "
                 f"{stock.get('exit_trigger', '-')} | {stock.get('technical_view', '-')} | "
-                f"**{stock.get('buy_score', 0):.1f}** | {_source_credibility_score(stock):.1f} | "
+                f"**{stock.get('buy_score', 0):.1f}** | {stock.get('source_credibility', _source_credibility_score(stock)):.1f} | "
                 f"{_format_score_display(stock)} | "
                 f"{_emphasize_cell(stock.get('logic', '')[:70] if stock.get('logic') else '')} | "
                 f"{stock.get('risk_display', '-')[:90]} |"
@@ -1849,15 +2112,16 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
     # ── 0. 快速选股总览 ──
     parts.append("## 快速选股清单（按推荐指数降序）\n")
     parts.append(
-        "| 买卖建议 | 股票名称 | 周期 | 当前市值 | 买入参考 | 卖出/减仓触发 | 技术面 | 买点分 | 来源可信度 | 核心逻辑 | 目标参考 | 风险点/潜在利空 | 推荐指数 | 趋势 |"
+        "| 决策层级 | 买卖建议 | 股票名称 | 机会类型 | 周期 | 当前市值 | 买入参考 | 仓位 | 卖出/减仓触发 | 技术面 | 买点分 | 来源可信度 | 评分拆解 | 核心逻辑 | 目标参考 | 风险点/潜在利空 | 推荐指数 | 趋势 |"
     )
     parts.append(
-        "|----------|----------|------|----------|----------|----------------|--------|--------|------------|----------|----------|----------------|----------|------|"
+        "|----------|----------|----------|----------|------|----------|----------|------|----------------|--------|--------|------------|----------|----------|----------|----------------|----------|------|"
     )
 
     if not enriched:
         parts.append(
-            "| - | 本次未形成可评分个股 | - | - | - | - | - | - | - | AI 未返回可进入量化/弹性评分的 A 股标的 | - | "
+            "| - | - | 本次未形成可评分个股 | - | - | - | - | - | - | - | - | - | - | "
+            "AI 未返回可进入量化/弹性评分的 A 股标的 | - | "
             "请检查下方细分板块/风险提示；若日志出现 1059，优先更新 Cookie 或等待限流恢复 | - | - |"
         )
 
@@ -1872,10 +2136,13 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
         trend_badge = _trend_badge(stock)
 
         parts.append(
-            f"| {stock.get('action', '-')} | {name} | {stock.get('trade_period', '-')} | "
+            f"| {stock.get('decision_tier', '-')} | {stock.get('action', '-')} | {name} | "
+            f"{stock.get('opportunity_type', '-')} | {stock.get('trade_period', '-')} | "
             f"{market_cap_str} | {stock.get('entry_ref', '-')} | "
+            f"{stock.get('position_advice', '-')} | "
             f"{stock.get('exit_trigger', '-')} | {stock.get('technical_view', '-')} | "
-            f"**{stock.get('buy_score', 0):.1f}** | {_source_credibility_score(stock):.1f} | {logic} | {target_str} | "
+            f"**{stock.get('buy_score', 0):.1f}** | {stock.get('source_credibility', _source_credibility_score(stock)):.1f} | "
+            f"{stock.get('score_breakdown', '-')} | {logic} | {target_str} | "
             f"{risk} | {score_str} | {trend_badge} |"
         )
 

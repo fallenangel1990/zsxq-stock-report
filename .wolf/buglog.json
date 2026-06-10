@@ -914,6 +914,23 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-10T15:44:00+08:00"
+    },
+    {
+      "id": "bug-053",
+      "timestamp": "2026-06-10T16:02:00+08:00",
+      "error_message": "市场环境偏弱时，高分股票仍可能进入可执行/立即买入清单",
+      "file": "stock_extractor.py",
+      "root_cause": "新增专家决策层后，_decision_tier() 和 _buy_bucket() 主要依据个股 score/buy_score 判断；当外部大盘环境为偏弱或过热时，高分票仍可能绕过市场纪律进入可执行清单。",
+      "fix": "_buy_bucket() 在市场偏弱/过热时统一降级为只观察；_decision_tier() 在市场偏弱/过热时禁止可执行清单，高分票最多进入观察清单，低分票降为信息或剔除。",
+      "tags": [
+        "stock-report",
+        "market-filter",
+        "risk-control",
+        "decision-tier"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-10T16:02:00+08:00"
     }
   ]
 }

@@ -166,6 +166,47 @@ def save_enriched_stocks(stocks: list[dict], group_name: str = "") -> str:
     return str(filepath)
 
 
+def append_recommendation_history(stocks: list[dict], group_name: str = "") -> str:
+    """追加保存本次推荐快照，供后续命中率和回撤统计使用。"""
+    _, summary_dir = _get_dirs()
+    history_dir = summary_dir / "history"
+    history_dir.mkdir(parents=True, exist_ok=True)
+
+    filepath = history_dir / "recommendations.jsonl"
+    generated_at = datetime.now().isoformat()
+    rows = []
+    for stock in stocks:
+        if not stock.get("code") and not stock.get("name"):
+            continue
+        rows.append({
+            "generated_at": generated_at,
+            "group_name": group_name or "",
+            "code": stock.get("code", ""),
+            "name": stock.get("name", ""),
+            "current_price": stock.get("current_price"),
+            "market_cap_yi": stock.get("market_cap_yi"),
+            "score": stock.get("score"),
+            "buy_score": stock.get("buy_score"),
+            "action": stock.get("action", ""),
+            "decision_tier": stock.get("decision_tier", ""),
+            "opportunity_type": stock.get("opportunity_type", ""),
+            "trade_period": stock.get("trade_period", ""),
+            "position_advice": stock.get("position_advice", ""),
+            "entry_ref": stock.get("entry_ref", ""),
+            "exit_trigger": stock.get("exit_trigger", ""),
+            "risk_display": stock.get("risk_display", ""),
+            "market_filter": stock.get("market_filter", {}),
+            "score_detail": stock.get("score_detail", {}),
+        })
+
+    if rows:
+        with filepath.open("a", encoding="utf-8") as f:
+            for row in rows:
+                f.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
+    _log(f"推荐历史已追加: {filepath} ({len(rows)} 条)")
+    return str(filepath)
+
+
 def load_latest_stock_data() -> tuple[list[dict], str]:
     """加载最近一次保存的增强股票数据。
 
