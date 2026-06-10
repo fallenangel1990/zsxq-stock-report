@@ -1047,6 +1047,26 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-11T01:26:00+08:00"
+    },
+    {
+      "id": "bug-060",
+      "timestamp": "2026-06-11T01:38:00+08:00",
+      "error_message": "盘后复盘去除北向资金后，市场涨跌数仍明显不准确",
+      "file": "sector_monitor.py, market_review.py",
+      "root_cause": "全A快照不可用时，复盘用主要指数成分涨跌家数兜底；evaluate_market_environment() 将上证指数、深证成指、创业板指、沪深300、科创50等指数直接相加，导致沪深300/创业板/科创50成分与沪深市场重复统计，涨跌家数虚高。",
+      "fix": "市场宽度兜底口径改为优先只使用上证指数+深证成指的上涨/下跌/平盘家数与成交额；如果缺少该口径才降级使用已有指数并标记数据状态。复盘报告中的全A不可用说明同步展示实际兜底口径。",
+      "tags": [
+        "market-review",
+        "breadth",
+        "up-down-count",
+        "fallback"
+      ],
+      "related_bugs": [
+        "bug-057",
+        "bug-058"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-11T01:38:00+08:00"
     }
   ]
 }

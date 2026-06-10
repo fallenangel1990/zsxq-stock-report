@@ -386,10 +386,19 @@ def evaluate_market_environment(indices: list[dict]) -> dict:
             "data_status": "主要指数行情不可用，已生成降级复盘。",
         }
 
-    total_up = sum(i["up_count"] for i in indices)
-    total_down = sum(i["down_count"] for i in indices)
-    total_flat = sum(i["flat_count"] for i in indices)
-    total_amount = round(sum(i["amount_yi"] for i in indices), 2)
+    breadth_indices = [
+        i for i in indices
+        if i.get("code") in ("000001", "399001") or i.get("name") in ("上证指数", "深证成指")
+    ]
+    breadth_status = "正常"
+    if not breadth_indices:
+        breadth_indices = indices
+        breadth_status = "未获取上证/深证宽度口径，指数成分涨跌家数可能存在重复。"
+
+    total_up = sum(i["up_count"] for i in breadth_indices)
+    total_down = sum(i["down_count"] for i in breadth_indices)
+    total_flat = sum(i["flat_count"] for i in breadth_indices)
+    total_amount = round(sum(i["amount_yi"] for i in breadth_indices), 2)
     up_ratio = _pct(total_up, total_up + total_down + total_flat)
     avg_change = round(sum(i["change_pct"] for i in indices) / len(indices), 2)
 
@@ -432,7 +441,8 @@ def evaluate_market_environment(indices: list[dict]) -> dict:
         "total_up": total_up,
         "total_down": total_down,
         "total_flat": total_flat,
-        "data_status": "正常",
+        "breadth_source": "上证指数+深证成指" if breadth_status == "正常" else "主要指数成分降级",
+        "data_status": breadth_status,
     }
 
 

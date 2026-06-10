@@ -261,3 +261,4 @@
 | 01:03 | Fixed market review Eastmoney 502 degradation | market_review.py, sector_monitor.py, .wolf/* | review now uses partial/all-index fallback and reports data completeness; CLI verified | ~4500 |
 | 01:15 | Hardened market review index fallback | sector_monitor.py, market_review.py, .wolf/* | ulist RetryError now degrades to Tencent/empty indices and report data status | ~2500 |
 | 01:26 | Connected LHB data and completed sector stats | market_review.py, .wolf/* | removed northbound placeholders, added Eastmoney LHB and richer board summary; validations passed | ~5000 |
+| 01:38 | Fixed market review up/down fallback breadth | sector_monitor.py, market_review.py, .wolf/* | fallback now uses 上证指数+深证成指 only; northbound wording removed from active files | ~2600 |

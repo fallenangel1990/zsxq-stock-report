@@ -110,6 +110,7 @@ def summarize_breadth(stocks: list[dict], market: Optional[dict] = None) -> dict
         up = int(market.get("total_up") or 0)
         down = int(market.get("total_down") or 0)
         flat = int(market.get("total_flat") or 0)
+        source = market.get("breadth_source") or "上证指数+深证成指"
         money_effect = "强" if up > down * 1.5 else "弱" if down > up * 1.3 else "中性"
         return {
             "total": up + down + flat,
@@ -121,8 +122,8 @@ def summarize_breadth(stocks: list[dict], market: Optional[dict] = None) -> dict
             "total_amount_yi": market.get("total_amount_yi", 0),
             "avg_turnover_rate": 0.0,
             "money_effect": money_effect,
-            "source": "主要指数成分兜底",
-            "data_status": "全A快照不可用，已使用主要指数成分涨跌家数近似；涨停/跌停和平均换手率暂不可用。",
+            "source": source,
+            "data_status": f"全A快照不可用，已使用{source}涨跌家数近似；涨停/跌停和平均换手率暂不可用。",
         }
 
     up = sum(1 for s in stocks if s.get("change_pct", 0) > 0)
