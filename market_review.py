@@ -7,16 +7,12 @@ import json
 import math
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 from zoneinfo import ZoneInfo
 
-import requests
-
 from sector_monitor import (
-    EASTMONEY_CLIST_URL,
-    _logic_hint,
     _money_yi,
     _request_json,
-    _request_tencent_codes,  # 新增
     _safe_float,
     capture_market_signals,
     evaluate_market_environment,
@@ -60,10 +56,11 @@ def _save_review_state(snapshot: dict) -> None:
     STATE_FILE.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def fetch_a_share_snapshot(limit_pages: int = 12, page_size: int = 500) -> list[dict]:
+def fetch_a_share_snapshot(limit_pages: int = 20, page_size: int = 300) -> list[dict]:
     """抓取全 A 快照，用于市场宽度、涨停跌停和风格判断。
-    
-    优先用东方财富 API，失败时降级到腾讯财经。
+
+    东方财富偶发 502 时，返回已获取的部分样本；若首页不可用则返回空列表，
+    后续由 summarize_breadth() 使用主要指数成分做降级近似，避免复盘任务中断。
     """
     stocks = []
     for page in range(1, limit_pages + 1):
@@ -81,9 +78,11 @@ def fetch_a_share_snapshot(limit_pages: int = 12, page_size: int = 500) -> list[
         data = _request_json(params, timeout=15)
         rows = data.get("data", {}).get("diff", []) or []
         if not rows:
-            # 东方财富失败，降级到腾讯财经
-            print("[INFO] eastmoney failed, falling back to tencent...", flush=True)
-            return _fetch_a_share_from_tencent(limit_pages * page_size)
+            if page == 1:
+                print("[复盘] 东方财富全A快照首页不可用，将使用指数成分兜底。", flush=True)
+            else:
+                print(f"[复盘] 东方财富全A快照第 {page} 页为空，使用已获取的 {len(stocks)} 只样本。", flush=True)
+            break
         for raw in rows:
             stocks.append({
                 "code": raw.get("f12", ""),
@@ -101,38 +100,27 @@ def fetch_a_share_snapshot(limit_pages: int = 12, page_size: int = 500) -> list[
     return stocks
 
 
-def _fetch_a_share_from_tencent(limit: int = 6000) -> list[dict]:
-    """从腾讯财经抓取全 A 股列表（备用数据源）。"""
-    # 获取所有 A 股代码（简化的代码列表）
-    all_codes = []
-    # 沪市主板: 600000-603999
-    all_codes.extend([str(i) for i in range(600000, 604000)])
-    # 深市主板: 000000-001999
-    all_codes.extend([str(i).zfill(6) for i in range(1, 2000)])
-    # 创业板: 300000-300999
-    all_codes.extend([str(i) for i in range(300000, 301000)])
-    # 科创板: 688000-688999
-    all_codes.extend([str(i) for i in range(688000, 689000)])
+def summarize_breadth(stocks: list[dict], market: Optional[dict] = None) -> dict:
+    market = market or {}
+    if not stocks:
+        up = int(market.get("total_up") or 0)
+        down = int(market.get("total_down") or 0)
+        flat = int(market.get("total_flat") or 0)
+        money_effect = "强" if up > down * 1.5 else "弱" if down > up * 1.3 else "中性"
+        return {
+            "total": up + down + flat,
+            "up": up,
+            "down": down,
+            "flat": flat,
+            "limit_up": 0,
+            "limit_down": 0,
+            "total_amount_yi": market.get("total_amount_yi", 0),
+            "avg_turnover_rate": 0.0,
+            "money_effect": money_effect,
+            "source": "主要指数成分兜底",
+            "data_status": "全A快照不可用，已使用主要指数成分涨跌家数近似；涨停/跌停和平均换手率暂不可用。",
+        }
 
-    print(f"[INFO] fetching {len(all_codes)} codes from tencent...", flush=True)
-    results = _request_tencent_codes(all_codes, timeout=20)
-
-    stocks = []
-    for s in results[:limit]:
-        stocks.append({
-            "code": s.get("code", ""),
-            "name": s.get("name", ""),
-            "change_pct": s.get("change_pct", 0),
-            "amount_yi": s.get("amount_yi", 0),
-            "turnover_rate": 0.0,  # 腾讯不提供换手率
-            "market_cap_yi": 0.0,  # 腾讯不提供市值
-            "main_net_yi": 0.0,    # 腾讯不提供主力净流入
-            "sector": "",
-        })
-    return stocks
-
-
-def summarize_breadth(stocks: list[dict]) -> dict:
     up = sum(1 for s in stocks if s.get("change_pct", 0) > 0)
     down = sum(1 for s in stocks if s.get("change_pct", 0) < 0)
     flat = max(0, len(stocks) - up - down)
@@ -144,6 +132,7 @@ def summarize_breadth(stocks: list[dict]) -> dict:
     if turnover_values:
         avg_turnover = round(sum(turnover_values) / len(turnover_values), 2)
     money_effect = "强" if up > down * 1.5 else "弱" if down > up * 1.3 else "中性"
+    data_status = "正常" if len(stocks) >= 3000 else f"全A快照仅获取 {len(stocks)} 只样本，按已获取样本计算。"
     return {
         "total": len(stocks),
         "up": up,
@@ -154,6 +143,8 @@ def summarize_breadth(stocks: list[dict]) -> dict:
         "total_amount_yi": total_amount,
         "avg_turnover_rate": avg_turnover,
         "money_effect": money_effect,
+        "source": "东方财富全A快照",
+        "data_status": data_status,
     }
 
 
@@ -262,17 +253,21 @@ def build_review_report(
     emotion = emotion_score(market, breadth, signal_boards)
     strongest, weakest = _strongest_and_weakest_boards(all_boards)
     top_signal = signal_boards[0] if signal_boards else (strongest[0] if strongest else {})
+    breadth_source = breadth.get("source", "东方财富全A快照")
+    breadth_status = breadth.get("data_status", "正常")
+    amount_label = "全A约" if breadth_source == "东方财富全A快照" else "主要指数合计约"
 
     lines = [
         "# A股盘后复盘报告",
         "",
         f"> 生成时间: {now}",
         "> 数据源: 东方财富指数/板块/个股快照；龙虎榜、北向资金和真实持仓需接入独立数据源后补齐。",
+        f"> 数据完整性: {breadth_status}",
         "",
         "## 一、大盘行情与市场情绪",
         "",
         f"- 指数环境: **{market.get('level', '未知')}**，大盘评分 {market.get('score', 0)} / 100。",
-        f"- 今日成交额: 全A约 **{_fmt_yi(breadth.get('total_amount_yi'))}**；{volume_desc}。",
+        f"- 今日成交额: {amount_label} **{_fmt_yi(breadth.get('total_amount_yi'))}**；{volume_desc}。",
         f"- 市场宽度: {breadth.get('up', 0)} 涨 / {breadth.get('down', 0)} 跌 / {breadth.get('flat', 0)} 平，赚钱效应 **{breadth.get('money_effect', '未知')}**。",
         f"- 市场风格: **{style}**；平均换手率约 {breadth.get('avg_turnover_rate', 0):.2f}%。",
         f"- 涨停/跌停: 涨停 {breadth.get('limit_up', 0)} 只，跌停 {breadth.get('limit_down', 0)} 只；连板数据待接入涨停池数据源。",
@@ -428,15 +423,23 @@ def generate_market_review(top_n: int = 10, board_type: str = "all") -> tuple[st
     indices = fetch_market_indices()
     market = evaluate_market_environment(indices)
     all_stocks = fetch_a_share_snapshot()
-    breadth = summarize_breadth(all_stocks)
+    breadth = summarize_breadth(all_stocks, market=market)
     previous = _load_previous_state()
-    all_boards = fetch_boards(board_type=board_type, limit=500)
-    _, _, signal_boards = capture_market_signals(
-        mode="review",
-        top_n=top_n,
-        board_type=board_type,
-        with_ai=False,
-    )
+    try:
+        all_boards = fetch_boards(board_type=board_type, limit=500)
+    except Exception as exc:
+        print(f"[复盘] 板块快照获取失败，继续生成降级报告: {exc}", flush=True)
+        all_boards = []
+    try:
+        _, _, signal_boards = capture_market_signals(
+            mode="review",
+            top_n=top_n,
+            board_type=board_type,
+            with_ai=False,
+        )
+    except Exception as exc:
+        print(f"[复盘] 板块信号获取失败，继续生成降级报告: {exc}", flush=True)
+        signal_boards = []
     watchlist = load_watchlist_performance()
     report = build_review_report(
         indices=indices,

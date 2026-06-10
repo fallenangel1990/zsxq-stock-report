@@ -258,3 +258,4 @@
 | 16:18 | Added ZSXQ cookie refresh hook | auth.py, main.py, daily-report.yml, .wolf/* | local refresh-cookie command and CI refresh-url hook added; YAML, py_compile, skip, and mock refresh tests passed | ~3500 |
 | 16:30 | Slimmed stock report output | stock_extractor.py, .wolf/* | removed exclusion table, decision tier/buy score/source credibility columns, source score in breakdown, and filtered displayed stocks to score >=3; validations passed | ~2500 |
 | 17:08 | Built A-share after-market review task | market_review.py, market-review.yml, main.py, storage.py, email_sender.py, .wolf/* | added review CLI/workflow/report storage, subject override, and offline sample validation; PyYAML local gap logged | ~6500 |
+| 01:03 | Fixed market review Eastmoney 502 degradation | market_review.py, sector_monitor.py, .wolf/* | review now uses partial/all-index fallback and reports data completeness; CLI verified | ~4500 |

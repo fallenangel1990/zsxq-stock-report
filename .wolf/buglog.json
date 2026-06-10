@@ -989,6 +989,26 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-10T17:08:00+08:00"
+    },
+    {
+      "id": "bug-057",
+      "timestamp": "2026-06-11T01:03:00+08:00",
+      "error_message": "urllib3.exceptions.ResponseError: too many 502 error responses from push2.eastmoney.com during market review",
+      "file": "market_review.py, sector_monitor.py",
+      "root_cause": "盘后复盘把东方财富全A快照作为硬依赖；push2.eastmoney.com 连续 502 时，宽度数据获取会中断整条 review 任务。已有空结果处理还会降级到大规模扫描腾讯股票代码，速度慢且字段不完整。",
+      "fix": "全A快照改为分页部分可用即使用、首页不可用则返回空列表；summarize_breadth() 在无全A数据时使用主要指数成分涨跌家数和成交额兜底，并在报告中标记数据完整性；板块快照和信号获取失败时继续生成降级报告；修正腾讯兜底涨跌幅多乘 100 的问题。",
+      "tags": [
+        "market-review",
+        "eastmoney",
+        "502",
+        "fallback",
+        "github-actions"
+      ],
+      "related_bugs": [
+        "bug-056"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-11T01:03:00+08:00"
     }
   ]
 }

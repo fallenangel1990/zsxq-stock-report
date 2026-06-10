@@ -82,6 +82,7 @@
 - **Cookie expires 元数据不可靠**：浏览器导出的 ZSXQ cookie `expires` 可能不准或与服务端会话状态不同；CI 只应要求存在 `zsxq_access_token`，真正有效性以 API 401/403 为准。
 - **ZSXQ Cookie 自动刷新边界**：GitHub Actions 不能无交互扫码登录，也不能凭默认权限自动改仓库 Secret；Cookie 即将过期时只能本地扫码刷新，或通过 `ZSXQ_COOKIES_REFRESH_URL` 私有端点返回新 Cookie 供本次 CI 使用。
 - **报告展示时区**：所有会出现在邮件正文、邮件头、PDF 页脚或定时报告中的生成时间，都必须使用 `ZoneInfo("Asia/Shanghai")`；不要在 CI 可见输出中使用 naive `datetime.now()` 后再手动标注北京时间。
+- **盘后复盘行情源降级**：东方财富 `push2.eastmoney.com` 在 GitHub Actions 中可能连续返回 502；盘后复盘不能把全A快照/板块快照作为硬依赖，应返回部分样本或用主要指数成分涨跌家数兜底，并在报告中标记数据完整性。
 
 ## Decision Log
 

@@ -3,7 +3,6 @@
 
 import json
 import math
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -30,7 +29,7 @@ def _parse_tencent_stock(raw: str, code: str) -> dict:
         "name": parts[1],
         "price": _safe_float(parts[3]),
         "prev_close": _safe_float(parts[2]),
-        "change_pct": _pct(_safe_float(parts[3]) - _safe_float(parts[2]), _safe_float(parts[2])) * 100,
+        "change_pct": _pct(_safe_float(parts[3]) - _safe_float(parts[2]), _safe_float(parts[2])),
         "amount_yi": _safe_float(parts[7]) / 100_000_000,
         "volume": int(parts[6]) if parts[6].isdigit() else 0,
     }
