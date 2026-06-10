@@ -85,17 +85,27 @@ def _get_em_session(timeout: int = 15) -> requests.Session:
 
 
 def _request_json(params: dict, timeout: int = 15) -> dict:
-    session = _get_em_session()
-    resp = session.get(EASTMONEY_CLIST_URL, params=params, timeout=timeout)
-    resp.raise_for_status()
-    return resp.json()
+    """请求东方财富 A 股列表，失败时返回空数据结构避免崩溃。"""
+    try:
+        session = _get_em_session()
+        resp = session.get(EASTMONEY_CLIST_URL, params=params, timeout=timeout)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        print(f"[WARN] eastmoney API failed (clist): {e}", flush=True)
+        return {"data": {"diff": [], "total": 0}}
 
 
 def _request_ulist_json(params: dict, timeout: int = 15) -> dict:
-    session = _get_em_session()
-    resp = session.get(EASTMONEY_ULIST_URL, params=params, timeout=timeout)
-    resp.raise_for_status()
-    return resp.json()
+    """请求东方财富通用列表，失败时返回空数据结构避免崩溃。"""
+    try:
+        session = _get_em_session()
+        resp = session.get(EASTMONEY_ULIST_URL, params=params, timeout=timeout)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        print(f"[WARN] eastmoney API failed (ulist): {e}", flush=True)
+        return {"data": {"diff": [], "total": 0}}
 
 
 def _safe_float(value, default: float = 0.0) -> float:
