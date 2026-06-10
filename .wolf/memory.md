@@ -253,3 +253,4 @@
 | 14:52 | Upgraded stock report trading rules | stock_extractor.py, .wolf/cerebrum.md | added buy tiers, market filter, source credibility, trade period, exit triggers, and overheat exclusion; validations passed | ~3500 |
 | 15:29 | Added market-cap fallback for stock quotes | price_fetcher.py, .wolf/* | Eastmoney push2 now fills missing Tencent total market cap; live and mocked fallback tests passed | ~3000 |
 | 15:36 | Aligned report and email display times to Beijing time | email_sender.py, summarizer.py, stock_extractor.py, sector_monitor.py, pdf_generator.py, .wolf/* | visible generated times now use Asia/Shanghai and label 北京时间; py_compile and stubbed output checks passed | ~3000 |
+| 15:44 | Improved scheduled report email readability and highlights | email_sender.py, .wolf/* | roomier card/table layout, text-node keyword red highlights, heading tag order fixed; py_compile and stub render checks passed | ~3000 |

@@ -38,6 +38,34 @@ SMTP_USER = os.environ.get("SMTP_USER", "").strip()
 SMTP_PASS = os.environ.get("SMTP_PASS", "").strip()
 TO_EMAIL = os.environ.get("TO_EMAIL", "470337944@qq.com").strip()
 
+_EMAIL_HIGHLIGHT_TERMS = (
+    "最适合买入",
+    "立即可买",
+    "优先买入",
+    "重点买入",
+    "强烈关注",
+    "重点关注",
+    "高推荐",
+    "强异动/疑似建仓",
+    "疑似建仓",
+    "主力净流入",
+    "推荐指数",
+    "风险点",
+    "潜在利空",
+    "风险",
+    "止损",
+    "止盈",
+    "减仓",
+    "卖出",
+    "过热",
+    "只观察",
+)
+
+_HIGHLIGHT_STYLE = (
+    "color:#b91c1c;background:#fff1f2;border:1px solid #fecdd3;"
+    "border-radius:4px;padding:1px 5px;font-weight:700;"
+)
+
 
 def _now_shanghai() -> datetime:
     """返回北京时间当前时间。"""
@@ -75,6 +103,29 @@ def _build_message(
     msg.attach(MIMEText(body_html, "html", "utf-8"))
 
     return msg
+
+
+def _highlight_email_keywords(html: str) -> str:
+    """只在 HTML 文本节点中标红重点词，避免破坏标签属性。"""
+    if not html:
+        return html
+
+    pattern = re.compile(
+        "(" + "|".join(re.escape(term) for term in _EMAIL_HIGHLIGHT_TERMS) + ")"
+    )
+    parts = re.split(r"(<[^>]+>)", html)
+    highlighted = []
+    for part in parts:
+        if not part or part.startswith("<"):
+            highlighted.append(part)
+            continue
+        highlighted.append(
+            pattern.sub(
+                rf'<span style="{_HIGHLIGHT_STYLE}">\1</span>',
+                part,
+            )
+        )
+    return "".join(highlighted)
 
 
 def _smtp_login_and_send(
@@ -215,38 +266,83 @@ def _md_to_html(md_text: str) -> str:
     # 表格样式（内联，兼容邮件客户端）
     html = html.replace(
         "<table>",
-        '<table style="border-collapse:collapse;width:100%;margin:12px 0;font-size:13px;">',
+        '<div style="overflow-x:auto;margin:18px 0 24px;border:1px solid #e5e7eb;'
+        'border-radius:8px;background:#fff;">'
+        '<table style="border-collapse:collapse;width:100%;font-size:14px;'
+        'line-height:1.65;min-width:760px;">',
     )
+    html = html.replace("</table>", "</table></div>")
     html = html.replace(
         "<thead>",
-        '<thead style="background:#2563eb;color:white;">',
+        '<thead style="background:#1d4ed8;color:white;">',
     )
     html = html.replace(
         "<th>",
-        '<th style="padding:6px 8px;text-align:center;border:1px solid #1d4ed8;">',
+        '<th style="padding:11px 12px;text-align:left;border:1px solid #1e40af;'
+        'font-weight:700;white-space:nowrap;">',
     )
     html = html.replace(
         "<td>",
-        '<td style="padding:4px 8px;border-bottom:1px solid #e5e7eb;text-align:center;">',
+        '<td style="padding:10px 12px;border-bottom:1px solid #eef2f7;'
+        'border-right:1px solid #eef2f7;text-align:left;vertical-align:top;">',
     )
 
-    # 标题层级调整（报告已有 h1，邮件中降一级）
-    html = html.replace("<h1>", '<h2 style="color:#1e3a5f;margin-top:8px;">')
-    html = html.replace("</h1>", "</h2>")
-    html = html.replace("<h2>", '<h3 style="color:#2563eb;margin-top:20px;">')
+    # 标题层级调整（报告已有 h1，邮件中降一级）。从低层级往高层级替换，避免闭合标签二次降级。
+    html = html.replace(
+        "<h3>",
+        '<h4 style="color:#374151;margin:22px 0 10px;font-size:16px;line-height:1.45;">',
+    )
+    html = html.replace("</h3>", "</h4>")
+    html = html.replace(
+        "<h2>",
+        '<h3 style="color:#1d4ed8;margin:28px 0 12px;font-size:18px;'
+        'line-height:1.45;border-left:4px solid #2563eb;padding-left:10px;">',
+    )
     html = html.replace("</h2>", "</h3>")
+    html = html.replace(
+        "<h1>",
+        '<h2 style="color:#111827;margin:10px 0 18px;font-size:22px;'
+        'line-height:1.35;">',
+    )
+    html = html.replace("</h1>", "</h2>")
+    html = html.replace(
+        "<p>",
+        '<p style="margin:10px 0;line-height:1.8;color:#374151;font-size:15px;">',
+    )
+    html = html.replace(
+        "<ul>",
+        '<ul style="margin:10px 0 16px;padding-left:22px;line-height:1.8;color:#374151;">',
+    )
+    html = html.replace(
+        "<ol>",
+        '<ol style="margin:10px 0 16px;padding-left:22px;line-height:1.8;color:#374151;">',
+    )
+    html = html.replace(
+        "<li>",
+        '<li style="margin:6px 0;">',
+    )
+    html = html.replace(
+        "<strong>",
+        '<strong style="color:#111827;font-weight:700;">',
+    )
+    html = html.replace(
+        "<code>",
+        '<code style="background:#f3f4f6;color:#b91c1c;padding:2px 5px;'
+        'border-radius:4px;font-family:Menlo,Consolas,monospace;font-size:13px;">',
+    )
 
     # 引用块样式
     html = html.replace(
         "<blockquote>",
-        '<blockquote style="border-left:3px solid #2563eb;padding-left:12px;color:#555;margin:8px 0;">',
+        '<blockquote style="border-left:4px solid #2563eb;padding:10px 14px;'
+        'color:#4b5563;margin:14px 0;background:#f8fafc;border-radius:0 8px 8px 0;">',
     )
 
     # 水平线
-    html = html.replace("<hr>", '<hr style="border:0;border-top:1px solid #e5e7eb;margin:16px 0;">')
-    html = html.replace("<hr />", '<hr style="border:0;border-top:1px solid #e5e7eb;margin:16px 0;">')
+    html = html.replace("<hr>", '<hr style="border:0;border-top:1px solid #e5e7eb;margin:24px 0;">')
+    html = html.replace("<hr />", '<hr style="border:0;border-top:1px solid #e5e7eb;margin:24px 0;">')
 
-    return html
+    return _highlight_email_keywords(html)
 
 
 def _weekday_cn() -> str:
@@ -291,11 +387,14 @@ def send_report_notification(
 
     # 构建带样式的完整邮件正文
     lines = [
-        '<div style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',sans-serif;max-width:800px;">',
+        '<div style="background:#f3f6fb;padding:18px 10px;">',
+        '<div style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',sans-serif;'
+        'max-width:980px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;'
+        'border-radius:12px;overflow:hidden;color:#1f2937;">',
         # 头部横幅
-        f'<div style="background:#2563eb;color:white;padding:16px 20px;border-radius:8px 8px 0 0;">',
-        f'<h2 style="margin:0;font-size:18px;">{subject}</h2>',
-        f'<p style="margin:4px 0 0;opacity:0.85;font-size:13px;">{today} {_weekday_cn()}</p>',
+        f'<div style="background:#1d4ed8;color:white;padding:22px 26px;">',
+        f'<h2 style="margin:0;font-size:22px;line-height:1.35;">{subject}</h2>',
+        f'<p style="margin:8px 0 0;opacity:0.88;font-size:14px;">{today} {_weekday_cn()}</p>',
         f"</div>",
     ]
 
@@ -307,7 +406,8 @@ def send_report_notification(
         stats_parts.append(f'🎯 发现标的：<strong>{extra_info["new_stocks"]}</strong> 只')
     if stats_parts:
         lines.append(
-            '<div style="background:#f0f7ff;padding:10px 20px;border-left:4px solid #2563eb;">'
+            '<div style="background:#eff6ff;padding:14px 26px;border-left:4px solid #2563eb;'
+            'font-size:15px;line-height:1.7;">'
             + " &nbsp;│&nbsp; ".join(stats_parts)
             + "</div>"
         )
@@ -315,7 +415,8 @@ def send_report_notification(
     # Cookie 预警
     if extra_info.get("cookie_expired"):
         lines.append(
-            '<div style="background:#fef2f2;padding:10px 20px;border-left:4px solid #dc2626;margin:4px 0;">'
+            '<div style="background:#fef2f2;padding:14px 26px;border-left:4px solid #dc2626;'
+            'margin:8px 0;font-size:15px;line-height:1.7;">'
             "⚠️ <strong>Cookie 已过期！</strong>请本地运行 <code>python main.py login</code> 重新登录。"
             "</div>"
         )
@@ -323,24 +424,26 @@ def send_report_notification(
         days = extra_info.get("cookie_days", "")
         expires = extra_info.get("cookie_expires", "")
         lines.append(
-            '<div style="background:#fffbeb;padding:10px 20px;border-left:4px solid #f59e0b;margin:4px 0;">'
+            '<div style="background:#fffbeb;padding:14px 26px;border-left:4px solid #f59e0b;'
+            'margin:8px 0;font-size:15px;line-height:1.7;">'
             f"⚠️ <strong>Cookie 将在 {days} 天后过期</strong>（{expires}），请提前更新。"
             "</div>"
         )
 
     # 报告主体
-    lines.append('<div style="padding:8px 20px 0;">')
+    lines.append('<div style="padding:18px 26px 4px;font-size:15px;line-height:1.75;">')
     lines.append(report_html)
     lines.append("</div>")
 
     # 页脚
     lines.append(
-        '<div style="color:#888;font-size:12px;padding:16px 20px;'
-        'border-top:1px solid #e5e7eb;margin-top:16px;">'
+        '<div style="color:#6b7280;font-size:12px;padding:18px 26px;'
+        'border-top:1px solid #e5e7eb;margin-top:18px;line-height:1.7;background:#fafafa;">'
         "本邮件由自动化系统发送。<br>"
         "报告基于知识星球专栏内容，由 AI 自动生成，仅供参考。"
         "</div>"
     )
+    lines.append("</div>")
     lines.append("</div>")
 
     body_html = "\n".join(lines)

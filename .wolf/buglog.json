@@ -894,6 +894,26 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-10T15:36:00+08:00"
+    },
+    {
+      "id": "bug-052",
+      "timestamp": "2026-06-10T15:44:00+08:00",
+      "error_message": "生成的邮件内容展示过于拥挤，不便于查看，重点内容未标红",
+      "file": "email_sender.py",
+      "root_cause": "Markdown 转 HTML 后只做了基础表格和标题样式：容器宽度偏窄、表格 padding 与行高过小、正文段落/列表间距不足；同时没有对买点、推荐、风险、止损等重点词做视觉强调。另有标题降级替换顺序导致 h1 闭合标签可能被二次降级，影响邮件客户端渲染稳定性。",
+      "fix": "重做邮件正文卡片布局、标题/段落/列表/表格内联样式，表格增加横向滚动容器和更大间距；新增 _highlight_email_keywords() 只在文本节点中标红重点词；调整标题替换顺序避免标签不匹配。",
+      "tags": [
+        "email",
+        "ui",
+        "readability",
+        "highlight",
+        "html"
+      ],
+      "related_bugs": [
+        "bug-051"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-10T15:44:00+08:00"
     }
   ]
 }
