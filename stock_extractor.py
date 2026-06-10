@@ -780,15 +780,19 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
 
     prices = {}
     changes_5d = {}
+    technicals = {}
     if valid_codes:
-        from price_fetcher import fetch_prices, fetch_5day_changes
+        from price_fetcher import fetch_prices, fetch_5day_changes, fetch_technical_indicators
         prices = fetch_prices(valid_codes)
         changes_5d = fetch_5day_changes(valid_codes)
+        technicals = fetch_technical_indicators(valid_codes)
 
     if verbose and prices:
         print(f"  成功获取 {len(prices)} 只股票行情", flush=True)
     if verbose and changes_5d:
         print(f"  成功获取 {len(changes_5d)} 只股票 5 日涨跌幅", flush=True)
+    if verbose and technicals:
+        print(f"  成功获取 {len(technicals)} 只股票技术指标", flush=True)
 
     for stock in all_stocks.values():
         code = stock.get("code", "")
@@ -838,6 +842,7 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
         pb = price_info["pb"] if price_info else None
         market_cap = price_info["market_cap_yi"] if price_info else None
         change_5d = changes_5d.get(code) if code else None
+        technical = technicals.get(code, {}) if code else {}
 
         # 上涨空间计算
         upside_pct = None
@@ -917,12 +922,18 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
             "trend_score": round(trend_score, 1),
             "trending_sector": norm_sec if trend_score >= 5.0 else "",
             "fundamentals_score": round(fundamentals_score, 1),
+            "technical": technical,
         }
+        technical_score, technical_view = _technical_buy_score(stock_view)
+        stock_view["technical_score"] = technical_score
+        stock_view["technical_view"] = technical_view
+        stock_view["buy_score"] = _buy_score(stock_view)
         risk_display = _build_stock_risk(
             stock_view, stocks_json.get("risks", []), sector_aliases
         )
         stock_view["risk_display"] = risk_display
-        stock_view["entry_ref"] = _entry_reference(stock_view)
+        stock_view["buy_score"] = _buy_score(stock_view)
+        stock_view["entry_ref"] = _technical_buy_reference(stock_view)
         stock_view["action"] = _selection_action(stock_view)
 
         enriched.append({
@@ -1322,6 +1333,148 @@ def _fmt_price(value) -> str:
     return f"{value:.1f}元" if value >= 100 else f"{value:.2f}元"
 
 
+def _technical_buy_score(stock: dict) -> tuple[float, str]:
+    """根据技术指标给出当前买点分和简短信号。"""
+    tech = stock.get("technical") or {}
+    if not tech:
+        return 5.0, "技术数据不足，按逻辑观察"
+
+    score = 5.0
+    notes = []
+    distance = tech.get("distance_ma20_pct")
+    position = tech.get("position_20d")
+    change_5d = tech.get("change_5d")
+    change_20d = tech.get("change_20d")
+    volume_ratio = tech.get("volume_ratio")
+
+    if tech.get("ma_bullish"):
+        score += 1.4
+        notes.append("均线多头")
+    elif tech.get("above_ma20"):
+        score += 0.7
+        notes.append("站上20日线")
+    elif tech.get("above_ma10"):
+        score += 0.3
+        notes.append("站上10日线")
+    else:
+        score -= 1.0
+        notes.append("弱于20日线")
+
+    if distance is not None:
+        if -2 <= distance <= 5:
+            score += 1.2
+            notes.append("贴近20日线")
+        elif 5 < distance <= 10:
+            score += 0.2
+            notes.append("略偏离均线")
+        elif distance > 10:
+            score -= 1.4
+            notes.append("短线偏离大")
+        elif distance < -5:
+            score -= 0.8
+            notes.append("趋势待修复")
+
+    if change_5d is not None:
+        if -3 <= change_5d <= 4:
+            score += 0.8
+            notes.append("短线未过热")
+        elif change_5d > 8:
+            score -= 1.6
+            notes.append("5日涨幅过热")
+        elif change_5d < -6:
+            score -= 0.8
+            notes.append("短线走弱")
+
+    if position is not None:
+        if 25 <= position <= 70:
+            score += 0.7
+            notes.append("区间位置适中")
+        elif position > 85:
+            score -= 1.0
+            notes.append("接近20日高位")
+        elif position < 15:
+            score -= 0.2
+            notes.append("低位待确认")
+
+    if volume_ratio is not None:
+        if 1.05 <= volume_ratio <= 1.8 and (change_5d is None or change_5d >= -2):
+            score += 0.5
+            notes.append("温和放量")
+        elif volume_ratio > 2.5:
+            score -= 0.5
+            notes.append("量能异常放大")
+
+    if change_20d is not None and change_20d < -12:
+        score -= 0.5
+        notes.append("20日趋势偏弱")
+
+    if not notes:
+        notes.append("技术面中性")
+    unique_notes = []
+    for note in notes:
+        if note not in unique_notes:
+            unique_notes.append(note)
+    return round(max(1.0, min(10.0, score)), 1), "；".join(unique_notes[:4])
+
+
+def _buy_score(stock: dict) -> float:
+    """综合逻辑推荐和技术买点，衡量当前是否适合出手。"""
+    score = stock.get("score", 0)
+    technical_score = stock.get("technical_score", 5.0)
+    risk_text = stock.get("risk_display", "")
+    penalty = 0.0
+    if any(kw in risk_text for kw in ("回避", "看空", "退市", "重大利空")):
+        penalty += 2.0
+    if stock.get("change_5d") is not None and stock["change_5d"] > 10:
+        penalty += 0.8
+    return round(max(1.0, min(10.0, score * 0.58 + technical_score * 0.42 - penalty)), 1)
+
+
+def _technical_buy_reference(stock: dict) -> str:
+    """结合技术指标生成买点参考。"""
+    current = stock.get("current_price")
+    tech = stock.get("technical") or {}
+    buy_score = stock.get("buy_score", 0)
+    distance = tech.get("distance_ma20_pct")
+    ma20 = tech.get("ma20")
+
+    if not current or current <= 0:
+        return stock.get("entry_ref", "缺少行情，先观察")
+
+    if buy_score >= 7.5:
+        if distance is not None and distance > 7:
+            return f"不追涨；回踩 {_fmt_price(current * 0.96)} 附近再分批"
+        if ma20:
+            return f"分批低吸；优先看 {_fmt_price(max(current * 0.97, ma20))} 附近承接"
+        return stock.get("entry_ref", "-")
+    if buy_score >= 6.5:
+        if ma20:
+            return f"等回踩20日线附近（约 {_fmt_price(ma20)}）或放量站稳再买"
+        return "等回踩或放量确认"
+    if buy_score >= 5.5:
+        return "先观察，不急买；等技术面修复"
+    return "暂不买入，等待趋势和风险改善"
+
+
+def _trade_advice(stock: dict) -> str:
+    """给出更明确的买卖/持有建议。"""
+    risk_text = stock.get("risk_display", "")
+    if any(kw in risk_text for kw in ("回避", "看空", "退市", "重大利空")):
+        return "卖出/回避"
+    buy_score = stock.get("buy_score", 0)
+    score = stock.get("score", 0)
+    tech_score = stock.get("technical_score", 0)
+    if buy_score >= 7.5 and score >= 7.0:
+        return "适合买入"
+    if score >= 7.0 and tech_score < 5.5:
+        return "持有等买点"
+    if buy_score >= 6.3:
+        return "低吸观察"
+    if score < 5.4:
+        return "暂不买入"
+    return "继续观察"
+
+
 def _entry_reference(stock: dict) -> str:
     """根据当前行情和评分生成买入参考，不单列当前价。"""
     current = stock.get("current_price")
@@ -1349,19 +1502,7 @@ def _entry_reference(stock: dict) -> str:
 
 def _selection_action(stock: dict) -> str:
     """给快速选股表使用的动作标签。"""
-    score = stock.get("score", 0)
-    risk_text = stock.get("risk_display", "")
-    if any(kw in risk_text for kw in ("回避", "看空", "退市", "重大利空")):
-        return "暂缓/排雷"
-    if score >= 8.5:
-        return "重点候选"
-    if score >= 7.8:
-        return "优先跟踪"
-    if score >= 7.0:
-        return "等买点"
-    if score >= 6.2:
-        return "备选观察"
-    return "暂缓"
+    return _trade_advice(stock)
 
 
 def _build_stock_risk(stock: dict, risks_list: list[dict], sector_aliases: dict) -> str:
@@ -1507,18 +1648,47 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
     original_markdown = _strip_json_block(original_markdown)
     parts = []
 
+    # ── -1. 当前最佳买入清单 ──
+    buy_candidates = [
+        s for s in enriched
+        if s.get("buy_score", 0) >= 6.5
+        and s.get("score", 0) >= 6.2
+        and s.get("action") in {"适合买入", "低吸观察"}
+    ]
+    buy_candidates.sort(
+        key=lambda s: (s.get("buy_score", 0), s.get("score", 0)),
+        reverse=True,
+    )
+    if buy_candidates:
+        parts.append("## 最适合买入清单（结合技术指标）\n")
+        parts.append(
+            "| 优先级 | 股票名称 | 买卖建议 | 买点参考 | 技术面 | 买点分 | 推荐指数 | 核心逻辑 | 风险点/潜在利空 |"
+        )
+        parts.append(
+            "|--------|----------|----------|----------|--------|--------|----------|----------|----------------|"
+        )
+        for i, stock in enumerate(buy_candidates[:8], 1):
+            parts.append(
+                f"| {i} | {_display_stock_name(stock)} | {stock.get('action', '-')} | "
+                f"{_technical_buy_reference(stock)} | {stock.get('technical_view', '-')} | "
+                f"**{stock.get('buy_score', 0):.1f}** | {_format_score_display(stock)} | "
+                f"{_emphasize_cell(stock.get('logic', '')[:70] if stock.get('logic') else '')} | "
+                f"{stock.get('risk_display', '-')[:90]} |"
+            )
+        parts.append("")
+
     # ── 0. 快速选股总览 ──
     parts.append("## 快速选股清单（按推荐指数降序）\n")
     parts.append(
-        "| 操作 | 股票名称 | 当前市值 | 买入参考 | 核心逻辑 | 目标参考 | 风险点/潜在利空 | 推荐指数 | 趋势 |"
+        "| 买卖建议 | 股票名称 | 当前市值 | 买入参考 | 技术面 | 买点分 | 核心逻辑 | 目标参考 | 风险点/潜在利空 | 推荐指数 | 趋势 |"
     )
     parts.append(
-        "|------|----------|----------|----------|----------|----------|----------------|----------|------|"
+        "|----------|----------|----------|----------|--------|--------|----------|----------|----------------|----------|------|"
     )
 
     if not enriched:
         parts.append(
-            "| - | 本次未形成可评分个股 | - | - | AI 未返回可进入量化/弹性评分的 A 股标的 | - | "
+            "| - | 本次未形成可评分个股 | - | - | - | - | AI 未返回可进入量化/弹性评分的 A 股标的 | - | "
             "请检查下方细分板块/风险提示；若日志出现 1059，优先更新 Cookie 或等待限流恢复 | - | - |"
         )
 
@@ -1534,7 +1704,8 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
 
         parts.append(
             f"| {stock.get('action', '-')} | {name} | {market_cap_str} | "
-            f"{stock.get('entry_ref', '-')} | {logic} | {target_str} | "
+            f"{stock.get('entry_ref', '-')} | {stock.get('technical_view', '-')} | "
+            f"**{stock.get('buy_score', 0):.1f}** | {logic} | {target_str} | "
             f"{risk} | {score_str} | {trend_badge} |"
         )
 

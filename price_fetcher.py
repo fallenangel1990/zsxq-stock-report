@@ -27,6 +27,7 @@ _FIELD_PB = 46
 # ── 内存缓存：同一 code 在同一次运行中不重复请求 ──
 _price_cache: dict[str, dict] = {}
 _change_5d_cache: dict[str, Optional[float]] = {}
+_technical_cache: dict[str, Optional[dict]] = {}
 
 
 def _code_to_tencent(code: str) -> str:
@@ -273,6 +274,130 @@ def fetch_5day_changes(codes: list[str], timeout: int = 10, max_workers: int = 5
             except Exception as e:
                 print(f"[5日涨跌] {code} 线程异常: {e}", flush=True)
                 _change_5d_cache[code] = None
+
+    return result
+
+
+def _ma(values: list[float], n: int) -> Optional[float]:
+    """计算最近 n 日均线。"""
+    if len(values) < n:
+        return None
+    return sum(values[-n:]) / n
+
+
+def _fetch_one_technical(tc: str, code: str, timeout: int) -> Optional[dict]:
+    """获取单只股票技术指标快照。"""
+    try:
+        url = (
+            f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
+            f"?param={tc},day,,,40,qfq"
+        )
+        resp = requests.get(url, timeout=timeout)
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("code") != 0:
+            print(f"[技术指标] {code} API 返回异常 code={data.get('code')}", flush=True)
+            return None
+
+        stock_data = data.get("data", {}).get(tc, {})
+        klines = stock_data.get("qfqday", []) or stock_data.get("day", [])
+        if len(klines) < 20:
+            print(f"[技术指标] {code} K 线数据不足（仅 {len(klines)} 条）", flush=True)
+            return None
+
+        closes = [float(k[2]) for k in klines if len(k) >= 3]
+        lows = [float(k[4]) for k in klines if len(k) >= 5]
+        volumes = [float(k[5]) for k in klines if len(k) >= 6]
+        if len(closes) < 20 or len(lows) < 20:
+            return None
+
+        close = closes[-1]
+        ma5 = _ma(closes, 5)
+        ma10 = _ma(closes, 10)
+        ma20 = _ma(closes, 20)
+        low20 = min(lows[-20:])
+        high20 = max(float(k[3]) for k in klines[-20:] if len(k) >= 4)
+        change_5d = round((close / closes[-6] - 1) * 100, 2) if len(closes) >= 6 and closes[-6] else None
+        change_20d = round((close / closes[-20] - 1) * 100, 2) if closes[-20] else None
+        vol_ratio = None
+        if len(volumes) >= 6:
+            avg_vol5_prev = sum(volumes[-6:-1]) / 5
+            if avg_vol5_prev > 0:
+                vol_ratio = round(volumes[-1] / avg_vol5_prev, 2)
+
+        above_ma5 = ma5 is not None and close >= ma5
+        above_ma10 = ma10 is not None and close >= ma10
+        above_ma20 = ma20 is not None and close >= ma20
+        ma_bullish = ma5 is not None and ma10 is not None and ma20 is not None and ma5 >= ma10 >= ma20
+        distance_ma20_pct = round((close / ma20 - 1) * 100, 2) if ma20 else None
+        position_20d = None
+        if high20 > low20:
+            position_20d = round((close - low20) / (high20 - low20) * 100, 1)
+
+        return {
+            "close": close,
+            "ma5": round(ma5, 3) if ma5 else None,
+            "ma10": round(ma10, 3) if ma10 else None,
+            "ma20": round(ma20, 3) if ma20 else None,
+            "above_ma5": above_ma5,
+            "above_ma10": above_ma10,
+            "above_ma20": above_ma20,
+            "ma_bullish": ma_bullish,
+            "distance_ma20_pct": distance_ma20_pct,
+            "position_20d": position_20d,
+            "change_5d": change_5d,
+            "change_20d": change_20d,
+            "volume_ratio": vol_ratio,
+        }
+    except requests.Timeout:
+        print(f"[技术指标] {code} 请求超时（{timeout}s）", flush=True)
+    except requests.RequestException as e:
+        print(f"[技术指标] {code} 请求失败: {e}", flush=True)
+    except (ValueError, IndexError, TypeError) as e:
+        print(f"[技术指标] {code} 数据格式异常: {e}", flush=True)
+    return None
+
+
+def fetch_technical_indicators(
+    codes: list[str],
+    timeout: int = 10,
+    max_workers: int = 5,
+) -> dict:
+    """批量获取 A 股技术指标快照。"""
+    result = {}
+    uncached = []
+    for code in codes:
+        if code in _technical_cache:
+            cached = _technical_cache[code]
+            if cached is not None:
+                result[code] = cached
+        else:
+            uncached.append(code)
+
+    tasks = []
+    for code in uncached:
+        tc = _code_to_tencent(code)
+        if tc:
+            tasks.append((tc, code))
+        else:
+            _technical_cache[code] = None
+
+    if tasks:
+        with ThreadPoolExecutor(max_workers=min(max_workers, len(tasks))) as executor:
+            future_map = {
+                executor.submit(_fetch_one_technical, tc, code, timeout): code
+                for tc, code in tasks
+            }
+            for future in as_completed(future_map):
+                code = future_map[future]
+                try:
+                    indicators = future.result()
+                except Exception as e:
+                    print(f"[技术指标] {code} 线程异常: {e}", flush=True)
+                    indicators = None
+                _technical_cache[code] = indicators
+                if indicators is not None:
+                    result[code] = indicators
 
     return result
 
