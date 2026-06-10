@@ -16,6 +16,7 @@ from sector_monitor import (
     _logic_hint,
     _money_yi,
     _request_json,
+    _request_tencent_codes,  # 新增
     _safe_float,
     capture_market_signals,
     evaluate_market_environment,
@@ -60,7 +61,10 @@ def _save_review_state(snapshot: dict) -> None:
 
 
 def fetch_a_share_snapshot(limit_pages: int = 12, page_size: int = 500) -> list[dict]:
-    """抓取全 A 快照，用于市场宽度、涨停跌停和风格判断。"""
+    """抓取全 A 快照，用于市场宽度、涨停跌停和风格判断。
+    
+    优先用东方财富 API，失败时降级到腾讯财经。
+    """
     stocks = []
     for page in range(1, limit_pages + 1):
         params = {
@@ -77,7 +81,9 @@ def fetch_a_share_snapshot(limit_pages: int = 12, page_size: int = 500) -> list[
         data = _request_json(params, timeout=15)
         rows = data.get("data", {}).get("diff", []) or []
         if not rows:
-            break
+            # 东方财富失败，降级到腾讯财经
+            print("[INFO] eastmoney failed, falling back to tencent...", flush=True)
+            return _fetch_a_share_from_tencent(limit_pages * page_size)
         for raw in rows:
             stocks.append({
                 "code": raw.get("f12", ""),
@@ -92,6 +98,37 @@ def fetch_a_share_snapshot(limit_pages: int = 12, page_size: int = 500) -> list[
         total = data.get("data", {}).get("total")
         if total and len(stocks) >= int(total):
             break
+    return stocks
+
+
+def _fetch_a_share_from_tencent(limit: int = 6000) -> list[dict]:
+    """从腾讯财经抓取全 A 股列表（备用数据源）。"""
+    # 获取所有 A 股代码（简化的代码列表）
+    all_codes = []
+    # 沪市主板: 600000-603999
+    all_codes.extend([str(i) for i in range(600000, 604000)])
+    # 深市主板: 000000-001999
+    all_codes.extend([str(i).zfill(6) for i in range(1, 2000)])
+    # 创业板: 300000-300999
+    all_codes.extend([str(i) for i in range(300000, 301000)])
+    # 科创板: 688000-688999
+    all_codes.extend([str(i) for i in range(688000, 689000)])
+
+    print(f"[INFO] fetching {len(all_codes)} codes from tencent...", flush=True)
+    results = _request_tencent_codes(all_codes, timeout=20)
+
+    stocks = []
+    for s in results[:limit]:
+        stocks.append({
+            "code": s.get("code", ""),
+            "name": s.get("name", ""),
+            "change_pct": s.get("change_pct", 0),
+            "amount_yi": s.get("amount_yi", 0),
+            "turnover_rate": 0.0,  # 腾讯不提供换手率
+            "market_cap_yi": 0.0,  # 腾讯不提供市值
+            "main_net_yi": 0.0,    # 腾讯不提供主力净流入
+            "sector": "",
+        })
     return stocks
 
 

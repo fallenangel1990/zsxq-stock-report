@@ -16,6 +16,58 @@ import yaml
 EASTMONEY_CLIST_URL = "https://push2.eastmoney.com/api/qt/clist/get"
 EASTMONEY_ULIST_URL = "https://push2.eastmoney.com/api/qt/ulist.np/get"
 
+# 腾讯财经 API（备用数据源）
+TENCENT_QUOTE_URL = "https://qt.gtimg.cn/q="
+
+
+def _parse_tencent_stock(raw: str, code: str) -> dict:
+    """解析腾讯财经单股返回数据。"""
+    parts = raw.split("~")
+    if len(parts) < 32:
+        return None
+    return {
+        "code": code.replace("sh", "").replace("sz", ""),
+        "name": parts[1],
+        "price": _safe_float(parts[3]),
+        "prev_close": _safe_float(parts[2]),
+        "change_pct": _pct(_safe_float(parts[3]) - _safe_float(parts[2]), _safe_float(parts[2])) * 100,
+        "amount_yi": _safe_float(parts[7]) / 100_000_000,
+        "volume": int(parts[6]) if parts[6].isdigit() else 0,
+    }
+
+
+def _request_tencent_codes(codes: list[str], timeout: int = 15) -> list[dict]:
+    """批量请求腾讯财经行情（支持 130 只/请求）。"""
+    tencent_codes = []
+    for c in codes:
+        if c.startswith("6"):
+            tencent_codes.append(f"sh{c}")
+        else:
+            tencent_codes.append(f"sz{c}")
+
+    results = []
+    chunk_size = 130
+    for i in range(0, len(tencent_codes), chunk_size):
+        chunk = tencent_codes[i:i + chunk_size]
+        url = TENCENT_QUOTE_URL + ",".join(chunk)
+        try:
+            resp = requests.get(url, timeout=timeout)
+            resp.raise_for_status()
+            text = resp.text
+            for line in text.split("\n"):
+                if not line.strip():
+                    continue
+                if "=" not in line:
+                    continue
+                key, raw = line.split("=", 1)
+                code = key.replace("v_", "")
+                stock = _parse_tencent_stock(raw, code)
+                if stock:
+                    results.append(stock)
+        except Exception as e:
+            print(f"[WARN] tencent API chunk failed: {e}", flush=True)
+    return results
+
 BOARD_FIELDS = (
     "f12,f14,f3,f4,f5,f6,f20,f62,f66,f69,f72,f75,f78,f81,f84,f87,"
     "f104,f105,f128,f136,f140,f141,f152"
@@ -239,7 +291,7 @@ def fetch_board_stocks(board_code: str, limit: int = 30) -> list[dict]:
 
 
 def fetch_market_indices() -> list[dict]:
-    """抓取主要指数行情和上涨/下跌家数。"""
+    """抓取主要指数行情和上涨/下跌家数。失败时降级到腾讯。"""
     params = {
         "fltt": 2,
         "invt": 2,
@@ -247,8 +299,13 @@ def fetch_market_indices() -> list[dict]:
         "secids": MAIN_INDEX_SECIDS,
     }
     data = _request_ulist_json(params)
+    rows = data.get("data", {}).get("diff", []) or []
+    if not rows:
+        print("[INFO] eastmoney indices failed, falling back to tencent...", flush=True)
+        return _fetch_indices_from_tencent()
+
     indices = []
-    for raw in data.get("data", {}).get("diff", []) or []:
+    for raw in rows:
         up_count = _safe_int(raw.get("f104"))
         down_count = _safe_int(raw.get("f105"))
         flat_count = _safe_int(raw.get("f106"))
@@ -267,6 +324,40 @@ def fetch_market_indices() -> list[dict]:
             "down_count": down_count,
             "flat_count": flat_count,
             "up_ratio": _pct(up_count, total_count),
+        })
+    return indices
+
+
+def _fetch_indices_from_tencent() -> list[dict]:
+    """从腾讯财经抓取主要指数（备用数据源）。"""
+    # 上证指数、深证成指、创业板指、沪深300、中证1000
+    tencent_codes = ["sh000001", "sz399001", "sz399006", "sh000300", "sh000852"]
+    results = _request_tencent_codes(tencent_codes, timeout=10)
+
+    indices = []
+    name_map = {
+        "000001": "上证指数",
+        "399001": "深证成指",
+        "399006": "创业板指",
+        "000300": "沪深300",
+        "000852": "中证1000",
+    }
+    for s in results:
+        code = s.get("code", "")
+        indices.append({
+            "code": code,
+            "name": name_map.get(code, code),
+            "price": s.get("price", 0),
+            "change_pct": s.get("change_pct", 0),
+            "amount_yi": s.get("amount_yi", 0),
+            "open": 0,
+            "prev_close": s.get("prev_close", 0),
+            "high": 0,
+            "low": 0,
+            "up_count": 0,  # 腾讯不提供涨跌家数
+            "down_count": 0,
+            "flat_count": 0,
+            "up_ratio": 0,
         })
     return indices
 
