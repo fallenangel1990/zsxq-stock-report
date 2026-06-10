@@ -891,7 +891,7 @@ def build_review_report(
 ) -> str:
     now = _now_shanghai().strftime("%Y-%m-%d %H:%M:%S 北京时间")
     volume_desc = compare_volume(breadth.get("total_amount_yi", 0), previous)
-    style = style_bias_from_boards(all_boards) or "未知"
+    style = infer_market_style(all_boards, indices, breadth, limit_summary)
     emotion = emotion_score(market, breadth, signal_boards)
     strongest, weakest = _strongest_and_weakest_boards(all_boards)
     top_signal = signal_boards[0] if signal_boards else (strongest[0] if strongest else {})
@@ -937,7 +937,7 @@ def build_review_report(
         f"- 指数环境: **{market.get('level', '未知')}**，大盘评分 {market.get('score', 0)} / 100。",
         f"- 今日成交额: {amount_label} **{_fmt_yi(breadth.get('total_amount_yi'))}**；{volume_desc}。",
         f"- 市场宽度: {breadth.get('up', 0)} 涨 / {breadth.get('down', 0)} 跌 / {breadth.get('flat', 0)} 平（{breadth_source}），赚钱效应 **{breadth.get('money_effect', '未知')}**。",
-        f"- 市场风格: **{style}**；平均换手率约 {breadth.get('avg_turnover_rate', 0):.2f}%。",
+        f"- 市场风格: **{style.get('label')}**；{style.get('reason')}；平均换手率约 {breadth.get('avg_turnover_rate', 0):.2f}%。",
         f"- 涨停/跌停: 涨停 {breadth.get('limit_up', 0)} 只，跌停 {breadth.get('limit_down', 0)} 只（{breadth.get('limit_source', '实际涨跌停池')} {breadth.get('limit_date', '')}）；连板 {consecutive_count} 只，最高 {max_consecutive} 连板。",
         f"- 主线情绪评分: **{emotion} / 10**。",
         "",
@@ -1193,18 +1193,107 @@ def build_review_report(
     return "\n".join(lines)
 
 
-def style_bias_from_boards(boards: list[dict]) -> str:
+def infer_market_style(
+    boards: list[dict],
+    indices: list[dict],
+    breadth: dict,
+    limit_summary: dict,
+) -> dict:
+    """给出明确市场风格，即使板块源降级也不返回未知。"""
+    board_style = style_bias_from_boards(boards)
+    if board_style:
+        return board_style
+
+    index_map = {item.get("name", ""): item for item in indices}
+    sh = index_map.get("上证指数", {})
+    cyb = index_map.get("创业板指", {})
+    kc50 = index_map.get("科创50", {})
+    hs300 = index_map.get("沪深300", {})
+    sh_change = sh.get("change_pct")
+    growth_changes = [
+        item.get("change_pct")
+        for item in (cyb, kc50)
+        if item.get("change_pct") is not None
+    ]
+    growth_change = sum(growth_changes) / len(growth_changes) if growth_changes else None
+    hs300_change = hs300.get("change_pct")
+    hot_industries = limit_summary.get("hot_industries", [])
+    hot_names = "、".join(name for name, _ in hot_industries)
+    up = breadth.get("up", 0) or 0
+    down = breadth.get("down", 0) or 0
+
+    growth_keywords = ("半导体", "芯片", "IT服务", "软件", "机器人", "专用设备", "AI", "算力", "创新药")
+    cyclical_keywords = ("化学", "有色", "煤炭", "钢铁", "石油", "房地产")
+    defensive_keywords = ("银行", "保险", "证券", "公用事业", "电力", "白酒")
+
+    def hot_score(keywords: tuple[str, ...]) -> int:
+        return sum(
+            count
+            for name, count in hot_industries
+            if any(keyword in name for keyword in keywords)
+        )
+
+    style_scores = {
+        "growth": hot_score(growth_keywords),
+        "cyclical": hot_score(cyclical_keywords),
+        "defensive": hot_score(defensive_keywords),
+    }
+    top_style, top_score = max(style_scores.items(), key=lambda item: item[1])
+
+    if top_style == "growth" and top_score > 0:
+        return {
+            "label": "成长题材占优",
+            "reason": f"涨停集中在 {hot_names or '成长方向'}，偏科技成长与主题扩散",
+        }
+    if top_style == "defensive" and top_score > 0:
+        return {
+            "label": "大盘蓝筹/防守占优",
+            "reason": f"涨停集中在 {hot_names}，偏权重或防守资产",
+        }
+    if top_style == "cyclical" and top_score > 0:
+        return {
+            "label": "周期/资源方向占优",
+            "reason": f"涨停集中在 {hot_names}，偏顺周期和资源品",
+        }
+    if growth_change is not None and sh_change is not None and growth_change > sh_change + 0.3:
+        return {
+            "label": "成长股相对占优",
+            "reason": f"创业板/科创平均涨跌幅 {_fmt_pct(growth_change)} 强于上证 {_fmt_pct(sh_change)}",
+        }
+    if hs300_change is not None and growth_change is not None and hs300_change > growth_change + 0.3:
+        return {
+            "label": "大盘蓝筹相对占优",
+            "reason": f"沪深300 {_fmt_pct(hs300_change)} 强于成长指数均值 {_fmt_pct(growth_change)}",
+        }
+    if up and down and up > down * 1.2:
+        return {
+            "label": "普涨轮动",
+            "reason": f"上涨家数 {up} 多于下跌家数 {down}，市场扩散较均衡",
+        }
+    if up and down and down > up * 1.2:
+        return {
+            "label": "防守避险",
+            "reason": f"下跌家数 {down} 多于上涨家数 {up}，资金偏谨慎",
+        }
+    return {
+        "label": "主题轮动",
+        "reason": "指数与市场宽度未形成单一风格优势，按轮动市处理",
+    }
+
+
+def style_bias_from_boards(boards: list[dict]) -> Optional[dict]:
     if not boards:
-        return "未知"
+        return None
     top = sorted(boards, key=lambda b: (b.get("change_pct", 0), b.get("main_net_yi", 0)), reverse=True)[:20]
     names = " ".join(b.get("name", "") for b in top)
     if any(k in names for k in ("银行", "证券", "保险", "白酒", "中字头", "煤炭", "石油")):
-        return "大盘蓝筹"
+        return {"label": "大盘蓝筹占优", "reason": "强势板块集中在权重、金融或资源方向"}
     if any(k in names for k in ("AI", "人工智能", "算力", "半导体", "芯片", "机器人", "创新药")):
-        return "成长股"
+        return {"label": "成长题材占优", "reason": "强势板块集中在科技成长或新兴产业方向"}
     if any(k in names for k in ("小盘", "专精特新", "次新", "微盘")):
-        return "中小盘"
-    return "主题成长/轮动"
+        return {"label": "中小盘情绪占优", "reason": "强势板块偏小盘、次新或专精特新方向"}
+    leaders = "、".join(b.get("name", "") for b in top[:3] if b.get("name"))
+    return {"label": "主题轮动", "reason": f"强势方向分散，领涨板块为 {leaders or '暂无明确板块'}"}
 
 
 def _format_board_names(boards: list[dict], limit: int) -> str:

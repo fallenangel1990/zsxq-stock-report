@@ -84,6 +84,7 @@
 - **报告展示时区**：所有会出现在邮件正文、邮件头、PDF 页脚或定时报告中的生成时间，都必须使用 `ZoneInfo("Asia/Shanghai")`；不要在 CI 可见输出中使用 naive `datetime.now()` 后再手动标注北京时间。
 - **盘后复盘行情源降级**：东方财富 `push2.eastmoney.com` 在 GitHub Actions 中可能连续返回 502；盘后复盘不能把主要指数、全A快照或板块快照作为硬依赖，应返回空/部分样本、尝试腾讯兜底，并在报告中标记数据完整性。
 - **盘后复盘私有数据接入**：真实持仓和交易心理日志不提交到仓库；本地分别读取 `data/holdings.json`、`data/trading_journal.json`，CI 通过 `PORTFOLIO_JSON`、`TRADING_JOURNAL_JSON` Secrets 写入运行时文件。报告应展示明确数据状态，不再输出“待接入”占位。
+- **盘后复盘市场风格**：市场风格不能显示“未知”；板块数据不可用时应根据涨停行业集中、创业板/科创/沪深300/上证相对强弱和上涨下跌家数兜底判断，并同时给出判断依据。
 
 ## Decision Log
 

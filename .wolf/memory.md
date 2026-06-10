@@ -264,3 +264,4 @@
 | 01:38 | Fixed market review up/down fallback breadth | sector_monitor.py, market_review.py, .wolf/* | fallback now uses 上证指数+深证成指 only; northbound wording removed from active files | ~2600 |
 | 01:55 | Connected THS breadth and real limit pools | market_review.py, market-review.yml, .wolf/* | breadth prefers 同花顺 indexflash, limit counts use Eastmoney pools, strong industries/concepts added | ~5200 |
 | 07:08 | Connected remaining market-review data sources | market_review.py, market-review.yml, .wolf/* | added limit-board stats, announcements, portfolio/journal inputs, and validation passed | ~6500 |
+| 07:24 | Fixed unknown market style fallback | market_review.py, .wolf/* | style now always outputs explicit category with reason; py_compile and render checks passed | ~2600 |

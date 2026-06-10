@@ -1110,6 +1110,27 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-11T07:08:00+08:00"
+    },
+    {
+      "id": "bug-063",
+      "timestamp": "2026-06-11T07:24:00+08:00",
+      "error_message": "盘后复盘市场风格显示为未知，要求明确给出",
+      "file": "market_review.py",
+      "root_cause": "市场风格只依赖板块快照判断；当东方财富板块接口在本地或 CI 中降级为空时，style_bias_from_boards() 直接返回未知，报告没有使用指数、涨跌家数和涨停行业做兜底判断。",
+      "fix": "新增 infer_market_style()，优先使用强势板块判断；板块为空时按涨停行业加权、主要指数相对强弱和市场宽度推断为成长题材、大盘蓝筹、周期资源、普涨轮动、防守避险或主题轮动，并在报告中展示判断依据。",
+      "tags": [
+        "market-review",
+        "market-style",
+        "fallback",
+        "report-content"
+      ],
+      "related_bugs": [
+        "bug-057",
+        "bug-058",
+        "bug-062"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-11T07:24:00+08:00"
     }
   ]
 }
