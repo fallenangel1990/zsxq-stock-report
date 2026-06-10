@@ -858,6 +858,24 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-09T11:30:54+08:00"
+    },
+    {
+      "id": "bug-050",
+      "timestamp": "2026-06-10T15:29:14+08:00",
+      "error_message": "股票报告返回结果中当前市值经常获取不到",
+      "file": "price_fetcher.py",
+      "root_cause": "当前行情只依赖腾讯 qt.gtimg.cn 的字段 45 作为总市值；该字段在部分股票或部分响应中会为空，导致 stock_extractor.py 最终报告的当前市值显示为 '-'。",
+      "fix": "新增东方财富 push2 行情兜底，使用 f20 总市值（元）转为亿元；fetch_prices() 在腾讯整批失败、个股缺失或 market_cap_yi 为空时批量补齐价格、PE、PB 和总市值，且不覆盖腾讯已成功返回的字段。",
+      "tags": [
+        "price-fetcher",
+        "market-cap",
+        "eastmoney",
+        "fallback",
+        "stock-report"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-10T15:29:14+08:00"
     }
   ]
 }

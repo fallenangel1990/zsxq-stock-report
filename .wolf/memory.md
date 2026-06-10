@@ -251,3 +251,4 @@
 | 11:30 | Relaxed ZSXQ cookie expires metadata gate | auth.py, daily-report.yml, .wolf/* | expired local expires now warns but lets API validate token; workflow labels metadata expiry separately | ~2500 |
 | 14:43 | Added technical buy list to stock report | price_fetcher.py, stock_extractor.py, .wolf/cerebrum.md | reports now include technical indicator based buy_score, trade advice, and best-buy shortlist; validations passed | ~5000 |
 | 14:52 | Upgraded stock report trading rules | stock_extractor.py, .wolf/cerebrum.md | added buy tiers, market filter, source credibility, trade period, exit triggers, and overheat exclusion; validations passed | ~3500 |
+| 15:29 | Added market-cap fallback for stock quotes | price_fetcher.py, .wolf/* | Eastmoney push2 now fills missing Tencent total market cap; live and mocked fallback tests passed | ~3000 |

@@ -26,6 +26,7 @@
 - **Playwright 被屏蔽**：`wx.zsxq.com` 可能返回 `ERR_CONNECTION_CLOSED` 屏蔽 Playwright 自动化浏览器。可通过直接调用 API + Cookie 作为回退方案。
 - **富文本清洗**：ZSXQ 的 `talk.text` 含有 `<e type="hashtag" ... />` 等富文本标签，需在 `_parse_topic()` 中清洗后内容才可用。
 - **股票报告链路**：AI 提取阶段仍需保留股票代码作为行情查询键；最终报告由 `_rebuild_report()` 重建并移除 JSON/代码等不展示字段。
+- **股票行情兜底**：腾讯行情 `qt.gtimg.cn` 的总市值字段可能为空；当前市值必须用东方财富 push2 `f20` 兜底并转为亿元，避免最终报告市值显示为 `-`。
 - **GitHub Actions 定时**：A 股开盘日 08:30/12:00 北京时间应写为 UTC `30 0 * * 1-5` / `0 4 * * 1-5`，交易日检查必须使用 `Asia/Shanghai` 日期再用 `chinese_calendar` 排除节假日。
 - **GitHub Actions 邮件发送**：邮件凭证已存在但 `smtplib.SMTPServerDisconnected: Connection unexpectedly closed`
   出现在 `server.login()` 时，优先怀疑 SMTP 端口/安全模式或服务商对 CI 出口的限制；

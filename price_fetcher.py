@@ -47,6 +47,95 @@ def _code_to_tencent(code: str) -> str:
     return ""
 
 
+def _code_to_eastmoney(code: str) -> str:
+    """将 6 位 A 股代码转为东方财富 secid。"""
+    code = code.strip()
+    if not code or not code.isdigit() or len(code) != 6:
+        return ""
+    if code.startswith("6"):
+        return f"1.{code}"
+    if code.startswith(("0", "3")):
+        return f"0.{code}"
+    return ""
+
+
+def _eastmoney_scaled(value, scale: float = 100.0) -> Optional[float]:
+    """东方财富行情字段常用整数缩放，'-' 或 None 返回 None。"""
+    if value in (None, "", "-"):
+        return None
+    try:
+        return float(value) / scale
+    except (TypeError, ValueError):
+        return None
+
+
+def _fetch_eastmoney_quotes(codes: list[str], timeout: int = 10) -> dict:
+    """使用东方财富行情接口补充实时行情和总市值。
+
+    f20 为总市值（元），这里统一转为亿元。
+    """
+    secid_to_code = {}
+    secids = []
+    for code in codes:
+        secid = _code_to_eastmoney(code)
+        if secid:
+            secids.append(secid)
+            secid_to_code[secid] = code
+    if not secids:
+        return {}
+
+    url = "https://push2.eastmoney.com/api/qt/ulist.np/get"
+    params = {
+        "secids": ",".join(secids),
+        "fields": "f12,f14,f2,f3,f9,f17,f18,f20,f21,f23",
+    }
+    try:
+        resp = requests.get(url, params=params, timeout=timeout)
+        resp.raise_for_status()
+        data = resp.json()
+    except requests.RequestException as e:
+        print(f"[价格兜底] 东方财富请求失败: {e}", flush=True)
+        return {}
+    except ValueError:
+        print("[价格兜底] 东方财富 JSON 解析失败", flush=True)
+        return {}
+
+    result = {}
+    for item in data.get("data", {}).get("diff", []) or []:
+        code = str(item.get("f12") or "")
+        if not code:
+            continue
+        market_cap_yi = None
+        try:
+            f20 = item.get("f20")
+            if f20 not in (None, "", "-"):
+                market_cap_yi = round(float(f20) / 100000000, 2)
+        except (TypeError, ValueError):
+            market_cap_yi = None
+        result[code] = {
+            "name": item.get("f14") or "",
+            "code": code,
+            "price": _eastmoney_scaled(item.get("f2")),
+            "prev_close": _eastmoney_scaled(item.get("f18")),
+            "open": _eastmoney_scaled(item.get("f17")),
+            "change_pct": _eastmoney_scaled(item.get("f3")),
+            "pe": _eastmoney_scaled(item.get("f9")),
+            "pb": _eastmoney_scaled(item.get("f23")),
+            "market_cap_yi": market_cap_yi,
+        }
+    return result
+
+
+def _merge_quote_info(primary: dict, fallback: dict) -> dict:
+    """只用 fallback 补齐 primary 的缺失字段。"""
+    merged = dict(primary or {})
+    for key, value in (fallback or {}).items():
+        if key not in merged or merged.get(key) in (None, "", 0):
+            if value not in (None, ""):
+                merged[key] = value
+    return merged
+
+
 def fetch_prices(codes: list[str], timeout: int = 10) -> dict:
     """批量获取 A 股实时行情（带内存缓存）。
 
@@ -77,16 +166,17 @@ def fetch_prices(codes: list[str], timeout: int = 10) -> dict:
 
     # 批量查询（腾讯 API 支持逗号分隔多只股票）
     url = f"http://qt.gtimg.cn/q={','.join(tencent_codes)}"
+    raw = ""
     try:
         resp = requests.get(url, timeout=timeout)
         resp.raise_for_status()
     except requests.RequestException as e:
         print(f"[价格获取] 请求失败: {e}")
-        return {c: _price_cache[c] for c in codes if c in _price_cache}
+    else:
+        raw = resp.text
 
     # 解析响应
     result = {}
-    raw = resp.text
     # 编码可能是 GBK，尝试用 GBK 解码；若失败则回退 UTF-8
     try:
         raw = raw.encode("latin-1").decode("gbk")
@@ -130,6 +220,27 @@ def fetch_prices(codes: list[str], timeout: int = 10) -> dict:
         except (IndexError, ValueError) as e:
             print(f"[价格获取] 解析失败: {e}")
             continue
+
+    # 东方财富兜底：补齐腾讯缺失的总市值，必要时补齐整只股票行情。
+    need_fallback = [
+        c for c in valid_codes
+        if c not in _price_cache or _price_cache[c].get("market_cap_yi") in (None, 0)
+    ]
+    if need_fallback:
+        fallback_quotes = _fetch_eastmoney_quotes(need_fallback, timeout=timeout)
+        filled_market_caps = 0
+        for code, fallback in fallback_quotes.items():
+            before = _price_cache.get(code, {}).get("market_cap_yi")
+            merged = _merge_quote_info(_price_cache.get(code, {}), fallback)
+            if not merged.get("code"):
+                merged["code"] = code
+            _price_cache[code] = merged
+            result[code] = merged
+            after = merged.get("market_cap_yi")
+            if before in (None, 0) and after not in (None, 0):
+                filled_market_caps += 1
+        if filled_market_caps:
+            print(f"[价格兜底] 东方财富补齐 {filled_market_caps} 只股票总市值", flush=True)
 
     # 合并缓存结果
     full_result = {}
