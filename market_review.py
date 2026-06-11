@@ -7,6 +7,7 @@ import json
 import math
 import os
 import time
+import uuid
 from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -34,6 +35,7 @@ THS_INDEXFLASH_URL = "https://q.10jqka.com.cn/api.php?t=indexflash"
 EASTMONEY_LIMIT_UP_URL = "https://push2ex.eastmoney.com/getTopicZTPool"
 EASTMONEY_LIMIT_DOWN_URL = "https://push2ex.eastmoney.com/getTopicDTPool"
 EASTMONEY_NOTICE_URL = "https://np-anotice-stock.eastmoney.com/api/security/ann"
+EASTMONEY_FAST_NEWS_URL = "https://np-weblist.eastmoney.com/comm/web/getFastNewsList"
 PORTFOLIO_FILE = Path(__file__).parent / "data" / "holdings.json"
 TRADING_JOURNAL_FILE = Path(__file__).parent / "data" / "trading_journal.json"
 
@@ -58,6 +60,11 @@ def _fmt_money(value) -> str:
     if value is None:
         return "-"
     return f"{value:.2f}"
+
+
+def _short_text(value: str, limit: int = 36) -> str:
+    value = (value or "").strip().replace("|", "/")
+    return value if len(value) <= limit else f"{value[:limit]}..."
 
 
 def _load_previous_state() -> dict:
@@ -357,6 +364,26 @@ def _limit_board_count(row: dict) -> int:
     return 1
 
 
+def _infer_market_driver(name: str) -> str:
+    text = name or ""
+    rules = [
+        (("半导体", "芯片", "集成电路"), "国产替代、AI 算力链和电子周期修复"),
+        (("IT服务", "软件", "互联网", "AI", "人工智能", "算力", "数据"), "AI 应用、算力基础设施和数字化预期"),
+        (("机器人", "专用设备", "自动化", "工业母机"), "机器人、高端制造和设备更新预期"),
+        (("化学", "塑料", "化工", "农药", "化肥"), "涨价预期、供需改善和周期品修复"),
+        (("房地产", "建筑", "建材", "水泥"), "地产政策预期和产业链修复交易"),
+        (("有色", "稀土", "金属", "锂", "黄金"), "资源价格、供给约束和避险/通胀交易"),
+        (("银行", "保险", "证券"), "权重护盘、估值修复和金融稳定预期"),
+        (("医药", "创新药", "医疗"), "政策边际改善、创新药和业绩修复预期"),
+        (("消费", "食品", "白酒", "旅游", "零售"), "内需修复和消费政策预期"),
+        (("电力", "公用事业", "环保"), "防守属性、分红预期和能源改革主题"),
+    ]
+    for keywords, driver in rules:
+        if any(keyword in text for keyword in keywords):
+            return driver
+    return "涨停资金集中，短线情绪和题材扩散驱动"
+
+
 def summarize_limit_pool(limit_stats: dict) -> dict:
     """从真实涨停池明细统计连板和涨停集中方向。"""
     pool = limit_stats.get("limit_up_pool") or []
@@ -366,35 +393,60 @@ def summarize_limit_pool(limit_stats: dict) -> dict:
             "max_consecutive": 0,
             "top_consecutive": [],
             "hot_industries": [],
+            "hot_topics": [],
             "data_status": limit_stats.get("data_status", "涨停池明细不可用"),
         }
 
     rows = []
     industries = Counter()
+    industry_leaders = {}
+    industry_consecutive = Counter()
     for raw in pool:
         board_count = _limit_board_count(raw)
         industry = raw.get("hybk") or raw.get("industry") or "未分类"
         if industry:
             industries[industry] += 1
-        rows.append({
+        row = {
             "code": raw.get("c") or raw.get("code", ""),
             "name": raw.get("n") or raw.get("name", ""),
             "industry": industry,
             "board_count": board_count,
             "change_pct": _safe_float(raw.get("zdp")),
             "amount_yi": _money_yi(raw.get("amount")),
-        })
+            "seal_fund_yi": _money_yi(raw.get("fund")),
+            "driver": _infer_market_driver(industry),
+        }
+        rows.append(row)
+        if board_count >= 2:
+            industry_consecutive[industry] += 1
+        leaders = industry_leaders.setdefault(industry, [])
+        leaders.append(row)
 
     consecutive_rows = [row for row in rows if row["board_count"] >= 2]
+    hot_topics = []
+    for industry, count in industries.most_common(8):
+        leaders = sorted(
+            industry_leaders.get(industry, []),
+            key=lambda item: (item.get("board_count", 0), item.get("seal_fund_yi", 0), item.get("amount_yi", 0)),
+            reverse=True,
+        )[:3]
+        hot_topics.append({
+            "name": industry,
+            "limit_count": count,
+            "consecutive_count": industry_consecutive.get(industry, 0),
+            "leaders": "、".join(row.get("name", "") for row in leaders if row.get("name")),
+            "driver": _infer_market_driver(industry),
+        })
     return {
         "consecutive_count": len(consecutive_rows),
         "max_consecutive": max((row["board_count"] for row in rows), default=0),
         "top_consecutive": sorted(
             consecutive_rows,
-            key=lambda row: (row.get("board_count", 0), row.get("amount_yi", 0)),
+            key=lambda row: (row.get("board_count", 0), row.get("seal_fund_yi", 0), row.get("amount_yi", 0)),
             reverse=True,
         )[:5],
         "hot_industries": industries.most_common(5),
+        "hot_topics": hot_topics,
         "data_status": "正常",
     }
 
@@ -564,6 +616,96 @@ def fetch_market_announcements(page_size: int = 30) -> dict:
         "category_counts": counter.most_common(),
         "data_status": "正常" if rows else "公告列表为空",
         "source": "东方财富公告",
+    }
+
+
+def _after_close_start(now: Optional[datetime] = None) -> datetime:
+    now = now or _now_shanghai()
+    today_close = now.replace(hour=15, minute=0, second=0, microsecond=0)
+    if now >= today_close:
+        return today_close
+    previous_day = now.date() - timedelta(days=1)
+    while previous_day.weekday() >= 5:
+        previous_day -= timedelta(days=1)
+    return datetime.combine(previous_day, datetime.min.time(), tzinfo=ZoneInfo("Asia/Shanghai")).replace(hour=15)
+
+
+def _news_importance(title: str, summary: str, title_color=None) -> tuple[str, int]:
+    text = f"{title} {summary}"
+    score = 1
+    label = "关注"
+    if str(title_color) in ("3", "4", "5"):
+        score += 1
+    if any(keyword in text for keyword in ("证监会", "国务院", "央行", "发改委", "财政部", "交易所", "政策", "降准", "降息")):
+        score += 2
+        label = "政策"
+    if any(keyword in text for keyword in ("半导体", "芯片", "AI", "人工智能", "算力", "机器人", "新能源", "地产", "医药")):
+        score += 1
+        label = "题材"
+    if any(keyword in text for keyword in ("美联储", "美元", "黄金", "原油", "商品", "期货", "人民币", "外围")):
+        score += 1
+        label = "外围"
+    if any(keyword in text for keyword in ("涨停", "大涨", "跌停", "大跌", "风险", "处罚", "立案")):
+        score += 1
+        label = "风险/异动" if any(k in text for k in ("跌停", "大跌", "风险", "处罚", "立案")) else label
+    return label, score
+
+
+def fetch_market_news_since_close(page_size: int = 80) -> dict:
+    """抓取东方财富 7x24 快讯，过滤收盘后到当前的重要消息。"""
+    start = _after_close_start()
+    params = {
+        "client": "web",
+        "biz": "web_724",
+        "fastColumn": "102",
+        "sortEnd": "",
+        "pageSize": page_size,
+        "req_trace": str(uuid.uuid4()),
+    }
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+        "Referer": "https://kuaixun.eastmoney.com/",
+        "Accept": "application/json, text/plain, */*",
+    }
+    try:
+        resp = requests.get(EASTMONEY_FAST_NEWS_URL, params=params, headers=headers, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        items = (data.get("data") or {}).get("fastNewsList") or []
+    except Exception as exc:
+        return {
+            "rows": [],
+            "start_time": start.strftime("%Y-%m-%d %H:%M"),
+            "data_status": f"快讯数据获取失败：{exc}",
+        }
+
+    rows = []
+    for item in items:
+        show_time = item.get("showTime") or item.get("showtime") or ""
+        try:
+            news_time = datetime.strptime(show_time[:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=ZoneInfo("Asia/Shanghai"))
+        except Exception:
+            continue
+        if news_time < start:
+            continue
+        title = item.get("title") or ""
+        summary = item.get("summary") or ""
+        category, score = _news_importance(title, summary, item.get("titleColor"))
+        if score < 2 and len(rows) >= 8:
+            continue
+        rows.append({
+            "time": news_time.strftime("%H:%M"),
+            "title": title,
+            "summary": summary,
+            "category": category,
+            "importance": score,
+        })
+    rows.sort(key=lambda row: (row.get("importance", 0), row.get("time", "")), reverse=True)
+    return {
+        "rows": rows[:10],
+        "start_time": start.strftime("%Y-%m-%d %H:%M"),
+        "data_status": "正常" if rows else f"收盘后暂无重要快讯（起点 {start.strftime('%Y-%m-%d %H:%M')}）",
+        "source": "东方财富 7x24 快讯",
     }
 
 
@@ -884,6 +1026,7 @@ def build_review_report(
     lhb_summary: dict,
     portfolio: dict,
     announcements: dict,
+    market_news: dict,
     journal: dict,
     signal_boards: list[dict],
     watchlist: list[dict],
@@ -903,6 +1046,7 @@ def build_review_report(
     limit_status = limit_summary.get("data_status", "正常")
     portfolio_status = portfolio.get("data_status", "正常")
     announcement_status = announcements.get("data_status", "正常")
+    news_status = market_news.get("data_status", "正常")
     journal_status = journal.get("data_status", "正常")
     data_status = "；".join(
         status for status in (
@@ -913,6 +1057,7 @@ def build_review_report(
             lhb_status,
             portfolio_status,
             announcement_status,
+            news_status,
             journal_status,
         )
         if status and status != "正常"
@@ -937,7 +1082,7 @@ def build_review_report(
         f"- 指数环境: **{market.get('level', '未知')}**，大盘评分 {market.get('score', 0)} / 100。",
         f"- 今日成交额: {amount_label} **{_fmt_yi(breadth.get('total_amount_yi'))}**；{volume_desc}。",
         f"- 市场宽度: {breadth.get('up', 0)} 涨 / {breadth.get('down', 0)} 跌 / {breadth.get('flat', 0)} 平（{breadth_source}），赚钱效应 **{breadth.get('money_effect', '未知')}**。",
-        f"- 市场风格: **{style.get('label')}**；{style.get('reason')}；平均换手率约 {breadth.get('avg_turnover_rate', 0):.2f}%。",
+        f"- 市场风格: **{style.get('label')}**；{style.get('reason')}。",
         f"- 涨停/跌停: 涨停 {breadth.get('limit_up', 0)} 只，跌停 {breadth.get('limit_down', 0)} 只（{breadth.get('limit_source', '实际涨跌停池')} {breadth.get('limit_date', '')}）；连板 {consecutive_count} 只，最高 {max_consecutive} 连板。",
         f"- 主线情绪评分: **{emotion} / 10**。",
         "",
@@ -954,95 +1099,62 @@ def build_review_report(
         lines.extend(["", "连板股观察："])
         _append_table(
             lines,
-            ["股票", "行业", "连板数", "涨幅", "成交额"],
+            ["股票", "行业", "连板", "涨幅", "驱动因素"],
             [
                 [
                     row.get("name", "-"),
                     row.get("industry", "-"),
                     row.get("board_count", "-"),
                     _fmt_pct(row.get("change_pct")),
-                    _fmt_yi(row.get("amount_yi")),
+                    row.get("driver", "-"),
                 ]
                 for row in limit_summary.get("top_consecutive", [])
             ],
         )
 
+    topic_rows = build_topic_rows(signal_boards, board_stats, limit_summary)
     lines.extend([
         "",
         "## 二、板块与题材",
         "",
-        f"- 今日最强势板块: **{top_signal.get('name', '暂无')}**。",
-        f"- 主要驱动: {top_signal.get('logic_hint', '资金扩散与板块强度待确认')}",
-        f"- 板块接力: 主力净流入 {_fmt_yi(top_signal.get('main_net_yi'))}，上涨家数占比 {top_signal.get('up_ratio', 0):.1f}%。",
-        f"- 板块统计: 共 {board_stats.get('total', 0)} 个板块（行业 {board_stats.get('industry_count', 0)} / 概念 {board_stats.get('concept_count', 0)}），{board_stats.get('up', 0)} 涨 / {board_stats.get('down', 0)} 跌 / {board_stats.get('flat', 0)} 平。",
-        f"- 板块强弱: 强势扩散 {board_stats.get('strong_count', 0)} 个，弱势下跌 {board_stats.get('weak_count', 0)} 个；平均上涨家数占比 {board_stats.get('avg_up_ratio', 0):.1f}%。",
-        f"- 强势行业: {_format_board_names(board_stats.get('strong_industries', []), 5)}。",
-        f"- 强势题材: {_format_board_names(board_stats.get('strong_concepts', []), 5)}。",
-        f"- 涨停集中行业: {hot_limit_industries}。",
-        f"- 板块资金: 总成交 {_fmt_yi(board_stats.get('total_amount_yi'))}，主力净流入合计 {_fmt_yi(board_stats.get('total_main_net_yi'))}；主力净流入 {board_stats.get('main_in_count', 0)} 个 / 净流出 {board_stats.get('main_out_count', 0)} 个。",
+        f"- **主线判断**: {format_topic_conclusion(topic_rows, board_stats)}",
+        f"- **涨停集中**: {hot_limit_industries}。",
+        f"- **板块统计**: {format_board_stat_line(board_stats)}",
         "",
     ])
     _append_table(
         lines,
-        ["板块", "涨幅", "主力净流入", "上涨家数占比", "龙头/领涨", "信号"],
+        ["方向", "强度", "代表个股", "驱动因素", "操作观察"],
         [
             [
-                b["name"],
-                _fmt_pct(b["change_pct"]),
-                _fmt_yi(b["main_net_yi"]),
-                f"{b['up_ratio']:.1f}%",
-                f"{b.get('leader_name', '-')}",
-                b.get("signal_level", "-"),
+                row.get("name", "-"),
+                row.get("strength", "-"),
+                row.get("leaders", "-"),
+                row.get("driver", "-"),
+                row.get("watch", "-"),
             ]
-            for b in strongest
+            for row in topic_rows[:6]
         ],
     )
-    lines.extend(["", "弱势板块观察："])
-    _append_table(
-        lines,
-        ["板块", "涨幅", "主力净流入", "可能原因"],
-        [
-            [b["name"], _fmt_pct(b["change_pct"]), _fmt_yi(b["main_net_yi"]), "资金流出或缺少领涨扩散"]
-            for b in weakest
-        ],
-    )
-    lines.extend(["", "成交额前五板块："])
-    _append_table(
-        lines,
-        ["板块", "类型", "成交额", "涨幅", "主力净流入", "上涨家数占比"],
-        [
+    if weakest:
+        lines.extend(["", "弱势/回避方向："])
+        _append_table(
+            lines,
+            ["板块", "跌幅/弱势", "原因"],
             [
-                b["name"],
-                "行业" if b.get("type") == "industry" else "概念",
-                _fmt_yi(b.get("amount_yi")),
-                _fmt_pct(b.get("change_pct")),
-                _fmt_yi(b.get("main_net_yi")),
-                f"{b.get('up_ratio', 0):.1f}%",
-            ]
-            for b in board_stats.get("top_amount", [])
-        ],
-    )
-    lines.extend(["", "主力净流入/流出排行："])
-    _append_table(
-        lines,
-        ["方向", "板块", "涨幅", "主力净流入", "成交额", "领涨股"],
-        [
-            ["流入", b["name"], _fmt_pct(b.get("change_pct")), _fmt_yi(b.get("main_net_yi")), _fmt_yi(b.get("amount_yi")), b.get("leader_name", "-")]
-            for b in board_stats.get("top_inflow", [])[:3]
-        ] + [
-            ["流出", b["name"], _fmt_pct(b.get("change_pct")), _fmt_yi(b.get("main_net_yi")), _fmt_yi(b.get("amount_yi")), b.get("leader_name", "-")]
-            for b in board_stats.get("top_outflow", [])[:3]
-        ],
-    )
+                [b["name"], _fmt_pct(b.get("change_pct")), "资金流出或缺少领涨扩散"]
+                for b in weakest[:3]
+            ],
+        )
 
-    lhb_view = format_lhb_readable_view(lhb_summary, strongest)
+    lhb_view = format_lhb_readable_view(lhb_summary, topic_rows)
     lines.extend([
         "",
         "## 三、龙虎榜与短线资金",
         "",
         f"- **资金结论**: {lhb_view['conclusion']}",
         f"- **上榜概览**: {lhb_summary.get('date') or '暂无日期'}，上榜 {lhb_summary.get('count', 0)} 只，净买入 {lhb_summary.get('net_buy_count', 0)} / 净卖出 {lhb_summary.get('net_sell_count', 0)}，整体净额 **{_fmt_yi(lhb_summary.get('total_net_yi'))}**。",
-        f"- **热点方向**: {lhb_view['hot_direction']}。",
+        f"- **热点方向**: {lhb_view['hot_direction']}",
         f"- **上榜原因**: {_format_lhb_reasons(lhb_summary.get('reason_counts', []))}。",
         "",
         "买入焦点 Top3：",
@@ -1127,9 +1239,9 @@ def build_review_report(
         "",
         "## 五、主线与策略分析",
         "",
-        f"- 今日市场主线: **{_format_board_names(signal_boards or strongest, 3)}**。",
+        f"- 今日市场主线: **{_format_topic_names(topic_rows, 3)}**。",
         f"- 主线状态: {_mainline_state(signal_boards, emotion)}。",
-        f"- 明日资金可能偏向: {_format_board_names(signal_boards[:3], 3)}。",
+        f"- 明日资金可能偏向: {_format_topic_names(topic_rows, 3)}。",
         f"- 策略改进: 大盘评分低于 58 或主线情绪低于 5 时，减少追高，等待回踩或二次确认。",
         "",
         "## 六、持仓与仓位管理",
@@ -1141,13 +1253,29 @@ def build_review_report(
         "",
         "## 七、信息与新闻",
         "",
-        f"- 公告数据: {announcement_status}。",
-        f"- 公告分类: {_format_announcement_counts(announcements.get('category_counts', []))}。",
-        "- 过度反应识别: 涨幅靠前但主力净流入弱、板块上涨家数占比低的方向，按短线情绪过热处理。",
-        "- 新机会: 重点观察新进入强势榜且主力净流入为正的板块。",
+        f"- **收盘后快讯**: {news_status}；统计起点 {market_news.get('start_time', '-')}。",
+        f"- **公告数据**: {announcement_status}；{_format_announcement_counts(announcements.get('category_counts', []))}。",
+        "- **解读原则**: 政策/产业消息优先看是否能强化主线，个股公告优先识别风险、回购、订单和业绩变化。",
         "",
     ])
+    if market_news.get("rows"):
+        lines.extend(["收盘后重要新闻："])
+        _append_table(
+            lines,
+            ["时间", "类别", "标题", "影响方向"],
+            [
+                [
+                    row.get("time", "-"),
+                    row.get("category", "-"),
+                    _short_text(row.get("title") or row.get("summary"), 44),
+                    _format_news_impact(row),
+                ]
+                for row in market_news.get("rows", [])[:8]
+            ],
+        )
+        lines.append("")
     if announcements.get("rows"):
+        lines.extend(["重要公告："])
         _append_table(
             lines,
             ["公司", "类别", "公告", "时间"],
@@ -1155,10 +1283,10 @@ def build_review_report(
                 [
                     row.get("company") or row.get("code") or "-",
                     row.get("category", "-"),
-                    row.get("title", "-")[:48],
+                    _short_text(row.get("title", "-"), 44),
                     row.get("time", "-"),
                 ]
-                for row in announcements.get("rows", [])[:8]
+                for row in announcements.get("rows", [])[:6]
             ],
         )
         lines.append("")
@@ -1168,7 +1296,7 @@ def build_review_report(
         "## 八、明日交易计划",
         "",
         f"- 重点指数: 观察主要指数能否维持 {market.get('level', '未知')} 对应的成交额与上涨家数扩散。",
-        f"- 重点板块: {_format_board_names(signal_boards[:5], 5)}。",
+        f"- 重点板块: {_format_topic_names(topic_rows, 5)}。",
         "- 买入条件: 板块继续放量、龙头不破位、二线跟风扩散；避免单日大涨后无承接追高。",
         "- 风险点: 成交额缩量、涨停数量下降、跌停增多、主线龙头高位放量滞涨。",
         "- 策略目标: 趋势跟随为主，强主线龙头确认后再找补涨；弱市只观察不追高。",
@@ -1297,18 +1425,92 @@ def _format_board_names(boards: list[dict], limit: int) -> str:
     return "、".join(names) if names else "暂无明确方向"
 
 
+def _format_topic_names(topic_rows: list[dict], limit: int) -> str:
+    names = [
+        row.get("name", "")
+        for row in topic_rows[:limit]
+        if row.get("name") and row.get("name") != "暂无明确主线"
+    ]
+    return "、".join(names) if names else "暂无明确方向"
+
+
 def _format_lhb_reasons(reason_counts: list[tuple[str, int]]) -> str:
     if not reason_counts:
         return "暂无龙虎榜原因分布"
     return "、".join(f"{reason}({count})" for reason, count in reason_counts[:5])
 
 
-def format_lhb_readable_view(lhb_summary: dict, strongest_boards: list[dict]) -> dict:
+def build_topic_rows(signal_boards: list[dict], board_stats: dict, limit_summary: dict) -> list[dict]:
+    rows = []
+    seen = set()
+    for board in signal_boards[:6]:
+        name = board.get("name")
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        strength_parts = []
+        if board.get("change_pct") is not None:
+            strength_parts.append(_fmt_pct(board.get("change_pct")))
+        if board.get("main_net_yi") is not None:
+            strength_parts.append(f"主力{_fmt_yi(board.get('main_net_yi'))}")
+        if board.get("up_ratio") is not None:
+            strength_parts.append(f"上涨{board.get('up_ratio', 0):.0f}%")
+        rows.append({
+            "name": name,
+            "strength": " / ".join(strength_parts) or board.get("signal_level", "强势"),
+            "leaders": board.get("leader_name") or "-",
+            "driver": board.get("logic_hint") or _infer_market_driver(name),
+            "watch": "看龙头承接与跟风扩散",
+        })
+    for topic in limit_summary.get("hot_topics", []):
+        name = topic.get("name")
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        limit_count = topic.get("limit_count", 0)
+        consecutive = topic.get("consecutive_count", 0)
+        rows.append({
+            "name": name,
+            "strength": f"涨停{limit_count}只 / 连板{consecutive}只",
+            "leaders": topic.get("leaders") or "-",
+            "driver": topic.get("driver") or _infer_market_driver(name),
+            "watch": "板块数据降级时以涨停池验证强度",
+        })
+    if not rows:
+        rows.append({
+            "name": "暂无明确主线",
+            "strength": "弱",
+            "leaders": "-",
+            "driver": "板块、涨停和资金未形成共振",
+            "watch": "降低追高，等待新方向确认",
+        })
+    return rows
+
+
+def format_topic_conclusion(topic_rows: list[dict], board_stats: dict) -> str:
+    leader = topic_rows[0] if topic_rows else {}
+    if not leader or leader.get("name") == "暂无明确主线":
+        return "暂无明确主线，市场更偏轮动或防守。"
+    source_note = "板块行情源正常" if board_stats.get("total", 0) else "板块行情源降级，使用涨停池/连板池兜底"
+    return f"{leader.get('name')} 最强，{leader.get('strength')}；{source_note}。"
+
+
+def format_board_stat_line(board_stats: dict) -> str:
+    if not board_stats.get("total"):
+        return "板块快照暂不可用，已用涨停池和连板股补充题材强度。"
+    return (
+        f"共 {board_stats.get('total', 0)} 个板块，"
+        f"{board_stats.get('up', 0)} 涨 / {board_stats.get('down', 0)} 跌；"
+        f"强势 {board_stats.get('strong_count', 0)} 个，弱势 {board_stats.get('weak_count', 0)} 个；"
+        f"主力净流入 {board_stats.get('main_in_count', 0)} 个 / 净流出 {board_stats.get('main_out_count', 0)} 个。"
+    )
+
+
+def format_lhb_readable_view(lhb_summary: dict, topic_rows: list[dict]) -> dict:
     net = lhb_summary.get("total_net_yi", 0) or 0
     buy_count = lhb_summary.get("net_buy_count", 0) or 0
     sell_count = lhb_summary.get("net_sell_count", 0) or 0
-    hot_boards = [b for b in strongest_boards if b.get("main_net_yi", 0) > 0]
-    direction = _format_board_names(hot_boards, 3)
+    direction = _format_topic_names(topic_rows, 3)
 
     if not lhb_summary.get("count"):
         conclusion = "暂无龙虎榜明细，短线资金方向不明确。"
@@ -1326,7 +1528,7 @@ def format_lhb_readable_view(lhb_summary: dict, strongest_boards: list[dict]) ->
     if direction == "暂无明确方向":
         direction = "暂无明确板块共振，优先看个股独立逻辑。"
     else:
-        direction = f"{direction}；若买入榜与这些方向重合，说明热点承接更强"
+        direction = f"{direction}；若买入榜与这些方向重合，说明热点承接更强。"
     return {"conclusion": conclusion, "hot_direction": direction}
 
 
@@ -1344,6 +1546,21 @@ def _format_lhb_row_focus(row: dict) -> str:
     if net < 0:
         return f"{reason}；卖出 {_fmt_yi(sell)} > 买入 {_fmt_yi(buy)}"
     return f"{reason}；买卖接近平衡"
+
+
+def _format_news_impact(row: dict) -> str:
+    text = f"{row.get('title', '')} {row.get('summary', '')}"
+    if any(keyword in text for keyword in ("证监会", "国务院", "央行", "财政部", "政策", "降准", "降息")):
+        return "影响市场风险偏好"
+    if any(keyword in text for keyword in ("半导体", "芯片", "AI", "算力", "机器人")):
+        return "关注科技成长主线"
+    if any(keyword in text for keyword in ("地产", "房地产", "消费", "内需")):
+        return "关注顺周期/内需链"
+    if any(keyword in text for keyword in ("美联储", "美元", "原油", "黄金", "人民币")):
+        return "关注外围和商品扰动"
+    if any(keyword in text for keyword in ("风险", "处罚", "立案", "大跌", "跌停")):
+        return "偏风险提示"
+    return "关注明日资金反馈"
 
 
 def _format_announcement_counts(category_counts: list[tuple[str, int]]) -> str:
@@ -1403,6 +1620,7 @@ def generate_market_review(top_n: int = 10, board_type: str = "all") -> tuple[st
     watchlist = load_watchlist_performance()
     portfolio = load_portfolio_snapshot()
     announcements = fetch_market_announcements()
+    market_news = fetch_market_news_since_close()
     journal = load_trading_journal()
     report = build_review_report(
         indices=indices,
@@ -1414,6 +1632,7 @@ def generate_market_review(top_n: int = 10, board_type: str = "all") -> tuple[st
         lhb_summary=lhb_summary,
         portfolio=portfolio,
         announcements=announcements,
+        market_news=market_news,
         journal=journal,
         signal_boards=signal_boards,
         watchlist=watchlist,
@@ -1452,6 +1671,11 @@ def generate_market_review(top_n: int = 10, board_type: str = "all") -> tuple[st
             "count": len(announcements.get("rows", [])),
             "category_counts": announcements.get("category_counts", []),
             "data_status": announcements.get("data_status", ""),
+        },
+        "market_news": {
+            "count": len(market_news.get("rows", [])),
+            "start_time": market_news.get("start_time", ""),
+            "data_status": market_news.get("data_status", ""),
         },
         "journal_status": journal.get("data_status", ""),
         "top_boards": [
