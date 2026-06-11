@@ -267,3 +267,4 @@
 | 07:24 | Fixed unknown market style fallback | market_review.py, .wolf/* | style now always outputs explicit category with reason; py_compile and render checks passed | ~2600 |
 | 07:39 | Improved LHB report readability | market_review.py, .wolf/* | replaced wide tables with summary, Top3 buy focus, Top3 sell risk; validation passed | ~2800 |
 | 09:14 | Upgraded market review readability and after-close news | market_review.py, .wolf/* | removed turnover, added limit drivers, topic fallback, LHB topic context, Eastmoney fast news; validations passed | ~5200 |
+| 09:31 | Fixed partial THS watchlist sync | ths_sync.py, daily-report.yml, .wolf/* | added write-after-read verification/retry, partial status, strict CI fallback; tests passed | ~3600 |

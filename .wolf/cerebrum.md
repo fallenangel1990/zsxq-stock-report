@@ -71,8 +71,9 @@
   自定义分组接口在 `ugc.10jqka.com.cn`，加载 cookies 时需补写 `.10jqka.com.cn` 父域，否则定时任务可能能查默认自选但无法创建分组。
 - **同花顺降级同步**：`ths.also_add_to_watchlist: true` 时，分组查询/创建失败不应阻断默认自选股添加；
   应降级继续写默认自选股，并在同步结果中输出分组失败 warning。
+- **同花顺写后确认**：同花顺接口可能返回添加成功但刷新后目标分组/默认自选里没有股票；同步必须写后刷新确认并重试，仍未确认时返回 `partial`，CI 严格兜底必须失败而不是静默通过。
 - **CI 同花顺兜底执行**：日报 workflow 不能只依赖 `main.py all` 末尾的自动同步。
-  Actions 应在爬取/提取后检查日志；若未出现“同花顺同步结果”且 `cookies_ths.json` 存在，需要显式运行 `python main.py thssync --strict`，让同步失败在 CI 中红掉。
+  Actions 应在爬取/提取后检查日志；若未出现“同花顺同步结果”或状态不是 `success`，且 `cookies_ths.json` 存在，需要显式运行 `python main.py thssync --strict`，让同步失败在 CI 中红掉。
 - **小米 Mimo API Key**：当 `ai.deepseek.base_url` 指向 `api.xiaomimimo.com` 且模型为 `mimo-v2.5` 时，CI/本地应设置 `MIMO_API_KEY` 或 `XIAOMI_MIMO_API_KEY`，不要复用 `DEEPSEEK_API_KEY`；本地加密 key 使用 `MIMO_API_KEY_ENCRYPTION_KEY` 或 `.secrets/mimo.key`。
 - **增量状态提交时机**：`main.py all` 不能在爬取 raw 后立刻更新 `data/state`；必须等股票报告和总结报告都成功后再保存上次位置。否则 AI 失败会导致下一次触发误判“无新内容”。
 - **股票候选来源**：同花顺同步依赖 `stock_extractor.py` 生成的 enriched 股票数据；如果 AI 只把股票放在 `sectors.stocks`，也必须拆成弹性候选参与评分，否则最终快速选股表和同花顺同步都会为空。

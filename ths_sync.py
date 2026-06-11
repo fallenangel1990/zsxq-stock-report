@@ -319,6 +319,26 @@ class THSClient:
             logger.error("添加异常 %s: %s", display, e)
             return False, str(e)
 
+    def ensure_stock_in_watchlist(self, code: str, stock_name: str = "") -> tuple[bool, str]:
+        """添加默认自选并二次确认，避免接口返回成功但实际未落库。"""
+        code = str(code).zfill(6)
+        display = f"{stock_name}({code})" if stock_name else code
+        existing = self.get_stock_codes()
+        if code in existing:
+            return True, "已在自选股中"
+
+        messages = []
+        for attempt in range(2):
+            ok, msg = self.add_stock(code, stock_name)
+            messages.append(msg)
+            refreshed = self.get_stock_codes()
+            if code in refreshed:
+                return True, "已加入自选股" if ok else f"已加入自选股（确认成功，接口消息: {msg}）"
+            if attempt == 0:
+                logger.warning("默认自选添加后未确认到 %s，准备重试", display)
+                time.sleep(max(self.request_delay, 0.5))
+        return False, "默认自选添加后未确认: " + " / ".join(messages)
+
     def _ugc_post(self, endpoint: str, payload: dict) -> dict:
         """调用 ugc 分组 API（form-urlencoded POST）。"""
         url = f"{UGC_API_BASE}{endpoint}"
@@ -446,9 +466,12 @@ class THSClient:
                 )
                 if "version" in data:
                     self._group_version = str(data["version"])
-                self.query_groups(refresh=True)
-                logger.info("分组添加成功: %s", display)
-                return True, "已加入分组"
+                refreshed = self.query_groups(refresh=True)
+                for g in refreshed.values():
+                    if g["id"] == group_id and code in g["codes"]:
+                        logger.info("分组添加成功并已确认: %s", display)
+                        return True, "已加入分组"
+                raise RuntimeError("接口返回成功但刷新分组后未确认到股票")
             except Exception as e:
                 if attempt == 0:
                     logger.warning("分组添加失败，刷新版本后重试: %s", e)
@@ -539,19 +562,30 @@ class THSClient:
         for s in top_stocks:
             code = str(s["code"]).zfill(6)
             name = s.get("name", "未知")
+            group_ok = None
+            group_msg = ""
+            watchlist_ok = None
+            watchlist_msg = ""
 
             if use_group:
-                success, msg = self.add_stock_to_group(group_id, code, name)
-                if self.also_add_to_watchlist and code not in existing_codes:
-                    wl_ok, wl_msg = self.add_stock(code, name)
-                    if wl_ok and msg == "已加入分组":
-                        msg = "已加入分组，并已加入自选股"
-                    elif not wl_ok:
-                        msg = f"{msg}（自选股: {wl_msg}）"
+                group_ok, group_msg = self.add_stock_to_group(group_id, code, name)
+                if self.also_add_to_watchlist:
+                    watchlist_ok, watchlist_msg = self.ensure_stock_in_watchlist(code, name)
+                    if watchlist_ok:
+                        existing_codes.add(code)
+                success = bool(group_ok and (watchlist_ok is not False))
+                parts = [group_msg]
+                if self.also_add_to_watchlist:
+                    parts.append(f"默认自选: {watchlist_msg}")
+                msg = "；".join(part for part in parts if part)
             elif code in existing_codes:
                 success, msg = True, "已在自选股中"
+                watchlist_ok, watchlist_msg = True, msg
             else:
-                success, msg = self.add_stock(code, name)
+                success, msg = self.ensure_stock_in_watchlist(code, name)
+                watchlist_ok, watchlist_msg = success, msg
+                if success:
+                    existing_codes.add(code)
 
             results.append({
                 "name": name,
@@ -559,6 +593,8 @@ class THSClient:
                 "score": s.get("score"),
                 "success": success,
                 "msg": msg,
+                "group_success": group_ok,
+                "watchlist_success": watchlist_ok,
             })
 
         success_count = sum(1 for r in results if r["success"])
@@ -575,8 +611,9 @@ class THSClient:
             already_count,
         )
 
+        status = "partial" if failed else "success"
         return {
-            "status": "success",
+            "status": status,
             "target": target_label,
             "warning": group_error,
             "added": success_count - already_count,
@@ -596,7 +633,7 @@ def format_sync_result(result: dict) -> str:
         lines.append(f"  原因: {result.get('reason', '未配置')}")
     elif status == "error":
         lines.append(f"  原因: {result.get('reason', '未知错误')}")
-    elif status == "success":
+    elif status in ("success", "partial"):
         target = result.get("target", "自选股")
         added = result.get("added", 0)
         already = result.get("already", 0)

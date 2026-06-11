@@ -266,8 +266,11 @@ jobs:
           fi
 
           if [ -f /tmp/crawl.log ] && grep -q "同花顺同步结果" /tmp/crawl.log; then
-            echo "✅ 主流程已执行同花顺同步"
-            exit 0
+            if grep -q "\[同花顺同步\] 状态: success" /tmp/crawl.log; then
+              echo "✅ 主流程已执行同花顺同步且全部确认成功"
+              exit 0
+            fi
+            echo "⚠️  主流程已执行同花顺同步但存在失败/跳过，执行严格兜底同步..."
           fi
 
           if [ ! -f /tmp/crawl.log ] || ! grep -q "股票机会报告已保存" /tmp/crawl.log; then
@@ -275,7 +278,7 @@ jobs:
             exit 0
           fi
 
-          echo "⚠️  主流程未检测到同花顺同步结果，执行兜底同步..."
+          echo "⚠️  执行同花顺兜底同步..."
           python main.py thssync --strict 2>&1 | tee /tmp/thssync.log
 
       # ═══════════════════════════════════════════════════════════

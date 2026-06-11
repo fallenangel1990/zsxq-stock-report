@@ -1173,6 +1173,26 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-11T09:14:00+08:00"
+    },
+    {
+      "id": "bug-066",
+      "timestamp": "2026-06-11T09:31:00+08:00",
+      "error_message": "每日股票报告中部分推荐股票没有加到同花顺自选股",
+      "file": "ths_sync.py, .github/workflows/daily-report.yml",
+      "root_cause": "同花顺分组和默认自选添加只信接口返回，未在写入后刷新列表确认股票是否真实落库；默认自选添加失败只拼接到消息里，单只股票仍可能被计为成功；日报 workflow 只要检测到主流程打印过同步结果就跳过兜底，无法发现 partial/单股失败。",
+      "fix": "新增默认自选 ensure_stock_in_watchlist() 写后确认和重试；分组 add_stock_to_group() 写入后刷新分组确认代码存在，否则刷新版本重试；同步结果对分组和默认自选分别记录确认状态，存在单股失败时返回 partial；日报 workflow 只有状态 success 才跳过兜底，否则执行 python main.py thssync --strict。",
+      "tags": [
+        "ths",
+        "watchlist",
+        "github-actions",
+        "sync",
+        "verification"
+      ],
+      "related_bugs": [
+        "bug-061"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-11T09:31:00+08:00"
     }
   ]
 }
