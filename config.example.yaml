@@ -39,8 +39,8 @@ crawler:
   fetch_comments: true
 
 # 附件解析配置
-# PDF 会直接抽取文本；MP3/M4A/WAV 等音频需要 OPENAI_API_KEY 或
-# AUDIO_TRANSCRIPTION_API_KEY 才能转写，缺少密钥时会跳过音频但不影响日报。
+# PDF 会直接抽取文本；MP3/M4A/WAV 等音频默认使用小米 MiMo ASR 转写。
+# 音频转写优先读取 MIMO_API_KEY / XIAOMI_MIMO_API_KEY；缺少密钥时会跳过音频但不影响日报。
 attachments:
   enabled: true
   parse_pdf: true
@@ -48,7 +48,10 @@ attachments:
   max_file_mb: 25
   max_pdf_pages: 40
   max_text_chars: 18000
-  audio_model: "whisper-1"
+  audio_provider: "mimo"
+  audio_base_url: "https://api.xiaomimimo.com/v1"
+  audio_model: "mimo-v2.5-asr"
+  fallback_audio_provider: "openai"
 
 # 存储配置
 storage:

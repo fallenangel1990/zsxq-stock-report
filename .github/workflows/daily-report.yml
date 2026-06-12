@@ -211,6 +211,8 @@ jobs:
         env:
           ZSXQ_GROUP_URL: ${{ secrets.ZSXQ_GROUP_URL }}
           MAX_POSTS: ${{ inputs.max_posts }}
+          MIMO_API_KEY: ${{ secrets.MIMO_API_KEY }}
+          XIAOMI_MIMO_API_KEY: ${{ secrets.XIAOMI_MIMO_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           AUDIO_TRANSCRIPTION_API_KEY: ${{ secrets.AUDIO_TRANSCRIPTION_API_KEY }}
         run: |

@@ -1255,6 +1255,26 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-13T07:29:00+08:00"
+    },
+    {
+      "id": "bug-070",
+      "timestamp": "2026-06-13T07:35:00+08:00",
+      "error_message": "mp3 解析需要换成小米 Mimo 的大模型 API",
+      "file": "attachment_processor.py, config.example.yaml, .github/workflows/daily-report.yml",
+      "root_cause": "上一版附件音频转写默认使用 OpenAI Whisper，需要 OPENAI_API_KEY；项目现有 AI 主链路已经使用小米 Mimo，且 Mimo 提供 OpenAI 兼容的 MiMo-V2.5-ASR 音频转文字能力，因此继续默认依赖 OpenAI 会增加额外 Secret 和调用成本。",
+      "fix": "将附件音频转写默认 provider 改为 mimo，模型改为 mimo-v2.5-asr，base_url 改为 https://api.xiaomimimo.com/v1；优先读取 MIMO_API_KEY / XIAOMI_MIMO_API_KEY，OpenAI Whisper 仅作为 fallback；workflow 显式透传 Mimo 音频转写 Secrets。",
+      "tags": [
+        "attachments",
+        "mp3",
+        "mimo",
+        "asr",
+        "github-actions"
+      ],
+      "related_bugs": [
+        "bug-069"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-13T07:35:00+08:00"
     }
   ]
 }

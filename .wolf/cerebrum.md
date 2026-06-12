@@ -90,7 +90,7 @@
 - **盘后复盘可读性**：复盘报告应优先给交易结论、驱动因素和影响方向；不要展示平均换手率这类低价值字段。板块数据缺失时必须用涨停池/连板池补全题材方向；新闻区要展示收盘后到当前的重要快讯。
 - **盘后复盘展示格式**：盘后复盘不要以 Markdown 形式展示给用户；保存和邮件都应优先使用 HTML 卡片/表格。主要行情源缺失时必须用同花顺、东方财富、腾讯行情、涨跌停池/连板池等多渠道补全，不要输出“未知”。
 - **每日股票报告候选池**：AI 阶段应负责“候选提取”而不是最终推荐，满足 A 股公司名/代码 + 投资逻辑即可进入候选；最终报告需同时展示可评分候选、3 分以上正式推荐和最终展示数量。正式推荐过少时可补充 2 分以上观察候选，但必须明确“不等同于立即买入”。
-- **知识星球附件解析**：ZSXQ 帖子里的 `talk.files` 不能混入 `images`；PDF/音频应保留为 `files` 并通过 attachment_processor.py 转成 `attachment_text`，再由 extractor.py 追加到正文供总结和股票提取使用。PDF 用 pypdf 本地抽取；MP3/M4A/WAV 依赖 `OPENAI_API_KEY` 或 `AUDIO_TRANSCRIPTION_API_KEY` 转写，缺密钥时跳过但不阻断日报。
+- **知识星球附件解析**：ZSXQ 帖子里的 `talk.files` 不能混入 `images`；PDF/音频应保留为 `files` 并通过 attachment_processor.py 转成 `attachment_text`，再由 extractor.py 追加到正文供总结和股票提取使用。PDF 用 pypdf 本地抽取；MP3/M4A/WAV 默认使用小米 MiMo `mimo-v2.5-asr`（`MIMO_API_KEY` / `XIAOMI_MIMO_API_KEY`）转写，OpenAI Whisper 仅作 fallback，缺密钥时跳过但不阻断日报。
 
 ## Decision Log
 
@@ -113,5 +113,7 @@
   AI 提取改为候选池覆盖，报告层保留 3 分正式推荐阈值，同时在推荐过少时补充 2 分以上观察候选并输出过滤诊断。
 - [2026-06-13] **附件解析策略**：为知识星球 PDF/MP3 附件接入解析。
   附件文本作为帖子正文补充进入股票候选提取；PDF 本地解析，音频在配置转写密钥时转写，所有附件失败均降级为日志提示。
+- [2026-06-13] **音频转写 Provider**：MP3 解析默认切换为小米 MiMo ASR。
+  `attachments.audio_provider` 默认 `mimo`，模型 `mimo-v2.5-asr`，base URL `https://api.xiaomimimo.com/v1`；OpenAI Whisper 只作为 fallback。
 
 <!-- Significant technical decisions with rationale. Why X was chosen over Y. -->

@@ -42,7 +42,10 @@ def _attachment_config() -> dict:
         "max_file_mb": config.get("max_file_mb", 25),
         "max_pdf_pages": config.get("max_pdf_pages", 40),
         "max_text_chars": config.get("max_text_chars", 18000),
-        "audio_model": config.get("audio_model", "whisper-1"),
+        "audio_provider": config.get("audio_provider", "mimo"),
+        "audio_base_url": config.get("audio_base_url", "https://api.xiaomimimo.com/v1"),
+        "audio_model": config.get("audio_model", "mimo-v2.5-asr"),
+        "fallback_audio_provider": config.get("fallback_audio_provider", "openai"),
     }
 
 
@@ -142,35 +145,83 @@ def _parse_audio_attachment(
     headers: Optional[dict],
     config: dict,
 ) -> dict:
-    api_key = (
-        os.environ.get("AUDIO_TRANSCRIPTION_API_KEY", "").strip()
-        or os.environ.get("OPENAI_API_KEY", "").strip()
-    )
-    if not api_key:
-        return {"name": name, "note": f"{name}: 缺少 OPENAI_API_KEY/AUDIO_TRANSCRIPTION_API_KEY，跳过音频转写"}
-
     data = _download_attachment(url, headers=headers, max_file_mb=config["max_file_mb"])
     if not data:
         return {"name": name, "note": f"{name}: 音频下载失败或超过大小限制"}
 
+    provider = (config.get("audio_provider") or "mimo").lower()
     try:
-        from openai import OpenAI
-
-        audio_file = BytesIO(data)
-        audio_file.name = name if _attachment_extension({"name": name}) else f"{name}.mp3"
-        client = OpenAI(api_key=api_key)
-        response = client.audio.transcriptions.create(
-            model=config.get("audio_model", "whisper-1"),
-            file=audio_file,
-        )
-        text = _normalize_text(getattr(response, "text", "") or str(response))
-        text = text[: int(config["max_text_chars"])]
-        if not text:
-            return {"name": name, "note": f"{name}: 音频转写结果为空"}
-        _log(f"[附件解析] 音频 {name}: 转写 {len(text)} 字")
-        return {"name": name, "text": text}
+        text = _transcribe_audio_bytes(data, name=name, provider=provider, config=config)
+        source = provider
+    except MissingAudioKeyError as exc:
+        fallback_provider = (config.get("fallback_audio_provider") or "").lower()
+        if fallback_provider and fallback_provider != provider:
+            try:
+                text = _transcribe_audio_bytes(
+                    data,
+                    name=name,
+                    provider=fallback_provider,
+                    config=config,
+                )
+                source = fallback_provider
+            except MissingAudioKeyError:
+                return {"name": name, "note": f"{name}: {exc}，跳过音频转写"}
+        else:
+            return {"name": name, "note": f"{name}: {exc}，跳过音频转写"}
     except Exception as exc:
         return {"name": name, "note": f"{name}: 音频转写失败 {type(exc).__name__}"}
+
+    text = _normalize_text(text)[: int(config["max_text_chars"])]
+    if not text:
+        return {"name": name, "note": f"{name}: 音频转写结果为空"}
+    _log(f"[附件解析] 音频 {name}: 使用 {source} 转写 {len(text)} 字")
+    return {"name": name, "text": text}
+
+
+class MissingAudioKeyError(RuntimeError):
+    """音频转写缺少必要 API key。"""
+
+
+def _transcribe_audio_bytes(
+    data: bytes,
+    name: str,
+    provider: str,
+    config: dict,
+) -> str:
+    """用指定 provider 转写音频。"""
+    from openai import OpenAI
+
+    audio_file = BytesIO(data)
+    audio_file.name = name if _attachment_extension({"name": name}) else f"{name}.mp3"
+
+    if provider == "mimo":
+        api_key = _first_env("MIMO_API_KEY", "XIAOMI_MIMO_API_KEY", "AUDIO_TRANSCRIPTION_API_KEY")
+        if not api_key:
+            raise MissingAudioKeyError("缺少 MIMO_API_KEY/XIAOMI_MIMO_API_KEY")
+        client = OpenAI(api_key=api_key, base_url=config.get("audio_base_url"))
+        model = config.get("audio_model") or "mimo-v2.5-asr"
+    elif provider == "openai":
+        api_key = _first_env("OPENAI_API_KEY", "AUDIO_TRANSCRIPTION_API_KEY")
+        if not api_key:
+            raise MissingAudioKeyError("缺少 OPENAI_API_KEY/AUDIO_TRANSCRIPTION_API_KEY")
+        client = OpenAI(api_key=api_key)
+        model = "whisper-1"
+    else:
+        raise ValueError(f"不支持的音频转写 provider: {provider}")
+
+    response = client.audio.transcriptions.create(
+        model=model,
+        file=audio_file,
+    )
+    return getattr(response, "text", "") or str(response)
+
+
+def _first_env(*names: str) -> str:
+    for name in names:
+        value = os.environ.get(name, "").strip()
+        if value:
+            return value
+    return ""
 
 
 def _download_attachment(
