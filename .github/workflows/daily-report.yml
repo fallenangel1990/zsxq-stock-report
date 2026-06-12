@@ -247,10 +247,14 @@ jobs:
           if post_counts:
               print(f"total_posts={post_counts[-1]}")
 
-          stock_counts = re.findall(r"JSON 合并完成:\s*量化\s*(\d+)\s*只,\s*弹性\s*(\d+)\s*只", text)
-          if stock_counts:
-              q_count, e_count = map(int, stock_counts[-1])
-              print(f"new_stocks={q_count + e_count}")
+          scored_counts = re.findall(r"股票评分完成:\s*可评分候选\s*(\d+)\s*只", text)
+          if scored_counts:
+              print(f"new_stocks={scored_counts[-1]}")
+          else:
+              stock_counts = re.findall(r"JSON 合并完成:\s*量化\s*(\d+)\s*只,\s*弹性\s*(\d+)\s*只", text)
+              if stock_counts:
+                  q_count, e_count = map(int, stock_counts[-1])
+                  print(f"new_stocks={q_count + e_count}")
           PY
 
           if [ "$RUN_EXIT_CODE" != "0" ]; then

@@ -76,6 +76,11 @@ _RESEARCH_REPORT_KEYWORDS = [
     "首予", "覆盖", "维持", "买入", "增持", "推荐",
 ]
 
+REPORT_RECOMMENDATION_THRESHOLD = 3.0
+REPORT_OBSERVATION_THRESHOLD = 2.0
+REPORT_MIN_VISIBLE_STOCKS = 8
+REPORT_MIN_RECOMMENDATIONS = 5
+
 
 def _filter_investment_posts(posts: list[dict]) -> tuple[list[dict], list[dict]]:
     """预过滤帖子：只保留包含投资关键词的帖子，减少 AI token 消耗。
@@ -256,6 +261,16 @@ def extract_stock_opportunities(
     if verbose:
         print("获取行情数据并计算推荐指数...", flush=True)
     enriched, trend_data = _enrich_and_score(all_stocks_json, verbose=verbose)
+    display_meta = _select_report_display_stocks(enriched)[1]
+    trend_data["display_meta"] = display_meta
+    if verbose:
+        print(
+            "股票评分完成: "
+            f"可评分候选 {display_meta['candidate_count']} 只, "
+            f"{REPORT_RECOMMENDATION_THRESHOLD:.0f}分以上 {display_meta['recommendation_count']} 只, "
+            f"最终展示 {display_meta['display_count']} 只",
+            flush=True,
+        )
 
     # 保存增强后的股票数据到 JSON（供 ths_sync 等模块使用）
     if enriched:
@@ -297,7 +312,8 @@ def _extract_stocks_batch(
     system = (
         "你是一位专业的A股投资分析师，擅长从大量财经资讯中"
         "精确提取和分类股票投资机会。你输出干净、结构化的Markdown表格和JSON数据，"
-        "绝不输出分析过程或解释性文字。对于没有明确投资机会的内容，"
+        "绝不输出分析过程或解释性文字。本步骤负责候选提取，不负责最终买入评级；"
+        "后续系统会根据行情、技术面和风险二次评分过滤。对于完全没有投资逻辑的内容，"
         "直接说明\"无符合条件的标的\"而不编造。"
     )
 
@@ -305,13 +321,16 @@ def _extract_stocks_batch(
 提取其中提到的股票投资机会，并按以下四个类别整理成表格。
 
 对于每只股票：
-- 只提取被明确推荐、看好、或给出具体分析逻辑的股票
+- 本步骤是“候选池提取”：只要帖子给出 A 股公司名/代码，并同时给出产业受益、业绩变化、订单/政策/事件催化、估值目标、技术突破、研报观点等任一投资逻辑，就应纳入候选
+- 不要只输出最强的 2-3 只；在每批内容中尽量完整覆盖有投资逻辑的 A 股候选，后续系统会评分筛掉低质量标的
+- 仍需排除单纯背景提及、新闻罗列、无投资逻辑的名字堆砌，禁止为了凑数量编造股票
 - 区分"投资建议"和"背景提及"——只在表格中包含有明确投资逻辑的股票
 - 只提取 A 股投资推荐；港股、美股、海外上市公司、ETF、ADR、指数、基金等非 A 股推荐一律忽略
 - 如果原帖是国外投行/外资券商研报，只保留其中涉及 A 股的推荐，并在逻辑或来源中体现"国外投行研报"
 - 如果有股票代码，请只填写 6 位 A 股代码；不要填写境外代码
 - 如果同一只股票出现在多个帖子中，合并为一条最完整的记录
 - 尽量提取该股票对应的风险点/潜在利空；若原文没有明确提及，JSON 中 risk 写空字符串，不要编造确定性风险
+- 单批输出上限建议：量化目标最多 20 只，弹性标的最多 25 只；若真实候选更少则按实际输出
 
 按以下四个部分输出：
 
@@ -367,7 +386,7 @@ def _extract_stocks_batch(
 
 {posts_text}"""
 
-    return client.create(system=system, prompt=prompt, max_tokens=4096)
+    return client.create(system=system, prompt=prompt, max_tokens=8192)
 
 
 def _merge_stock_reports(client, batch_reports: list[str]) -> str:
@@ -397,7 +416,7 @@ def _merge_stock_reports(client, batch_reports: list[str]) -> str:
 
 请输出合并后的完整报告（四部分 Markdown 表格 + JSON 代码块）。"""
 
-    return client.create(system=system, prompt=prompt, max_tokens=4096)
+    return client.create(system=system, prompt=prompt, max_tokens=6144)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -2046,6 +2065,69 @@ def _append_decision_tables(parts: list[str], enriched: list[dict]) -> None:
         parts.append("")
 
 
+def _select_report_display_stocks(enriched: list[dict]) -> tuple[list[dict], dict]:
+    """选择最终报告展示池，避免高分候选过少时报告失真。
+
+    3 分以上仍是正式推荐阈值；当正式推荐过少时，补充展示 2 分以上的
+    高分观察候选，并在报告中明确标注为观察池，不伪装成买入推荐。
+    """
+    sorted_stocks = sorted(
+        enriched or [],
+        key=lambda s: (s.get("score", 0), s.get("buy_score", 0)),
+        reverse=True,
+    )
+    recommendations = [
+        s for s in sorted_stocks
+        if s.get("score", 0) >= REPORT_RECOMMENDATION_THRESHOLD
+    ]
+    display_stocks = recommendations
+    mode = "recommendation"
+
+    if (
+        len(recommendations) < REPORT_MIN_RECOMMENDATIONS
+        and len(sorted_stocks) > len(recommendations)
+    ):
+        observation_pool = [
+            s for s in sorted_stocks
+            if s.get("score", 0) >= REPORT_OBSERVATION_THRESHOLD
+        ][:REPORT_MIN_VISIBLE_STOCKS]
+        if len(observation_pool) > len(display_stocks):
+            display_stocks = observation_pool
+            mode = "adaptive_observation"
+
+    meta = {
+        "candidate_count": len(sorted_stocks),
+        "recommendation_count": len(recommendations),
+        "display_count": len(display_stocks),
+        "threshold": REPORT_RECOMMENDATION_THRESHOLD,
+        "observation_threshold": REPORT_OBSERVATION_THRESHOLD,
+        "mode": mode,
+    }
+    return display_stocks, meta
+
+
+def _append_report_filter_note(parts: list[str], meta: dict) -> None:
+    """展示提取和过滤统计，让报告数量异常时有解释。"""
+    candidate_count = meta.get("candidate_count", 0)
+    recommendation_count = meta.get("recommendation_count", 0)
+    display_count = meta.get("display_count", 0)
+    threshold = meta.get("threshold", REPORT_RECOMMENDATION_THRESHOLD)
+    observation_threshold = meta.get("observation_threshold", REPORT_OBSERVATION_THRESHOLD)
+
+    parts.append("## 提取与过滤概览\n")
+    parts.append(
+        f"> 可评分候选 **{candidate_count}** 只；"
+        f"{threshold:.0f} 分以上正式推荐 **{recommendation_count}** 只；"
+        f"本报告展示 **{display_count}** 只。"
+    )
+    if meta.get("mode") == "adaptive_observation":
+        parts.append(
+            f"> 正式推荐数量偏少，已补充展示 {observation_threshold:.0f} 分以上高分观察候选。"
+            "这些标的用于复核和等待买点，不等同于立即买入。"
+        )
+    parts.append("")
+
+
 def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: dict = None) -> str:
     """用增强后的股票数据重建 Markdown 报告。
 
@@ -2053,7 +2135,9 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
     """
     if trend_data is None:
         trend_data = {}
-    enriched = [s for s in enriched if s.get("score", 0) >= 3.0]
+    all_enriched = list(enriched or [])
+    enriched, display_meta = _select_report_display_stocks(all_enriched)
+    trend_data["display_meta"] = display_meta
     trend_scores = trend_data.get("scores", {})
     sector_groups = trend_data.get("groups", {})
     sector_logic_map = trend_data.get("logic_map", {})
@@ -2064,6 +2148,7 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
 
     _append_trader_summary(parts, enriched, trend_scores, market_filter)
     _append_decision_tables(parts, enriched)
+    _append_report_filter_note(parts, display_meta)
 
     # ── -1. 当前最佳买入清单 ──
     buy_candidates = [
@@ -2113,7 +2198,7 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
 
     if not enriched:
         parts.append(
-            "| - | 本次未形成 3 分以上可展示个股 | - | - | - | - | - | - | - | - | "
+            "| - | 本次未形成 2 分以上可展示个股 | - | - | - | - | - | - | - | - | "
             "AI 未返回可进入量化/弹性评分的 A 股标的 | - | "
             "请检查下方细分板块/风险提示；若日志出现 1059，优先更新 Cookie 或等待限流恢复 | - | - |"
         )

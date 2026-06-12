@@ -1214,6 +1214,27 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-12T09:09:00+08:00"
+    },
+    {
+      "id": "bug-068",
+      "timestamp": "2026-06-12T09:15:00+08:00",
+      "error_message": "每日股票报告结果异常，300 篇帖子只有两个股票推荐",
+      "file": "stock_extractor.py, .github/workflows/daily-report.yml",
+      "root_cause": "股票提取 prompt 把本应进入候选池的标的限定为“明确推荐/看好”，导致模型倾向只输出最强少数标的；报告层又硬过滤 score >= 3.0 且不展示候选池/推荐池/展示池统计，弱行情或缺目标价时大量 2-3 分观察候选被隐藏，邮件顶部 new_stocks 也只读取 AI 原始量化+弹性数量，未反映板块标的回填后的最终可评分候选。",
+      "fix": "将 AI 步骤明确改为候选池提取，要求完整覆盖有投资逻辑的 A 股并提高输出 token；新增报告展示池选择逻辑，3 分以上仍为正式推荐，正式推荐少于 5 只时补充展示 2 分以上高分观察候选并明确标注；报告和 CI 日志输出可评分候选/正式推荐/最终展示数量，workflow 邮件统计优先读取最终可评分候选。",
+      "tags": [
+        "stock-report",
+        "ai-extraction",
+        "scoring",
+        "email",
+        "github-actions"
+      ],
+      "related_bugs": [
+        "bug-060",
+        "bug-062"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-12T09:15:00+08:00"
     }
   ]
 }
