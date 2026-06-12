@@ -377,14 +377,26 @@ def send_report_notification(
     subject = subject_override or _news_subject(now)
     extra_info = extra_info or {}
 
-    # 读取 Markdown 并转换为 HTML（先移除代码块避免 JSON 泄露）
+    # 读取报告。复盘报告可直接保存为 HTML；Markdown 报告再转换。
     md_path = markdown_path
+    direct_html_report = False
     if Path(md_path).exists():
-        md_text = Path(md_path).read_text(encoding="utf-8")
-        md_text = _remove_code_blocks(md_text)
-        report_html = _md_to_html(md_text)
+        report_text = Path(md_path).read_text(encoding="utf-8")
+        if Path(md_path).suffix.lower() in (".html", ".htm") or report_text.lstrip().lower().startswith(("<!doctype html", "<html")):
+            report_html = report_text
+            direct_html_report = True
+        else:
+            md_text = _remove_code_blocks(report_text)
+            report_html = _md_to_html(md_text)
     else:
         report_html = '<p style="color:#dc2626;">报告文件不存在，请检查 GitHub Actions 运行日志。</p>'
+
+    if direct_html_report:
+        return send_email(
+            to_email=to_email,
+            subject=subject,
+            body_html=report_html,
+        )
 
     # 构建带样式的完整邮件正文
     lines = [

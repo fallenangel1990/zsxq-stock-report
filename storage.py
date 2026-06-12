@@ -145,7 +145,8 @@ def save_market_review_report(report: str) -> str:
     review_dir.mkdir(parents=True, exist_ok=True)
 
     date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"market_review_{date_str}.md"
+    suffix = ".html" if report.lstrip().lower().startswith(("<!doctype html", "<html")) else ".md"
+    filename = f"market_review_{date_str}{suffix}"
 
     filepath = review_dir / filename
     filepath.write_text(report, encoding="utf-8")

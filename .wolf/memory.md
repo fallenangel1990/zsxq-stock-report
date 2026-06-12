@@ -268,3 +268,4 @@
 | 07:39 | Improved LHB report readability | market_review.py, .wolf/* | replaced wide tables with summary, Top3 buy focus, Top3 sell risk; validation passed | ~2800 |
 | 09:14 | Upgraded market review readability and after-close news | market_review.py, .wolf/* | removed turnover, added limit drivers, topic fallback, LHB topic context, Eastmoney fast news; validations passed | ~5200 |
 | 09:31 | Fixed partial THS watchlist sync | ths_sync.py, daily-report.yml, .wolf/* | added write-after-read verification/retry, partial status, strict CI fallback; tests passed | ~3600 |
+| 09:09 | Converted market review to HTML and strengthened data fallback | market_review.py, storage.py, email_sender.py, main.py, .wolf/* | review now saves/sends HTML, normalizes tables, and completes unknown market environment from breadth/limit pools; validations passed | ~5200 |

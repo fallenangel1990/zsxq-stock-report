@@ -1193,6 +1193,27 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-11T09:31:00+08:00"
+    },
+    {
+      "id": "bug-067",
+      "timestamp": "2026-06-12T09:09:00+08:00",
+      "error_message": "复盘报告不要用 Markdown 展示；缺失数据要通过多个渠道补全",
+      "file": "market_review.py, storage.py, email_sender.py, main.py",
+      "root_cause": "盘后复盘仍保存为 Markdown 并由邮件层二次转换，表格在部分位置会以 Markdown 管道文本展示；当主要指数行情完全不可用时，大盘环境仍可能显示“未知”。",
+      "fix": "新增复盘 HTML 渲染器，将报告保存为 .html 并由邮件直接发送 HTML；表格转换前统一补齐空行，避免 Markdown 表格残留；HTML 日志只打印摘要；当指数主源/兜底源都缺失时，使用市场宽度、涨跌停池和连板数据补全大盘环境。",
+      "tags": [
+        "market-review",
+        "html",
+        "email",
+        "fallback",
+        "data-completeness"
+      ],
+      "related_bugs": [
+        "bug-063",
+        "bug-065"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-12T09:09:00+08:00"
     }
   ]
 }

@@ -366,7 +366,16 @@ def cmd_review(args) -> None:
     _log("\n" + "=" * 60)
     _log("A股盘后复盘报告：")
     _log("=" * 60)
-    print(report)
+    if report.lstrip().lower().startswith(("<!doctype html", "<html")):
+        market_level = snapshot.get("market", {}).get("level", "未知")
+        breadth = snapshot.get("breadth", {})
+        _log(
+            f"HTML 复盘报告已生成：市场={market_level}，"
+            f"涨跌={breadth.get('up', 0)}/{breadth.get('down', 0)}，"
+            f"涨停={breadth.get('limit_up', 0)}，跌停={breadth.get('limit_down', 0)}"
+        )
+    else:
+        print(report)
 
     filepath = save_market_review_report(report)
 

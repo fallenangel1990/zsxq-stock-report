@@ -8,6 +8,7 @@ import math
 import os
 import time
 import uuid
+import html
 from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -15,6 +16,7 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 import requests
+import markdown as md_lib
 
 from sector_monitor import (
     _money_yi,
@@ -344,6 +346,53 @@ def summarize_breadth(
         "limit_date": limit_stats.get("date", ""),
         "data_status": "；".join(status for status in statuses if status) or "正常",
     }
+
+
+def complete_market_environment(market: dict, breadth: dict, limit_summary: dict) -> dict:
+    """指数主源不可用时，用市场宽度和涨跌停池兜底补全大盘环境。"""
+    if market.get("level") and market.get("level") != "未知":
+        return market
+
+    up = breadth.get("up", 0) or 0
+    down = breadth.get("down", 0) or 0
+    limit_up = breadth.get("limit_up", 0) or 0
+    limit_down = breadth.get("limit_down", 0) or 0
+    consecutive = limit_summary.get("consecutive_count", 0) or 0
+
+    score = 45.0
+    if up or down:
+        score += max(-18.0, min(18.0, math.log((up + 1) / (down + 1)) * 12))
+    score += min(12.0, limit_up / 8)
+    score -= min(14.0, limit_down / 3)
+    score += min(8.0, consecutive / 3)
+    score = round(max(0, min(100, score)), 1)
+
+    if score >= 68 and limit_up >= max(40, limit_down * 2):
+        level = "强势进攻"
+        ceiling = "70%-80%"
+        message = "指数源缺失，按涨跌停池和市场宽度推断情绪偏强。"
+    elif score >= 55:
+        level = "修复可试仓"
+        ceiling = "50%-60%"
+        message = "指数源缺失，按多源兜底推断有修复机会，等待主线确认。"
+    elif score >= 38:
+        level = "震荡观察"
+        ceiling = "25%-40%"
+        message = "指数源缺失，按多源兜底推断市场偏轮动，控制仓位。"
+    else:
+        level = "防守降仓"
+        ceiling = "0%-20%"
+        message = "指数源缺失，按涨跌停和宽度推断环境偏弱。"
+
+    completed = dict(market)
+    completed.update({
+        "level": level,
+        "score": score,
+        "position_ceiling": ceiling,
+        "message": message,
+        "data_status": f"{market.get('data_status', '主要指数行情不可用')}；已用市场宽度/涨跌停池/连板数据补全大盘环境。",
+    })
+    return completed
 
 
 def _limit_board_count(row: dict) -> int:
@@ -1016,7 +1065,7 @@ def _append_table(lines: list[str], headers: list[str], rows: list[list[str]]) -
         lines.append("| " + " | ".join(str(v) for v in row) + " |")
 
 
-def build_review_report(
+def build_review_markdown_report(
     indices: list[dict],
     market: dict,
     breadth: dict,
@@ -1317,6 +1366,88 @@ def build_review_report(
     return "\n".join(lines)
 
 
+def render_market_review_html(markdown_text: str) -> str:
+    """将复盘内容渲染为适合邮件/浏览器阅读的 HTML，不暴露 Markdown 符号。"""
+    markdown_text = _normalize_markdown_tables(markdown_text)
+    body = md_lib.markdown(markdown_text, extensions=["tables"])
+    replacements = {
+        "<h1>": '<h1 class="title">',
+        "<h2>": '<h2 class="section-title">',
+        "<table>": '<div class="table-wrap"><table>',
+        "</table>": "</table></div>",
+        "<th>": "<th>",
+        "<td>": "<td>",
+    }
+    for old, new in replacements.items():
+        body = body.replace(old, new)
+
+    now = _now_shanghai().strftime("%Y-%m-%d %H:%M:%S 北京时间")
+    return f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>A股盘后复盘报告</title>
+  <style>
+    body {{ margin:0; background:#f3f6fb; color:#172033; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Arial,sans-serif; }}
+    .page {{ max-width:1080px; margin:0 auto; padding:20px 14px 32px; }}
+    .report {{ background:#fff; border:1px solid #e5e7eb; border-radius:14px; overflow:hidden; box-shadow:0 8px 24px rgba(15,23,42,.06); }}
+    .hero {{ padding:24px 28px; background:#123b79; color:#fff; }}
+    .hero h1 {{ margin:0; font-size:24px; line-height:1.35; }}
+    .hero p {{ margin:8px 0 0; font-size:13px; opacity:.9; }}
+    .content {{ padding:20px 26px 28px; }}
+    .title {{ display:none; }}
+    .section-title {{ margin:24px 0 12px; padding:10px 14px; border-left:5px solid #2563eb; background:#eff6ff; color:#123b79; border-radius:8px; font-size:18px; }}
+    p {{ margin:8px 0; line-height:1.75; }}
+    ul {{ margin:8px 0 14px; padding:0; list-style:none; }}
+    li {{ margin:8px 0; padding:10px 12px; background:#f8fafc; border:1px solid #edf2f7; border-radius:8px; line-height:1.7; }}
+    strong {{ color:#b91c1c; }}
+    .table-wrap {{ width:100%; overflow-x:auto; margin:10px 0 18px; border:1px solid #e5e7eb; border-radius:10px; }}
+    table {{ width:100%; border-collapse:collapse; min-width:680px; background:#fff; }}
+    th {{ background:#f1f5f9; color:#334155; text-align:left; font-weight:700; padding:10px 12px; font-size:13px; border-bottom:1px solid #e5e7eb; }}
+    td {{ padding:10px 12px; font-size:13px; line-height:1.55; border-bottom:1px solid #edf2f7; vertical-align:top; }}
+    tr:last-child td {{ border-bottom:none; }}
+    tr:nth-child(even) td {{ background:#fbfdff; }}
+    blockquote {{ margin:10px 0 16px; padding:12px 14px; background:#fff7ed; border-left:5px solid #f97316; color:#7c2d12; border-radius:8px; }}
+    hr {{ border:0; border-top:1px solid #e5e7eb; margin:24px 0; }}
+    em {{ color:#64748b; font-size:12px; }}
+    .footer {{ padding:14px 26px; background:#f8fafc; color:#64748b; border-top:1px solid #e5e7eb; font-size:12px; line-height:1.7; }}
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="report">
+      <div class="hero">
+        <h1>A股盘后复盘报告</h1>
+        <p>{html.escape(now)} · 多渠道数据补全：同花顺 / 东方财富 / 腾讯行情 / 涨跌停池 / 快讯公告</p>
+      </div>
+      <div class="content">
+        {body}
+      </div>
+      <div class="footer">本报告由自动化复盘系统生成，仅用于交易复盘和计划管理，不构成投资建议。</div>
+    </div>
+  </div>
+</body>
+</html>"""
+
+
+def _normalize_markdown_tables(markdown_text: str) -> str:
+    """确保紧跟在普通文本后的管道表格能被 Markdown tables 扩展识别。"""
+    normalized = []
+    previous = ""
+    for line in markdown_text.splitlines():
+        if line.startswith("|") and previous and not previous.startswith("|") and previous.strip():
+            normalized.append("")
+        normalized.append(line)
+        previous = line
+    return "\n".join(normalized)
+
+
+def build_review_report(*args, **kwargs) -> str:
+    markdown_text = build_review_markdown_report(*args, **kwargs)
+    return render_market_review_html(markdown_text)
+
+
 def infer_market_style(
     boards: list[dict],
     indices: list[dict],
@@ -1594,6 +1725,7 @@ def generate_market_review(top_n: int = 10, board_type: str = "all") -> tuple[st
         ths_breadth=ths_breadth,
         limit_stats=limit_stats,
     )
+    market = complete_market_environment(market, breadth, limit_summary)
     previous = _load_previous_state()
     try:
         all_boards = fetch_boards(board_type=board_type, limit=500)
