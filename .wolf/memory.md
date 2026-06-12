@@ -270,3 +270,4 @@
 | 09:31 | Fixed partial THS watchlist sync | ths_sync.py, daily-report.yml, .wolf/* | added write-after-read verification/retry, partial status, strict CI fallback; tests passed | ~3600 |
 | 09:09 | Converted market review to HTML and strengthened data fallback | market_review.py, storage.py, email_sender.py, main.py, .wolf/* | review now saves/sends HTML, normalizes tables, and completes unknown market environment from breadth/limit pools; validations passed | ~5200 |
 | 09:15 | Fixed daily stock report under-reporting | stock_extractor.py, daily-report.yml, .wolf/* | AI extraction now builds candidate pool; report shows candidate/recommendation/display counts and adaptive observation candidates; validations passed | ~4500 |
+| 07:29 | Added ZSXQ PDF/audio attachment parsing | attachment_processor.py, crawler.py, extractor.py, config.example.yaml, daily-report.yml | PDF text and optional audio transcription now feed stock extraction; validations passed | ~5200 |

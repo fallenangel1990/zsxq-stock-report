@@ -223,8 +223,16 @@ def _api_crawl(
     if max_posts > 0 and len(all_topics) > max_posts:
         all_topics = all_topics[:max_posts]
 
-    # 解析为统一格式
+    # 解析为统一格式，并把 PDF / 音频附件转成可供 AI 分析的文本
     posts = [_parse_topic(t) for t in all_topics]
+    try:
+        from attachment_processor import enrich_posts_with_attachments
+        posts = enrich_posts_with_attachments(
+            posts,
+            headers=_get_zsxq_headers(cookies),
+        )
+    except Exception as exc:
+        _log(f"[附件解析] 跳过：{type(exc).__name__}")
     _log(f"[爬取完成] 共 {len(posts)} 篇帖子")
     return posts
 
@@ -389,6 +397,7 @@ def _parse_topic(topic: dict) -> dict:
 
     content = ""
     images = []
+    files = []
 
     if t_type == "talk":
         text = talk.get("text", "") or ""
@@ -408,11 +417,15 @@ def _parse_topic(topic: dict) -> dict:
             if url:
                 images.append(url)
 
-        files = talk.get("files", []) or []
-        for f in files:
-            f_url = f.get("files", [{}])[0].get("url", "") if f.get("files") else ""
-            if f_url:
-                images.append(f_url)
+        raw_files = talk.get("files", []) or []
+        for f in raw_files:
+            attachment = _parse_file_attachment(f)
+            if not attachment.get("url"):
+                continue
+            if _is_image_attachment(attachment):
+                images.append(attachment["url"])
+            else:
+                files.append(attachment)
 
     elif t_type == "q&a":
         question = topic.get("question", {}) or {}
@@ -448,6 +461,9 @@ def _parse_topic(topic: dict) -> dict:
         "time": time_str,
         "url": url,
         "images": images,
+        "files": files,
+        "attachment_text": "",
+        "attachment_notes": [],
         "likes": likes,
         "comments_count": comments_count,
         "reading_count": reading_count,
@@ -465,6 +481,41 @@ def _detect_type(content: str, images: list) -> str:
     elif content:
         return "text"
     return "unknown"
+
+
+def _parse_file_attachment(file_obj: dict) -> dict:
+    """提取 ZSXQ talk.files 附件元数据。"""
+    file_variants = file_obj.get("files", []) or []
+    first_file = file_variants[0] if file_variants else {}
+    url = first_file.get("url") or file_obj.get("url") or ""
+    name = (
+        file_obj.get("name")
+        or file_obj.get("title")
+        or file_obj.get("file_name")
+        or first_file.get("name")
+        or Path(urlparse(url).path).name
+    )
+    return {
+        "name": name,
+        "url": url,
+        "mime_type": (
+            file_obj.get("mime_type")
+            or file_obj.get("content_type")
+            or first_file.get("mime_type")
+            or first_file.get("content_type")
+            or ""
+        ),
+        "size": file_obj.get("size") or first_file.get("size") or 0,
+    }
+
+
+def _is_image_attachment(attachment: dict) -> bool:
+    """判断 talk.files 中的附件是否其实是图片。"""
+    name = (attachment.get("name") or "").lower()
+    path = urlparse(attachment.get("url", "")).path.lower()
+    mime = (attachment.get("mime_type") or "").lower()
+    image_exts = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp")
+    return mime.startswith("image/") or name.endswith(image_exts) or path.endswith(image_exts)
 
 
 def get_group_id_from_url(url: str) -> Optional[str]:

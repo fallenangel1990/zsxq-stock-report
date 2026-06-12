@@ -1235,6 +1235,26 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-12T09:15:00+08:00"
+    },
+    {
+      "id": "bug-069",
+      "timestamp": "2026-06-13T07:29:00+08:00",
+      "error_message": "拉取知识星球内容时，涉及到 pdf 和 mp3，无法解析其中的股票信息",
+      "file": "attachment_processor.py, crawler.py, extractor.py, requirements.txt, config.example.yaml, .github/workflows/daily-report.yml",
+      "root_cause": "crawler.py 虽然读取了 talk.files，但把所有文件 URL 都塞进 images；extractor.py 未保留 files/attachment_text 字段，也不会把附件文本追加到正文，因此 PDF 研报和 MP3 语音里的股票信息不会进入总结或 stock_extractor.py 的候选提取。",
+      "fix": "新增 attachment_processor.py 下载并解析附件，PDF 使用 pypdf 抽文本，音频在 OPENAI_API_KEY 或 AUDIO_TRANSCRIPTION_API_KEY 存在时转写；crawler.py 将图片和附件分流并调用解析器；extractor.py 将 attachment_text 追加到 content；CI 透传音频转写密钥并补充 pypdf 依赖与附件配置。",
+      "tags": [
+        "zsxq",
+        "attachments",
+        "pdf",
+        "mp3",
+        "stock-report"
+      ],
+      "related_bugs": [
+        "bug-068"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-13T07:29:00+08:00"
     }
   ]
 }

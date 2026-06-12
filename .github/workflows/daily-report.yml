@@ -211,6 +211,8 @@ jobs:
         env:
           ZSXQ_GROUP_URL: ${{ secrets.ZSXQ_GROUP_URL }}
           MAX_POSTS: ${{ inputs.max_posts }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          AUDIO_TRANSCRIPTION_API_KEY: ${{ secrets.AUDIO_TRANSCRIPTION_API_KEY }}
         run: |
           GROUP_URL="${ZSXQ_GROUP_URL}"
           if [ -z "$GROUP_URL" ]; then

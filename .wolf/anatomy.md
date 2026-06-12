@@ -27,6 +27,7 @@
 - `.gitignore` — Git ignore rules (~15 tok)
 - `AGENTS.md` — OpenWolf 项目协作说明，要求每次会话读取 .wolf/OPENWOLF.md、编码前查看 cerebrum、读文件前查看 anatomy。 (~57 tok)
 - `auth.py` — 知识星球登录与 Cookie 管理模块。 (~1473 tok)
+- `attachment_processor.py` — 知识星球 PDF/音频附件解析模块，下载附件并将 PDF 文本或音频转写文本注入帖子。 (~3300 tok)
 - `CLAUDE.md` — OpenWolf (~57 tok)
 - `config.example.yaml` — 知识星球爬取工具配置文件 (~495 tok)
 - `config.yaml` — 知识星球爬取工具配置文件 (~670 tok)

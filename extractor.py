@@ -24,15 +24,27 @@ def extract_structured_content(posts: list[dict]) -> list[dict]:
     cleaned = []
 
     for post in posts:
+        content = _clean_text(post.get("content", ""))
+        attachment_text = _clean_text(post.get("attachment_text", ""))
+        if attachment_text:
+            content = (
+                f"{content}\n\n【附件解析内容】\n{attachment_text}"
+                if content else
+                f"【附件解析内容】\n{attachment_text}"
+            )
+
         item = {
             "topic_id": post.get("topic_id", ""),
             "title": _clean_text(post.get("title", "")),
             "author": post.get("author", "未知"),
-            "content": _clean_text(post.get("content", "")),
+            "content": content,
             "time": _parse_time(post.get("time", "")),
             "time_raw": post.get("time", ""),
             "url": post.get("url", ""),
             "images": post.get("images", []),
+            "files": post.get("files", []),
+            "attachment_text": attachment_text,
+            "attachment_notes": post.get("attachment_notes", []),
             "likes": post.get("likes", 0),
             "comments_count": post.get("comments_count", 0),
             "comments": [
@@ -44,7 +56,7 @@ def extract_structured_content(posts: list[dict]) -> list[dict]:
             ],
             "tags": _extract_tags(post.get("content", "")),
             "content_type": _detect_type(post),
-            "word_count": len(post.get("content", "")),
+            "word_count": len(content),
         }
         cleaned.append(item)
 
