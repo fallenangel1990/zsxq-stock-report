@@ -273,3 +273,4 @@
 | 07:29 | Added ZSXQ PDF/audio attachment parsing | attachment_processor.py, crawler.py, extractor.py, config.example.yaml, daily-report.yml | PDF text and optional audio transcription now feed stock extraction; validations passed | ~5200 |
 | 07:35 | Switched MP3 transcription to Xiaomi Mimo ASR | attachment_processor.py, config.example.yaml, daily-report.yml, .wolf/* | audio provider now defaults to mimo-v2.5-asr with OpenAI fallback; validations passed | ~3600 |
 | 06:46 | Updated scheduled THS sync threshold and group naming | daily-report.yml, config.example.yaml, ths_sync.py | scheduled sync now uses score >=5 and date-only group names; validations passed | ~2200 |
+| 06:52 | Made THS daily group date use Beijing time | ths_sync.py, .wolf/* | group names now use Asia/Shanghai even on UTC runners; validation passed | ~1800 |

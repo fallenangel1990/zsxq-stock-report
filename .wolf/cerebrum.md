@@ -72,7 +72,7 @@
 - **同花顺降级同步**：`ths.also_add_to_watchlist: true` 时，分组查询/创建失败不应阻断默认自选股添加；
   应降级继续写默认自选股，并在同步结果中输出分组失败 warning。
 - **同花顺写后确认**：同花顺接口可能返回添加成功但刷新后目标分组/默认自选里没有股票；同步必须写后刷新确认并重试，仍未确认时返回 `partial`，CI 严格兜底必须失败而不是静默通过。
-- **同花顺定时同步阈值和分组**：日报定时任务只将推荐指数 >= 5.0 的股票同步到同花顺；自动分组名只使用当天日期（如 `06-17`），不要带“知识星球”前缀。
+- **同花顺定时同步阈值和分组**：日报定时任务只将推荐指数 >= 5.0 的股票同步到同花顺；自动分组名按北京时间只使用当天日期（如 `06-17`），不要带“知识星球”前缀。
 - **CI 同花顺兜底执行**：日报 workflow 不能只依赖 `main.py all` 末尾的自动同步。
   Actions 应在爬取/提取后检查日志；若未出现“同花顺同步结果”或状态不是 `success`，且 `cookies_ths.json` 存在，需要显式运行 `python main.py thssync --strict`，让同步失败在 CI 中红掉。
 - **小米 Mimo API Key**：当 `ai.deepseek.base_url` 指向 `api.xiaomimimo.com` 且模型为 `mimo-v2.5` 时，CI/本地应设置 `MIMO_API_KEY` 或 `XIAOMI_MIMO_API_KEY`，不要复用 `DEEPSEEK_API_KEY`；本地加密 key 使用 `MIMO_API_KEY_ENCRYPTION_KEY` 或 `.secrets/mimo.key`。
@@ -118,5 +118,7 @@
   `attachments.audio_provider` 默认 `mimo`，模型 `mimo-v2.5-asr`，base URL `https://api.xiaomimimo.com/v1`；OpenAI Whisper 只作为 fallback。
 - [2026-06-17] **同花顺同步规则**：日报定时任务同花顺同步改为 >=5 分，并使用纯日期分组名。
   CI 覆写配置中 `ths.score_threshold=5.0`、`group_name_prefix=""`、`group_name="auto"`；`make_daily_group_name("")` 返回 `MM-DD`。
+- [2026-06-17] **同花顺分组日期时区**：纯日期分组名必须以北京时间为准。
+  `make_daily_group_name()` 使用 `ZoneInfo("Asia/Shanghai")`，避免 GitHub Actions UTC runner 在凌晨生成前一天日期。
 
 <!-- Significant technical decisions with rationale. Why X was chosen over Y. -->

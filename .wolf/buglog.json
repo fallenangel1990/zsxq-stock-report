@@ -1295,6 +1295,25 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-17T06:46:00+08:00"
+    },
+    {
+      "id": "bug-072",
+      "timestamp": "2026-06-17T06:52:00+08:00",
+      "error_message": "同花顺自选股分组日期需要以北京时间为准",
+      "file": "ths_sync.py",
+      "root_cause": "make_daily_group_name() 使用 naive datetime.now()，在 GitHub Actions 的 UTC runner 上可能按 UTC 日期生成分组名，导致北京时间凌晨触发时分组名落到前一天。",
+      "fix": "在 ths_sync.py 中引入 ZoneInfo，并使用 datetime.now(ZoneInfo('Asia/Shanghai')) 生成 MM-DD 分组日期；用 TZ=UTC 的本地测试验证仍输出北京时间日期。",
+      "tags": [
+        "ths",
+        "timezone",
+        "github-actions",
+        "group-name"
+      ],
+      "related_bugs": [
+        "bug-071"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-17T06:52:00+08:00"
     }
   ]
 }
