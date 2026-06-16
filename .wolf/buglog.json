@@ -1275,6 +1275,26 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-13T07:35:00+08:00"
+    },
+    {
+      "id": "bug-071",
+      "timestamp": "2026-06-17T06:46:00+08:00",
+      "error_message": "定时任务中，股票的阈值需要设置为 5 分以上添加到自选股，自选股分组名为当天日期，去除知识星球文字",
+      "file": ".github/workflows/daily-report.yml, config.example.yaml, ths_sync.py",
+      "root_cause": "日报 workflow 在 CI 中临时覆写 config.yaml 时仍把同花顺同步阈值设为 1.5，并把 group_name_prefix 写成“知识星球”；同时 make_daily_group_name() 对空前缀会回退为“知识星球”，导致无法通过配置生成纯日期分组名。",
+      "fix": "将 daily-report.yml 的 CI 同花顺配置覆写为 score_threshold=5.0、group_name_prefix=''、group_name='auto'；更新 config.example.yaml 示例；修改 make_daily_group_name()，当 prefix 为空时返回 MM-DD 纯日期分组名。",
+      "tags": [
+        "github-actions",
+        "ths",
+        "watchlist",
+        "threshold",
+        "group-name"
+      ],
+      "related_bugs": [
+        "bug-066"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-17T06:46:00+08:00"
     }
   ]
 }

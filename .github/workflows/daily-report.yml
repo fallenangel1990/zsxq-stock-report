@@ -59,7 +59,7 @@ jobs:
             echo "✅ config.yaml 已存在"
           fi
           # 启用同花顺同步（config.yaml 被 gitignore，必须在 CI 中手动启用）
-          python3 -c "import yaml; p='config.yaml'; cfg=yaml.safe_load(open(p)) or {}; ths=cfg.setdefault('ths', {}); ths.update({'enabled': True, 'cookies_path': 'cookies_ths.json', 'score_threshold': 1.5, 'group_name_prefix': '知识星球', 'group_name': 'auto', 'create_group_if_missing': True, 'also_add_to_watchlist': True, 'request_delay': 0.3}); yaml.safe_dump(cfg, open(p, 'w'), allow_unicode=True, sort_keys=False); print('✅ 已启用同花顺同步（分组 auto + 默认自选，阈值 1.5）')"
+          python3 -c "import yaml; p='config.yaml'; cfg=yaml.safe_load(open(p)) or {}; ths=cfg.setdefault('ths', {}); ths.update({'enabled': True, 'cookies_path': 'cookies_ths.json', 'score_threshold': 5.0, 'group_name_prefix': '', 'group_name': 'auto', 'create_group_if_missing': True, 'also_add_to_watchlist': True, 'request_delay': 0.3}); yaml.safe_dump(cfg, open(p, 'w'), allow_unicode=True, sort_keys=False); print('✅ 已启用同花顺同步（分组 auto + 默认自选，阈值 5.0，分组名为当天日期）')"
 
       # ═══════════════════════════════════════════════════════════
       # 3. 交易日检查

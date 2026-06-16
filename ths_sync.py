@@ -51,10 +51,10 @@ MOBILE_UA = (
 
 
 def make_daily_group_name(prefix: str = "知识星球") -> str:
-    """生成当日分组名，格式：知识星球 05-19。"""
-    prefix = (prefix or "知识星球").strip()
+    """生成当日分组名；prefix 为空时只使用日期，如 05-19。"""
+    prefix = "" if prefix is None else str(prefix).strip()
     date_part = datetime.now().strftime("%m-%d")
-    return f"{prefix} {date_part}"
+    return f"{prefix} {date_part}".strip() if prefix else date_part
 
 
 def resolve_group_name(prefix: str = "知识星球", explicit: str = "auto") -> str:

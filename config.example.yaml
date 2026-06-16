@@ -96,9 +96,9 @@ stocks:
 ths:
   enabled: false
   cookies_path: "cookies_ths.json"
-  score_threshold: 1.5              # >= 此值的股票会同步（实际数据中弹性股约 1.5-1.7）
-  group_name_prefix: "知识星球"      # 分组名前缀，实际为「知识星球 MM-DD」
-  group_name: "auto"                 # auto=按当日日期建组；或写固定名称
+  score_threshold: 5.0              # >= 此值的股票会同步到同花顺
+  group_name_prefix: ""             # 为空时分组名只使用当天日期，如「06-17」
+  group_name: "auto"                # auto=按当日日期建组；或写固定名称
   create_group_if_missing: true
   also_add_to_watchlist: false
   request_delay: 0.3
