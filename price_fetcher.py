@@ -102,7 +102,7 @@ def _fetch_eastmoney_quotes(codes: list[str], timeout: int = 10) -> dict:
         return {}
 
     result = {}
-    for item in data.get("data", {}).get("diff", []) or []:
+    for item in (data.get("data") or {}).get("diff") or []:
         code = str(item.get("f12") or "")
         if not code:
             continue
@@ -294,9 +294,9 @@ def _fetch_one_5day_change(tc: str, code: str, timeout: int) -> Optional[float]:
             print(f"[5日涨跌] {code} API 返回异常 code={data.get('code')}", flush=True)
             return None
 
-        stock_data = data.get("data", {}).get(tc, {})
+        stock_data = (data.get("data") or {}).get(tc, {})
         # 优先使用前复权数据
-        klines = stock_data.get("qfqday", []) or stock_data.get("day", [])
+        klines = (stock_data.get("qfqday") or []) or (stock_data.get("day") or [])
 
         if not klines or len(klines) < 2:
             print(f"[5日涨跌] {code} K 线数据不足（仅 {len(klines)} 条）", flush=True)
@@ -411,8 +411,8 @@ def _fetch_one_technical(tc: str, code: str, timeout: int) -> Optional[dict]:
             print(f"[技术指标] {code} API 返回异常 code={data.get('code')}", flush=True)
             return None
 
-        stock_data = data.get("data", {}).get(tc, {})
-        klines = stock_data.get("qfqday", []) or stock_data.get("day", [])
+        stock_data = (data.get("data") or {}).get(tc, {})
+        klines = (stock_data.get("qfqday") or []) or (stock_data.get("day") or [])
         if len(klines) < 20:
             print(f"[技术指标] {code} K 线数据不足（仅 {len(klines)} 条）", flush=True)
             return None
