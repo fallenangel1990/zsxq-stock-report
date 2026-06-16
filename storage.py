@@ -319,6 +319,21 @@ def save_crawl_state(group_id: str, latest_post: dict, total_new: int) -> None:
     _log(f"爬取状态已更新: {state_file}")
 
 
+def save_consecutive_report(report: str) -> str:
+    """保存连板股票扫描报告为 Markdown 文件。"""
+    _, summary_dir = _get_dirs()
+    consec_dir = summary_dir / "consecutive"
+    consec_dir.mkdir(parents=True, exist_ok=True)
+
+    date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"consecutive_{date_str}.md"
+
+    filepath = consec_dir / filename
+    filepath.write_text(report, encoding="utf-8")
+    _log(f"连板报告已保存到: {filepath}")
+    return str(filepath)
+
+
 def save_research_report(report: str, stock_name: str = "") -> str:
     """保存个股深度研究报告为 Markdown 文件。
 

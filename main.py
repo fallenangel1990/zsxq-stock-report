@@ -406,6 +406,102 @@ def _load_thssync_config() -> dict:
     return {}
 
 
+def cmd_consec(args) -> None:
+    """扫描A股连板股票，分类分组并发送报告。"""
+    from consecutive_limit_up import scan_consecutive_limit_up, make_consecutive_group_name
+    from storage import save_consecutive_report
+
+    _log("开始扫描连板股票...")
+    report, stocks = scan_consecutive_limit_up(with_ai=not args.no_ai)
+
+    _log("\n" + "=" * 60)
+    _log("A股连板股票扫描结果：")
+    _log("=" * 60)
+    print(report)
+
+    filepath = save_consecutive_report(report)
+
+    if args.email:
+        try:
+            from email_sender import send_report_notification
+            date_str = _now_shanghai().strftime("%m月%d日")
+            send_report_notification(
+                filepath,
+                subject_override=f"连板股票{date_str}",
+            )
+            _log("邮件已发送")
+        except Exception as e:
+            _log(f"邮件发送失败（不影响报告）: {e}")
+
+    if stocks:
+        _try_ths_consec_sync(stocks)
+
+    _log(f"\n连板扫描完成: {len(stocks)} 只连板股")
+
+
+def _now_shanghai():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    return datetime.now(ZoneInfo("Asia/Shanghai"))
+
+
+def _try_ths_consec_sync(stocks: list[dict]) -> None:
+    """将连板股票同步到同花顺分组「连板-日期」。"""
+    try:
+        from consecutive_limit_up import make_consecutive_group_name
+        from ths_sync import THSClient
+        from pathlib import Path
+        import yaml
+
+        config_path = Path(__file__).parent / "config.yaml"
+        config = {}
+        if config_path.exists():
+            with open(config_path, "r") as f:
+                config = yaml.safe_load(f) or {}
+        ths_config = config.get("ths", {})
+
+        if not ths_config.get("enabled", False):
+            _log("[同花顺连板同步] 配置未启用，跳过")
+            return
+
+        cookies_path = ths_config.get("cookies_path", "cookies_ths.json")
+        if not Path(cookies_path).exists():
+            _log("[同花顺连板同步] cookies 文件不存在，跳过")
+            return
+
+        group_name = make_consecutive_group_name()
+        _log(f"\n[同花顺连板同步] 目标分组: {group_name}")
+
+        client = THSClient(
+            cookies_path=cookies_path,
+            score_threshold=0,
+            request_delay=ths_config.get("request_delay", 0.3),
+            group_name=group_name,
+            create_group_if_missing=True,
+            also_add_to_watchlist=True,
+        )
+
+        enriched = []
+        for s in stocks:
+            code = str(s.get("code", "")).strip()
+            if code and len(code) == 6 and code.isdigit():
+                enriched.append({
+                    "code": code,
+                    "name": s.get("name", ""),
+                    "score": s.get("consecutive_days", 2) * 2,
+                })
+
+        if not enriched:
+            _log("[同花顺连板同步] 无有效股票代码")
+            return
+
+        result = client.sync_stocks(enriched)
+        from ths_sync import format_sync_result
+        _log(format_sync_result(result))
+    except Exception as e:
+        _log(f"[同花顺连板同步] 失败（不影响主流程）: {e}")
+
+
 def cmd_research(
     stock_name: str,
     stock_code: str = "",
@@ -610,6 +706,10 @@ def main():
         help="最大帖子数（默认0=增量模式最多300条；填N=抓最近N条并忽略上次位置）",
     )
 
+    consec_parser = subparsers.add_parser("consec", help="扫描A股连板股票并分类分组")
+    consec_parser.add_argument("--no-ai", action="store_true", help="不使用AI分类，仅规则分组")
+    consec_parser.add_argument("--email", action="store_true", help="生成后发送邮件")
+
     args = parser.parse_args()
 
     if args.command == "login":
@@ -632,6 +732,8 @@ def main():
         cmd_market(args)
     elif args.command == "review":
         cmd_review(args)
+    elif args.command == "consec":
+        cmd_consec(args)
     elif args.command == "all":
         cmd_all(args.url, max_posts=args.max_posts)
     else:
