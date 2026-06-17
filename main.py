@@ -408,10 +408,11 @@ def _load_thssync_config() -> dict:
 
 def cmd_consec(args) -> None:
     """扫描A股连板股票，分类分组并发送报告。"""
-    from consecutive_limit_up import scan_consecutive_limit_up, make_consecutive_group_name
+    from consecutive_limit_up import scan_consecutive_limit_up, get_market_status
     from storage import save_consecutive_report
 
-    _log("开始扫描连板股票...")
+    market = get_market_status()
+    _log(f"开始扫描连板股票（数据日期: {market['data_label']} {market['data_date']}）...")
     report, stocks = scan_consecutive_limit_up(with_ai=not args.no_ai)
 
     _log("\n" + "=" * 60)
@@ -424,7 +425,7 @@ def cmd_consec(args) -> None:
     if args.email:
         try:
             from email_sender import send_report_notification
-            date_str = _now_shanghai().strftime("%m月%d日")
+            date_str = market["data_date"].strftime("%m月%d日")
             send_report_notification(
                 filepath,
                 subject_override=f"连板股票{date_str}",

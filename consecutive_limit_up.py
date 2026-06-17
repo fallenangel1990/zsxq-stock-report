@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
 """A股连板股票扫描模块。
 
-扫描当日涨停股票，计算连板天数，按题材/板块分类分组，
+扫描涨停股票，计算连板天数，按题材/板块分类分组，
 使用 AI 总结连板原因，输出报告。
 
 数据源：东方财富实时行情 + 腾讯前复权日K线。
+
+市场状态与日期逻辑：
+  - 盘前（< 9:30）/ 盘后（>= 15:00）：使用上一交易日数据，分组日期为上一交易日
+  - 盘中（9:30 ~ 15:00）：使用当日实时数据，分组日期为当日
 """
 
 import json
 import math
 import os
 import re
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -25,27 +30,20 @@ import requests
 import yaml
 
 
-# ── 东方财富 API ──
+# ── 常量 ──
 
 EASTMONEY_CLIST_URL = "https://push2.eastmoney.com/api/qt/clist/get"
 
-# 涨停池字段
 LIMIT_UP_FIELDS = (
     "f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f12,f13,f14,f15,f16,f17,f18,"
     "f20,f21,f22,f23,f24,f25,f62,f100,f115,f152"
 )
 
 
+# ── 基础工具 ──
+
 def _now_shanghai() -> datetime:
     return datetime.now(ZoneInfo("Asia/Shanghai"))
-
-
-def _load_config() -> dict:
-    config_path = Path(__file__).parent / "config.yaml"
-    if config_path.exists():
-        with open(config_path, "r") as f:
-            return yaml.safe_load(f) or {}
-    return {}
 
 
 def _safe_float(value, default: float = 0.0) -> float:
@@ -59,26 +57,16 @@ def _safe_float(value, default: float = 0.0) -> float:
         return default
 
 
-def _safe_int(value, default: int = 0) -> int:
-    try:
-        if value in (None, "-", ""):
-            return default
-        return int(float(value))
-    except (TypeError, ValueError):
-        return default
-
-
 def _money_yi(value) -> float:
     return round(_safe_float(value) / 100000000, 2)
 
 
-# ── HTTP Session（绕过本地代理，直连东方财富） ──
+# ── HTTP Session ──
 
 _em_session = None
 
 
 def _get_session() -> requests.Session:
-    """获取绕过代理的共享 Session。"""
     global _em_session
     if _em_session is None:
         _em_session = requests.Session()
@@ -93,50 +81,78 @@ def _get_session() -> requests.Session:
     return _em_session
 
 
-# ── 涨停判断 ──
+# ── 市场状态检测 ──
 
-def _is_limit_up(change_pct: float, code: str) -> bool:
-    """判断股票是否涨停。
+def get_market_status() -> dict:
+    """检测当前 A 股市场状态。
 
-    主板/中小板（6/0/3 开头）涨停幅度约 10%；
-    创业板（30 开头）和科创板（688 开头）约 20%；
-    北交所（8/4 开头）约 30%。
-    允许 0.2% 误差。
+    Returns:
+        {
+            "is_open": bool,         # 是否在盘中交易时段
+            "data_label": str,       # "今日" / "昨日"
+            "data_date": date,       # 数据对应的交易日
+            "group_date": str,       # 分组名日期 MM-DD
+            "report_label": str,     # 报告中的日期描述
+        }
     """
-    code = str(code).zfill(6)
-    if code.startswith("688") or code.startswith("30"):
-        return change_pct >= 19.5
-    if code.startswith(("8", "4")):
-        return change_pct >= 29.0
-    return change_pct >= 9.5
+    now = _now_shanghai()
+    today = now.date()
+    hour, minute = now.hour, now.minute
+    time_minutes = hour * 60 + minute
+
+    # 判断是否在交易时段: 9:30 ~ 11:30, 13:00 ~ 15:00
+    is_trading_time = (
+        (570 <= time_minutes <= 690) or   # 9:30 ~ 11:30
+        (780 <= time_minutes <= 900)       # 13:00 ~ 15:00
+    )
+
+    # 判断是否为交易日
+    is_trading_day = _is_trading_day(today)
+
+    if is_trading_day and is_trading_time:
+        return {
+            "is_open": True,
+            "data_label": "今日",
+            "data_date": today,
+            "group_date": today.strftime("%m-%d"),
+            "report_label": f"{today.strftime('%Y-%m-%d')}（盘中实时）",
+        }
+
+    # 盘前或盘后：使用上一个交易日
+    last_trading_day = _prev_trading_day(today)
+    label = "盘前" if time_minutes < 570 else "盘后"
+    return {
+        "is_open": False,
+        "data_label": "昨日",
+        "data_date": last_trading_day,
+        "group_date": last_trading_day.strftime("%m-%d"),
+        "report_label": f"{last_trading_day.strftime('%Y-%m-%d')}（{label}扫描）",
+    }
 
 
-def _code_to_tencent(code: str) -> str:
-    code = str(code).zfill(6)
-    if code.startswith("6"):
-        return f"sh{code}"
-    if code.startswith(("0", "3")):
-        return f"sz{code}"
-    if code.startswith(("8", "4")):
-        return f"bj{code}"
-    return ""
+def _is_trading_day(d) -> bool:
+    """判断是否为交易日（周末排除）。"""
+    try:
+        from chinese_calendar import is_workday, is_holiday
+        return is_workday(d) and not is_holiday(d)
+    except ImportError:
+        return d.weekday() < 5
 
 
-def _code_to_eastmoney(code: str) -> str:
-    code = str(code).zfill(6)
-    if code.startswith("6"):
-        return f"1.{code}"
-    if code.startswith(("0", "3")):
-        return f"0.{code}"
-    if code.startswith(("8", "4")):
-        return f"0.{code}"
-    return ""
+def _prev_trading_day(d) -> "date":
+    """获取上一个交易日。"""
+    d = d - timedelta(days=1)
+    for _ in range(10):
+        if _is_trading_day(d):
+            return d
+        d -= timedelta(days=1)
+    return d
 
 
 # ── 涨停池抓取 ──
 
 def fetch_limit_up_stocks() -> list[dict]:
-    """抓取当日涨停股票列表。
+    """抓取涨停股票列表。
 
     优先东方财富 clist 接口；不可用时降级到腾讯 API。
     """
@@ -191,11 +207,14 @@ def _fetch_from_eastmoney() -> Optional[list[dict]]:
     return all_stocks
 
 
+# ── 腾讯降级方案 ──
+
 def _fetch_from_tencent() -> list[dict]:
-    """腾讯 API 降级：批量查询已知代码池，筛选涨幅 >= 9.5%。"""
+    """腾讯 API 降级：批量查询全 A 股代码池，筛选涨幅 >= 9.5%。"""
     codes = _get_code_pool()
     if not codes:
         return []
+    print(f"[连板扫描] 腾讯代码池: {len(codes)} 只", flush=True)
     all_stocks = []
     session = _get_session()
     for i in range(0, len(codes), 130):
@@ -242,55 +261,44 @@ def _fetch_from_tencent() -> list[dict]:
                     continue
         except Exception as e:
             print(f"[连板扫描] 腾讯批次失败: {e}", flush=True)
-    print(f"[连板扫描] 腾讯降级涨停池: {len(all_stocks)} 只", flush=True)
+    print(f"[连板扫描] 腾讯涨停池: {len(all_stocks)} 只", flush=True)
     return all_stocks
 
 
 def _get_code_pool() -> list[str]:
-    """获取用于腾讯批量查询的股票代码池。"""
+    """获取全 A 股代码池。
+
+    通过已知代码范围生成全量代码，用腾讯 API 批量验证。
+    这比依赖第三方 API 更可靠。
+    """
     codes = set()
-    # 优先从东方财富 push2his 获取指数成分
-    for secid in ["1.000300", "1.000905", "0.399006", "1.000688"]:
-        try:
-            resp = _get_session().get(
-                f"https://push2his.eastmoney.com/api/qt/slist/get"
-                f"?secid={secid}&fields=f12&pn=1&pz=500&po=1&np=1",
-                timeout=8,
-            )
-            for item in (resp.json().get("data") or {}).get("diff") or []:
-                c = str(item.get("f12", ""))
-                if c and len(c) == 6 and c.isdigit():
-                    codes.add(c)
-        except Exception:
-            pass
-    if len(codes) < 100:
-        codes.update(_FALLBACK_POOL)
+
+    # 上证主板: 600000-601999, 603000-603999, 605000-605999
+    codes.update(f"{i:06d}" for i in range(600000, 602000))
+    codes.update(f"{i:06d}" for i in range(603000, 604000))
+    codes.update(f"{i:06d}" for i in range(605000, 606000))
+    # 科创板: 688000-689999
+    codes.update(f"{i:06d}" for i in range(688000, 690000))
+    # 深证主板: 000001-001999
+    codes.update(f"{i:06d}" for i in range(1, 2000))
+    # 中小板: 002000-004999
+    codes.update(f"{i:06d}" for i in range(2000, 5000))
+    # 创业板: 300000-301999
+    codes.update(f"{i:06d}" for i in range(300000, 302000))
+
     return sorted(codes)
 
 
-# 核心股票池兜底
-_FALLBACK_POOL = [
-    "600519","601318","600036","601166","600276","600030","601398",
-    "600900","601012","600809","601888","600031","601088","600048",
-    "600104","601668","600690","601328","600837","601601","600000",
-    "601688","600015","601211","601818","601229","600585","601628",
-    "600016","601336","600309","601988","600196","601669","600028",
-    "601006","601111","600115","601857","600150","601633","601800",
-    "601919","601899","600547","600436","603259","601236","600763",
-    "000858","000333","002714","000651","002415","000568","002304",
-    "000725","002475","000661","002230","000001","000002","000063",
-    "002142","000876","002594","000100","002352","000338","002049",
-    "000538","000768","002241","000776","002032","000895","002001",
-    "300750","300059","300124","300760","300014","300033","300274",
-    "300142","300408","300347","300529","300413","300015","300122",
-    "300498","300316","300454","300394","300628","300782","300763",
-    "300285","300496","300308","300012","300390","300223","300618",
-    "688981","688012","688111","688036","688009","688561","688396",
-    "688187","688005","688180","688256","688303","688599","688065",
-]
-
-
 # ── 连板天数计算 ──
+
+def _code_to_tencent(code: str) -> str:
+    code = str(code).zfill(6)
+    if code.startswith("6"):
+        return f"sh{code}"
+    if code.startswith(("0", "3")):
+        return f"sz{code}"
+    return ""
+
 
 def _fetch_kline(tc: str, code: str, days: int = 15, timeout: int = 10) -> list[dict]:
     """获取单只股票最近 N 天日 K 线（前复权）。"""
@@ -299,22 +307,19 @@ def _fetch_kline(tc: str, code: str, days: int = 15, timeout: int = 10) -> list[
             f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
             f"?param={tc},day,,,{days},qfq"
         )
-        session = _get_session()
-        resp = session.get(url, timeout=timeout)
+        resp = _get_session().get(url, timeout=timeout)
         resp.raise_for_status()
         data = resp.json()
         if data.get("code") != 0:
             return []
         stock_data = (data.get("data") or {}).get(tc, {})
-        klines = (stock_data.get("qfqday") or []) or (stock_data.get("day") or [])
-        return klines
+        return (stock_data.get("qfqday") or []) or (stock_data.get("day") or [])
     except Exception as e:
         print(f"[连板K线] {code} 获取失败: {e}", flush=True)
         return []
 
 
 def _calc_limit_up_price(prev_close: float, code: str) -> float:
-    """根据前收盘价计算涨停价。"""
     code = str(code).zfill(6)
     if code.startswith("688") or code.startswith("30"):
         rate = 0.20
@@ -329,15 +334,14 @@ def _count_consecutive_limit_up(klines: list[dict], code: str) -> int:
     """从 K 线数据计算连板天数（从最新一天往回数）。"""
     if len(klines) < 2:
         return 0
-
     count = 0
     for i in range(len(klines) - 1, 0, -1):
-        today = klines[i]
-        yesterday = klines[i - 1]
-        if len(today) < 3 or len(yesterday) < 3:
+        today_k = klines[i]
+        yesterday_k = klines[i - 1]
+        if len(today_k) < 3 or len(yesterday_k) < 3:
             continue
-        close = float(today[2])
-        prev_close = float(yesterday[2])
+        close = float(today_k[2])
+        prev_close = float(yesterday_k[2])
         limit_price = _calc_limit_up_price(prev_close, code)
         if abs(close - limit_price) < 0.02:
             count += 1
@@ -347,29 +351,22 @@ def _count_consecutive_limit_up(klines: list[dict], code: str) -> int:
 
 
 def _calc_one_consecutive(stock: dict, timeout: int = 10) -> dict:
-    """计算单只股票的连板天数。"""
     code = stock["code"]
     tc = _code_to_tencent(code)
     if not tc:
         stock["consecutive_days"] = 0
         return stock
-
     klines = _fetch_kline(tc, code, days=15, timeout=timeout)
-    days = _count_consecutive_limit_up(klines, code)
-    stock["consecutive_days"] = days
+    stock["consecutive_days"] = _count_consecutive_limit_up(klines, code)
     return stock
 
 
 def calc_consecutive_days(stocks: list[dict], max_workers: int = 8) -> list[dict]:
-    """并发计算所有涨停股的连板天数，过滤出连板 >= 2 的股票。"""
+    """并发计算连板天数，过滤 >= 2 天。"""
     if not stocks:
         return []
-
     with ThreadPoolExecutor(max_workers=min(max_workers, len(stocks))) as executor:
-        futures = {
-            executor.submit(_calc_one_consecutive, s): s
-            for s in stocks
-        }
+        futures = {executor.submit(_calc_one_consecutive, s): s for s in stocks}
         for future in as_completed(futures):
             try:
                 future.result()
@@ -377,24 +374,18 @@ def calc_consecutive_days(stocks: list[dict], max_workers: int = 8) -> list[dict
                 s = futures[future]
                 s["consecutive_days"] = 0
                 print(f"[连板K线] {s['code']} 异常: {e}", flush=True)
-
     consecutive = [s for s in stocks if s.get("consecutive_days", 0) >= 2]
     consecutive.sort(key=lambda s: (-s["consecutive_days"], -s["amount_yi"]))
     print(f"[连板扫描] 连板 >= 2 天: {len(consecutive)} 只", flush=True)
     return consecutive
 
 
-# ── AI 分类分组 + 原因总结 ──
+# ── AI 分类分组 ──
 
-def classify_and_summarize(stocks: list[dict]) -> str:
-    """使用 AI 对连板股票进行分类分组并总结连板原因。
-
-    Returns:
-        AI 生成的分类总结文本（Markdown）。
-    """
+def classify_and_summarize(stocks: list[dict], date_label: str = "今日") -> str:
+    """AI 分类分组 + 原因总结。"""
     if not stocks:
         return "无连板股票。"
-
     try:
         from summarizer import get_client
         client, model, provider = get_client()
@@ -403,19 +394,15 @@ def classify_and_summarize(stocks: list[dict]) -> str:
         print(f"[连板AI] 初始化失败: {e}", flush=True)
         return _fallback_classify(stocks)
 
-    compact = []
-    for s in stocks:
-        compact.append({
-            "code": s["code"],
-            "name": s["name"],
-            "consecutive_days": s["consecutive_days"],
-            "change_pct": s["change_pct"],
-            "amount_yi": s["amount_yi"],
-            "turnover_rate": s["turnover_rate"],
-            "main_net_yi": s["main_net_yi"],
-            "market_cap_yi": s["market_cap_yi"],
-            "sector": s.get("sector", ""),
-        })
+    compact = [{
+        "code": s["code"], "name": s["name"],
+        "consecutive_days": s["consecutive_days"],
+        "change_pct": s["change_pct"], "amount_yi": s["amount_yi"],
+        "turnover_rate": s["turnover_rate"],
+        "main_net_yi": s["main_net_yi"],
+        "market_cap_yi": s["market_cap_yi"],
+        "sector": s.get("sector", ""),
+    } for s in stocks]
 
     system = (
         "你是A股短线复盘分析师，擅长连板股题材分类和涨停原因分析。"
@@ -424,35 +411,30 @@ def classify_and_summarize(stocks: list[dict]) -> str:
     )
     prompt = f"""请对以下连板（连续涨停 >= 2 天）股票进行分类分组，并总结每组的连板原因。
 
-数据：
+数据（{date_label}）：
 {json.dumps(compact, ensure_ascii=False, indent=2)}
 
 请输出：
-1. **总览**：今日连板概况（总只数、最高连板天数、连板梯队分布）
+1. **总览**：{date_label}连板概况（总只数、最高连板天数、连板梯队分布）
 2. **题材分组**：按题材/板块将连板股分组，每组给出：
    - 组名（如"AI算力"、"机器人"、"新能源"等）
    - 组内股票列表（代码、名称、连板天数、涨停原因简述）
    - 该题材的整体连板逻辑（一句话总结）
-3. **梯队梳理**：按连板天数分为高位板（>=5天）、中位板（3-4天）、低位板（2天），分析各梯队特征
+3. **梯队梳理**：按连板天数分为高位板（>=5天）、中位板（3-4天）、低位板（2天）
 4. **明日关注**：需要重点跟踪的连板股及理由
 
 硬性要求：
 - 金额单位为亿元。
 - 引用具体数字时必须与输入数据完全一致。
 - 不要虚构新闻、政策或消息。
-- 涨停原因以数据中的 sector 字段和常识性产业逻辑为依据。
 """
     return client.create(system=system, prompt=prompt, max_tokens=4000)
 
 
 def _fallback_classify(stocks: list[dict]) -> str:
-    """AI 不可用时的规则分类兜底。"""
-    from collections import defaultdict
     groups = defaultdict(list)
     for s in stocks:
-        sector = s.get("sector", "") or "其他"
-        groups[sector].append(s)
-
+        groups[s.get("sector", "") or "其他"].append(s)
     lines = ["## 连板股票分组（规则分类兜底）\n"]
     for sector, group in sorted(groups.items(), key=lambda x: -len(x[1])):
         lines.append(f"### {sector}（{len(group)} 只）\n")
@@ -462,44 +444,44 @@ def _fallback_classify(stocks: list[dict]) -> str:
                 f"涨幅 {s['change_pct']:.2f}%，成交 {s['amount_yi']:.2f} 亿"
             )
         lines.append("")
-
     lines.append("\n> 注：AI 服务不可用，此为基于板块字段的规则分类。")
     return "\n".join(lines)
 
 
 # ── 报告生成 ──
 
-def build_report(stocks: list[dict], ai_text: str = "") -> str:
-    """生成连板股票扫描报告（Markdown 格式）。"""
+def build_report(stocks: list[dict], ai_text: str = "", market: dict = None) -> str:
+    market = market or get_market_status()
     now = _now_shanghai()
-    date_str = now.strftime("%Y-%m-%d")
     time_str = now.strftime("%Y-%m-%d %H:%M:%S 北京时间")
+    data_label = market["data_label"]
+    report_label = market["report_label"]
 
     lines = [
         f"# A股连板股票扫描报告",
         "",
         f"> 生成时间: {time_str}",
+        f"> 数据日期: {report_label}",
         f"> 数据源: 东方财富实时行情 + 腾讯日K线",
         "",
     ]
 
     if not stocks:
-        lines.append("今日无连板（>= 2 天）股票。\n")
+        lines.append(f"{data_label}无连板（>= 2 天）股票。\n")
         return "\n".join(lines)
 
-    # 总览
     max_days = max(s["consecutive_days"] for s in stocks)
     total_amount = sum(s["amount_yi"] for s in stocks)
     lines.extend([
         "## 一、连板概况",
         "",
+        f"- 数据日期: **{data_label}**",
         f"- 连板股总数: **{len(stocks)}** 只",
         f"- 最高连板: **{max_days}** 天",
         f"- 合计成交额: **{total_amount:.2f}** 亿",
         "",
     ])
 
-    # 梯队分布
     high = [s for s in stocks if s["consecutive_days"] >= 5]
     mid = [s for s in stocks if 3 <= s["consecutive_days"] <= 4]
     low = [s for s in stocks if s["consecutive_days"] == 2]
@@ -510,7 +492,6 @@ def build_report(stocks: list[dict], ai_text: str = "") -> str:
         "",
     ])
 
-    # 全部连板股一览表
     lines.extend([
         "## 二、连板股一览",
         "",
@@ -526,14 +507,8 @@ def build_report(stocks: list[dict], ai_text: str = "") -> str:
         )
     lines.append("")
 
-    # AI 分类分组
     if ai_text:
-        lines.extend([
-            "## 三、题材分组与连板原因",
-            "",
-            ai_text,
-            "",
-        ])
+        lines.extend(["## 三、题材分组与连板原因", "", ai_text, ""])
 
     lines.extend([
         "---",
@@ -541,37 +516,33 @@ def build_report(stocks: list[dict], ai_text: str = "") -> str:
         "*说明：连板天数基于前复权日K线涨停价计算，连板 >= 2 天纳入统计。"
         "分组和原因分析由 AI 生成，仅供参考，不构成投资建议。*",
     ])
-
     return "\n".join(lines)
 
 
 # ── 同步分组名 ──
 
-def make_consecutive_group_name() -> str:
-    """生成连板分组名：连板-MM-DD。"""
-    date_part = _now_shanghai().strftime("%m-%d")
-    return f"连板-{date_part}"
+def make_consecutive_group_name(market: dict = None) -> str:
+    """生成连板分组名：连板-MM-DD。
+
+    盘前/盘后使用上一交易日日期，盘中使用当日日期。
+    """
+    market = market or get_market_status()
+    return f"连板-{market['group_date']}"
 
 
 # ── 主入口 ──
 
 def scan_consecutive_limit_up(with_ai: bool = True) -> tuple[str, list[dict]]:
-    """扫描连板股票，返回 (报告文本, 连板股票列表)。
-
-    Args:
-        with_ai: 是否使用 AI 进行分类分组。
-
-    Returns:
-        (report, stocks) 元组。
-    """
-    print("[连板扫描] 开始扫描...", flush=True)
+    """扫描连板股票，返回 (报告文本, 连板股票列表)。"""
+    market = get_market_status()
+    print(f"[连板扫描] 市场状态: {'盘中' if market['is_open'] else '盘前/盘后'}，"
+          f"数据日期: {market['data_label']}（{market['data_date']}）", flush=True)
 
     # 1. 抓取涨停池
     limit_up = fetch_limit_up_stocks()
     if not limit_up:
         print("[连板扫描] 未抓到涨停股票", flush=True)
-        report = build_report([], "")
-        return report, []
+        return build_report([], "", market), []
 
     # 2. 计算连板天数
     consecutive = calc_consecutive_days(limit_up)
@@ -579,14 +550,15 @@ def scan_consecutive_limit_up(with_ai: bool = True) -> tuple[str, list[dict]]:
     # 3. AI 分类分组
     ai_text = ""
     if with_ai and consecutive:
-        ai_text = classify_and_summarize(consecutive)
+        ai_text = classify_and_summarize(consecutive, market["data_label"])
 
     # 4. 生成报告
-    report = build_report(consecutive, ai_text)
+    report = build_report(consecutive, ai_text, market)
 
-    print(
-        f"[连板扫描] 完成: {len(consecutive)} 只连板股，"
-        f"最高 {consecutive[0]['consecutive_days']} 连板" if consecutive else "[连板扫描] 完成",
-        flush=True,
-    )
+    if consecutive:
+        print(f"[连板扫描] 完成: {len(consecutive)} 只连板股，"
+              f"最高 {consecutive[0]['consecutive_days']} 连板", flush=True)
+    else:
+        print("[连板扫描] 完成", flush=True)
+
     return report, consecutive
