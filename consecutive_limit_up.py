@@ -9,12 +9,17 @@
 
 import json
 import math
+import os
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 from zoneinfo import ZoneInfo
+
+# 绕过本地代理直连东方财富（CI 环境无需此操作）
+for _k in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "all_proxy", "ALL_PROXY"):
+    os.environ.pop(_k, None)
 
 import requests
 import yaml
@@ -67,6 +72,27 @@ def _money_yi(value) -> float:
     return round(_safe_float(value) / 100000000, 2)
 
 
+# ── HTTP Session（绕过本地代理，直连东方财富） ──
+
+_em_session = None
+
+
+def _get_session() -> requests.Session:
+    """获取绕过代理的共享 Session。"""
+    global _em_session
+    if _em_session is None:
+        _em_session = requests.Session()
+        _em_session.trust_env = False
+        _em_session.headers.update({
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
+            ),
+            "Referer": "https://quote.eastmoney.com/",
+        })
+    return _em_session
+
+
 # ── 涨停判断 ──
 
 def _is_limit_up(change_pct: float, code: str) -> bool:
@@ -107,40 +133,41 @@ def _code_to_eastmoney(code: str) -> str:
     return ""
 
 
-# ── 东方财富涨停池 ──
+# ── 涨停池抓取 ──
 
 def fetch_limit_up_stocks() -> list[dict]:
-    """从东方财富抓取当日涨停股票列表。
+    """抓取当日涨停股票列表。
 
-    使用 clist 接口，按涨跌幅排序，筛选涨幅 >= 9.5% 的股票。
+    优先东方财富 clist 接口；不可用时降级到腾讯 API。
     """
+    stocks = _fetch_from_eastmoney()
+    if stocks is not None:
+        return stocks
+    print("[连板扫描] 东方财富不可用，降级到腾讯 API...", flush=True)
+    return _fetch_from_tencent()
+
+
+def _fetch_from_eastmoney() -> Optional[list[dict]]:
+    """东方财富涨停池。失败返回 None 触发降级。"""
     all_stocks = []
     seen = set()
-
     for pn in range(1, 6):
         params = {
-            "pn": pn,
-            "pz": 100,
-            "po": 1,
-            "np": 1,
-            "fltt": 2,
-            "invt": 2,
-            "fid": "f3",
+            "pn": pn, "pz": 100, "po": 1, "np": 1,
+            "fltt": 2, "invt": 2, "fid": "f3",
             "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048",
             "fields": LIMIT_UP_FIELDS,
         }
         try:
-            resp = requests.get(EASTMONEY_CLIST_URL, params=params, timeout=15)
+            resp = _get_session().get(EASTMONEY_CLIST_URL, params=params, timeout=10)
             resp.raise_for_status()
             data = resp.json()
         except Exception as e:
-            print(f"[连板扫描] 东方财富请求失败 (pn={pn}): {e}", flush=True)
-            break
-
+            print(f"[连板扫描] 东方财富失败(pn={pn}): {e}", flush=True)
+            return None
         rows = data.get("data", {}).get("diff") or []
         if not rows:
             break
-
         for raw in rows:
             code = str(raw.get("f12", ""))
             if not code or code in seen:
@@ -150,22 +177,117 @@ def fetch_limit_up_stocks() -> list[dict]:
                 continue
             seen.add(code)
             all_stocks.append({
-                "code": code,
-                "name": raw.get("f14", ""),
-                "price": _safe_float(raw.get("f2")),
-                "change_pct": change_pct,
+                "code": code, "name": raw.get("f14", ""),
+                "price": _safe_float(raw.get("f2")), "change_pct": change_pct,
                 "market_cap_yi": _money_yi(raw.get("f20")),
                 "free_market_cap_yi": _money_yi(raw.get("f21")),
                 "amount_yi": _money_yi(raw.get("f6")),
                 "turnover_rate": _safe_float(raw.get("f8")),
                 "volume_ratio": _safe_float(raw.get("f10")),
                 "main_net_yi": _money_yi(raw.get("f62")),
-                "sector": raw.get("f100", ""),
-                "pe": _safe_float(raw.get("f9")),
+                "sector": raw.get("f100", ""), "pe": _safe_float(raw.get("f9")),
             })
-
     print(f"[连板扫描] 涨停池候选: {len(all_stocks)} 只", flush=True)
     return all_stocks
+
+
+def _fetch_from_tencent() -> list[dict]:
+    """腾讯 API 降级：批量查询已知代码池，筛选涨幅 >= 9.5%。"""
+    codes = _get_code_pool()
+    if not codes:
+        return []
+    all_stocks = []
+    session = _get_session()
+    for i in range(0, len(codes), 130):
+        batch = codes[i:i + 130]
+        tc_list = []
+        for c in batch:
+            if c.startswith("6"):
+                tc_list.append(f"sh{c}")
+            elif c.startswith(("0", "3")):
+                tc_list.append(f"sz{c}")
+        if not tc_list:
+            continue
+        try:
+            resp = session.get(f"http://qt.gtimg.cn/q={','.join(tc_list)}", timeout=15)
+            text = resp.text
+            try:
+                text = text.encode("latin-1").decode("gbk")
+            except (UnicodeDecodeError, UnicodeEncodeError):
+                pass
+            for line in text.strip().split("\n"):
+                if not line.strip() or "=" not in line:
+                    continue
+                try:
+                    _, raw = line.split("=", 1)
+                    parts = raw.strip('";').split("~")
+                    if len(parts) < 46:
+                        continue
+                    code = parts[2]
+                    change_pct = _safe_float(parts[32])
+                    if change_pct < 9.5:
+                        continue
+                    amount_str = parts[37] if len(parts) > 37 else "0"
+                    all_stocks.append({
+                        "code": code, "name": parts[1],
+                        "price": _safe_float(parts[3]), "change_pct": change_pct,
+                        "market_cap_yi": _safe_float(parts[45]) if len(parts) > 45 else 0,
+                        "free_market_cap_yi": 0,
+                        "amount_yi": _safe_float(amount_str) / 10000 if amount_str else 0,
+                        "turnover_rate": _safe_float(parts[38]) if len(parts) > 38 else 0,
+                        "volume_ratio": 0, "main_net_yi": 0,
+                        "sector": "", "pe": _safe_float(parts[39]) if len(parts) > 39 else 0,
+                    })
+                except (IndexError, ValueError):
+                    continue
+        except Exception as e:
+            print(f"[连板扫描] 腾讯批次失败: {e}", flush=True)
+    print(f"[连板扫描] 腾讯降级涨停池: {len(all_stocks)} 只", flush=True)
+    return all_stocks
+
+
+def _get_code_pool() -> list[str]:
+    """获取用于腾讯批量查询的股票代码池。"""
+    codes = set()
+    # 优先从东方财富 push2his 获取指数成分
+    for secid in ["1.000300", "1.000905", "0.399006", "1.000688"]:
+        try:
+            resp = _get_session().get(
+                f"https://push2his.eastmoney.com/api/qt/slist/get"
+                f"?secid={secid}&fields=f12&pn=1&pz=500&po=1&np=1",
+                timeout=8,
+            )
+            for item in (resp.json().get("data") or {}).get("diff") or []:
+                c = str(item.get("f12", ""))
+                if c and len(c) == 6 and c.isdigit():
+                    codes.add(c)
+        except Exception:
+            pass
+    if len(codes) < 100:
+        codes.update(_FALLBACK_POOL)
+    return sorted(codes)
+
+
+# 核心股票池兜底
+_FALLBACK_POOL = [
+    "600519","601318","600036","601166","600276","600030","601398",
+    "600900","601012","600809","601888","600031","601088","600048",
+    "600104","601668","600690","601328","600837","601601","600000",
+    "601688","600015","601211","601818","601229","600585","601628",
+    "600016","601336","600309","601988","600196","601669","600028",
+    "601006","601111","600115","601857","600150","601633","601800",
+    "601919","601899","600547","600436","603259","601236","600763",
+    "000858","000333","002714","000651","002415","000568","002304",
+    "000725","002475","000661","002230","000001","000002","000063",
+    "002142","000876","002594","000100","002352","000338","002049",
+    "000538","000768","002241","000776","002032","000895","002001",
+    "300750","300059","300124","300760","300014","300033","300274",
+    "300142","300408","300347","300529","300413","300015","300122",
+    "300498","300316","300454","300394","300628","300782","300763",
+    "300285","300496","300308","300012","300390","300223","300618",
+    "688981","688012","688111","688036","688009","688561","688396",
+    "688187","688005","688180","688256","688303","688599","688065",
+]
 
 
 # ── 连板天数计算 ──
@@ -177,7 +299,8 @@ def _fetch_kline(tc: str, code: str, days: int = 15, timeout: int = 10) -> list[
             f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
             f"?param={tc},day,,,{days},qfq"
         )
-        resp = requests.get(url, timeout=timeout)
+        session = _get_session()
+        resp = session.get(url, timeout=timeout)
         resp.raise_for_status()
         data = resp.json()
         if data.get("code") != 0:
