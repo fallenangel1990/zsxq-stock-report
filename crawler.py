@@ -33,8 +33,8 @@ def load_config() -> dict:
 
 ZSXQ_API_BASE = "https://api.zsxq.com/v2"
 ZSXQ_PAGE_DELAY_SECONDS = 15
-ZSXQ_1059_COOLDOWN_SECONDS = 30
-ZSXQ_1059_RETRIES = 2
+ZSXQ_1059_COOLDOWN_SECONDS = 60
+ZSXQ_1059_RETRIES = 4
 
 
 class ZSXQApiError(RuntimeError):
