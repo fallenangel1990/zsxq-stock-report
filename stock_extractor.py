@@ -321,7 +321,7 @@ def _extract_stocks_batch(
 提取其中提到的股票投资机会，并按以下四个类别整理成表格。
 
 对于每只股票：
-- 本步骤是“候选池提取”：只要帖子给出 A 股公司名/代码，并同时给出产业受益、业绩变化、订单/政策/事件催化、估值目标、技术突破、研报观点等任一投资逻辑，就应纳入候选
+- 本步骤是"候选池提取"：只要帖子给出 A 股公司名/代码，并同时给出产业受益、业绩变化、订单/政策/事件催化、估值目标、技术突破、研报观点等任一投资逻辑，就应纳入候选
 - 不要只输出最强的 2-3 只；在每批内容中尽量完整覆盖有投资逻辑的 A 股候选，后续系统会评分筛掉低质量标的
 - 仍需排除单纯背景提及、新闻罗列、无投资逻辑的名字堆砌，禁止为了凑数量编造股票
 - 区分"投资建议"和"背景提及"——只在表格中包含有明确投资逻辑的股票
@@ -604,7 +604,7 @@ def _sector_stocks_to_text(stocks_value) -> str:
 
 
 def _split_sector_stock_entries(sector_entry: dict) -> list[dict]:
-    """把“细分板块机会”的核心标的拆成个股候选。
+    """把"细分板块机会"的核心标的拆成个股候选。
 
     AI 有时会把股票只放在 sectors.stocks，而 quantitative/elastic 为空。
     这里把这类核心标的补进弹性候选，避免最终报告只有空表。
@@ -1568,6 +1568,23 @@ def _filter_trending_near_ma5(
     return passed, filtered
 
 
+def _filter_reason_summary(filtered: list[dict]) -> str:
+    """汇总被过滤股票的主要原因分布。"""
+    if not filtered:
+        return "无"
+    from collections import Counter
+    counter = Counter()
+    for stock in filtered:
+        reason = stock.get("_filter_reason", "")
+        for part in reason.split("；"):
+            part = part.strip()
+            if part:
+                # 取原因类别（去掉数值细节）
+                key = part.split("(")[0].split(":")[0].strip()
+                counter[key] += 1
+    return "、".join(f"{reason}({count}只)" for reason, count in counter.most_common(4))
+
+
 def _market_filter(enriched: list[dict], external_market: dict = None) -> dict:
     """综合主要指数与候选池技术面生成市场环境过滤。"""
     external_market = external_market or {}
@@ -2216,42 +2233,41 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
     original_markdown = _strip_json_block(original_markdown)
     parts = []
 
-    _append_trader_summary(parts, enriched, trend_scores, market_filter)
-    _append_decision_tables(parts, enriched)
-    _append_report_filter_note(parts, display_meta)
+    # ── 统一过滤：仅保留得分≥5、上升趋势、板块上涨、5日均线附近的股票 ──
+    passed, filtered_out = _filter_trending_near_ma5(enriched, score_threshold=5.0, ma5_tolerance=3.0)
+    passed.sort(key=lambda s: s.get("score", 0), reverse=True)
 
-    # ── 趋势精选清单：上升趋势 + 板块上涨 + 得分≥5 + 价格在5日均线附近 ──
-    trending_passed, _ = _filter_trending_near_ma5(enriched, score_threshold=5.0, ma5_tolerance=3.0)
-    trending_passed.sort(key=lambda s: s.get("score", 0), reverse=True)
-    if trending_passed:
-        parts.append("## 🎯 趋势精选清单（上升趋势 · 板块上涨 · 5日均线附近 · 得分≥5）\n")
-        parts.append(
-            "| 股票名称 | 机会类型 | 周期 | 当前市值 | 买入参考 | 板块 | 板块趋势 | 技术面 | 核心逻辑 | 风险点 | 推荐指数 |"
-        )
-        parts.append(
-            "|----------|----------|------|----------|----------|------|----------|--------|----------|--------|----------|"
-        )
-        for stock in trending_passed[:12]:
-            tech = stock.get("technical") or {}
-            d5 = tech.get("distance_ma5_pct")
-            d5_str = f"距5日线{d5:+.1f}%" if d5 is not None else "-"
-            parts.append(
-                f"| {_display_stock_name(stock)} | {stock.get('opportunity_type', '-')} | "
-                f"{stock.get('trade_period', '-')} | {_fmt_market_cap(stock.get('market_cap_yi'))} | "
-                f"{stock.get('entry_ref', '-')} | "
-                f"{stock.get('sector', '-')} | {_trend_badge(stock)} | "
-                f"{d5_str}；{stock.get('technical_view', '-')} | "
-                f"{_emphasize_cell(stock.get('logic', '')[:60] if stock.get('logic') else '')} | "
-                f"{stock.get('risk_display', '-')[:70]} | "
-                f"{_format_score_display(stock)} |"
-            )
-        parts.append("")
+    # 诊断统计
+    total_scored = len(enriched)
+    total_passed = len(passed)
+    filter_meta = {
+        "total_scored": total_scored,
+        "total_passed": total_passed,
+        "total_filtered": len(filtered_out),
+        "score_threshold": 5.0,
+        "ma5_tolerance": 3.0,
+    }
 
-    # ── -1. 当前最佳买入清单 ──
+    _append_trader_summary(parts, passed, trend_scores, market_filter)
+    _append_decision_tables(parts, passed)
+
+    # 过滤统计
+    parts.append("## 过滤概览\n")
+    parts.append(
+        f"> 可评分候选 **{total_scored}** 只；"
+        f"通过趋势精选（得分≥5 + 上升趋势 + 板块上涨 + 5日均线附近）**{total_passed}** 只。"
+    )
+    if filtered_out and total_passed == 0:
+        parts.append(
+            f"> 无股票通过全部过滤条件。被过滤的 {len(filtered_out)} 只中，"
+            f"主要原因：{_filter_reason_summary(filtered_out)}。"
+        )
+    parts.append("")
+
+    # ── -1. 当前最佳买入清单（仅从通过筛选的股票中选取）──
     buy_candidates = [
-        s for s in enriched
+        s for s in passed
         if s.get("buy_score", 0) >= 6.5
-        and s.get("score", 0) >= 6.2
         and s.get("action") in {"立即可买", "等回踩买"}
     ]
     buy_candidates.sort(
@@ -2284,8 +2300,8 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
             )
         parts.append("")
 
-    # ── 0. 快速选股总览 ──
-    parts.append("## 快速选股清单（按推荐指数降序）\n")
+    # ── 0. 快速选股总览（仅展示通过筛选的股票）──
+    parts.append("## 快速选股清单（趋势精选 · 按推荐指数降序）\n")
     parts.append(
         "| 买卖建议 | 股票名称 | 机会类型 | 周期 | 当前市值 | 买入参考 | 仓位 | 卖出/减仓触发 | 技术面 | 评分拆解 | 核心逻辑 | 目标参考 | 风险点/潜在利空 | 推荐指数 | 趋势 |"
     )
@@ -2293,21 +2309,20 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
         "|----------|----------|----------|------|----------|----------|------|----------------|--------|----------|----------|----------|----------------|----------|------|"
     )
 
-    if not enriched:
+    if not passed:
         parts.append(
-            "| - | 本次未形成 2 分以上可展示个股 | - | - | - | - | - | - | - | - | "
-            "AI 未返回可进入量化/弹性评分的 A 股标的 | - | "
-            "请检查下方细分板块/风险提示；若日志出现 1059，优先更新 Cookie 或等待限流恢复 | - | - |"
+            "| - | 本次无股票通过趋势精选（得分≥5 + 上升趋势 + 板块上涨 + 5日均线附近） | - | - | - | - | - | - | - | - | "
+            "请检查下方行业趋势概览和板块/风险提示 | - | "
+            "若日志出现 1059，优先更新 Cookie 或等待限流恢复 | - | - |"
         )
 
-    for stock in enriched:
+    for stock in passed:
         name = _display_stock_name(stock)
         market_cap_str = _fmt_market_cap(stock.get("market_cap_yi"))
         target_str = _emphasize_cell(stock["target_str"])
         logic = _emphasize_cell(stock["logic"][:70] if stock["logic"] else "")
         risk = stock.get("risk_display", "-")[:90]
         score_str = _format_score_display(stock)
-        # 趋势标记
         trend_badge = _trend_badge(stock)
 
         parts.append(
@@ -2322,6 +2337,19 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
 
     parts.append("")
 
+    if not passed and enriched:
+        parts.append("## 过滤诊断\n")
+        parts.append(
+            f"- 共提取 {total_scored} 只可评分候选，但无一通过趋势精选全部条件。"
+        )
+        parts.append(
+            "- 主要过滤原因分布：" + _filter_reason_summary(filtered_out) + "。"
+        )
+        parts.append(
+            "- 若日志出现 `code=1059`，本次可能只抓到部分帖子；爬虫已改为 15 秒分页间隔并对 1059 冷却重试。"
+        )
+        parts.append("")
+
     if not enriched:
         parts.append("## 提取诊断\n")
         parts.append(
@@ -2331,7 +2359,7 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
             "- 如果运行日志出现 `code=1059`，本次可能只抓到部分帖子；爬虫已改为 15 秒分页间隔并对 1059 冷却重试。"
         )
         parts.append(
-            "- 若 AI 只在“细分板块机会”中列出核心标的，后续运行会自动把这些标的补入弹性候选并参与评分/同花顺同步。"
+            '- 若 AI 只在"细分板块机会"中列出核心标的，后续运行会自动把这些标的补入弹性候选并参与评分/同花顺同步。'
         )
         parts.append("")
 
@@ -2362,8 +2390,8 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
             )
         parts.append("")
 
-    # ── 1. 量化目标（增强） ──
-    q_stocks = [s for s in enriched if s["category"] == "quantitative"]
+    # ── 1. 量化目标（增强，仅展示通过筛选的）──
+    q_stocks = [s for s in passed if s["category"] == "quantitative"]
     if q_stocks:
         parts.append("## 一、有明确量化目标的股票（增强）\n")
         parts.append(
@@ -2383,8 +2411,8 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
             )
         parts.append("")
 
-    # ── 2. 弹性标的（增强） ──
-    e_stocks = [s for s in enriched if s["category"] == "elastic"]
+    # ── 2. 弹性标的（增强，仅展示通过筛选的）──
+    e_stocks = [s for s in passed if s["category"] == "elastic"]
     if e_stocks:
         parts.append("## 二、产业趋势中弹性最大的标的（增强）\n")
         parts.append(
