@@ -1498,6 +1498,76 @@ def _is_overheated(stock: dict) -> bool:
     )
 
 
+def _is_in_uptrend(stock: dict) -> bool:
+    """判断股票是否处于上升趋势。
+
+    条件（满足任一即可）：
+    - 均线多头排列（ma5 >= ma10 >= ma20）
+    - 站上 5 日线且 5 日涨跌幅为正
+    """
+    tech = stock.get("technical") or {}
+    if not tech:
+        return False
+    if tech.get("ma_bullish"):
+        return True
+    if tech.get("above_ma5") and tech.get("change_5d") is not None and tech["change_5d"] > 0:
+        return True
+    return False
+
+
+def _is_sector_rising(stock: dict) -> bool:
+    """判断所属板块整体是否上涨（趋势分数 >= 5.0）。"""
+    trend_score = stock.get("trend_score", 0)
+    return trend_score >= 5.0
+
+
+def _is_near_ma5(stock: dict, tolerance_pct: float = 3.0) -> bool:
+    """判断当前股价是否在 5 日均线附近。
+
+    Args:
+        stock: 增强后的股票数据。
+        tolerance_pct: 容忍偏离百分比，默认 3%（即价格距5日线偏离不超过 ±3%）。
+    """
+    tech = stock.get("technical") or {}
+    distance = tech.get("distance_ma5_pct")
+    if distance is None:
+        return False
+    return abs(distance) <= tolerance_pct
+
+
+def _filter_trending_near_ma5(
+    enriched: list[dict],
+    score_threshold: float = 5.0,
+    ma5_tolerance: float = 3.0,
+) -> tuple[list[dict], list[dict]]:
+    """筛选处于上升趋势、板块上涨、得分达标且价格在5日均线附近的股票。
+
+    Returns:
+        (passed, filtered): 通过筛选的股票列表和被过滤的股票列表。
+    """
+    passed = []
+    filtered = []
+    for stock in enriched:
+        reasons = []
+        if stock.get("score", 0) < score_threshold:
+            reasons.append(f"得分{stock.get('score', 0):.1f}<{score_threshold}")
+        if not _is_in_uptrend(stock):
+            reasons.append("未处于上升趋势")
+        if not _is_sector_rising(stock):
+            reasons.append(f"板块趋势不足({stock.get('trend_score', 0):.1f})")
+        if not _is_near_ma5(stock, ma5_tolerance):
+            tech = stock.get("technical") or {}
+            d = tech.get("distance_ma5_pct")
+            reasons.append(f"偏离5日线{d:+.1f}%" if d is not None else "无5日线数据")
+        if reasons:
+            stock["_filter_reason"] = "；".join(reasons)
+            filtered.append(stock)
+        else:
+            stock.pop("_filter_reason", None)
+            passed.append(stock)
+    return passed, filtered
+
+
 def _market_filter(enriched: list[dict], external_market: dict = None) -> dict:
     """综合主要指数与候选池技术面生成市场环境过滤。"""
     external_market = external_market or {}
@@ -2149,6 +2219,33 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
     _append_trader_summary(parts, enriched, trend_scores, market_filter)
     _append_decision_tables(parts, enriched)
     _append_report_filter_note(parts, display_meta)
+
+    # ── 趋势精选清单：上升趋势 + 板块上涨 + 得分≥5 + 价格在5日均线附近 ──
+    trending_passed, _ = _filter_trending_near_ma5(enriched, score_threshold=5.0, ma5_tolerance=3.0)
+    trending_passed.sort(key=lambda s: s.get("score", 0), reverse=True)
+    if trending_passed:
+        parts.append("## 🎯 趋势精选清单（上升趋势 · 板块上涨 · 5日均线附近 · 得分≥5）\n")
+        parts.append(
+            "| 股票名称 | 机会类型 | 周期 | 当前市值 | 买入参考 | 板块 | 板块趋势 | 技术面 | 核心逻辑 | 风险点 | 推荐指数 |"
+        )
+        parts.append(
+            "|----------|----------|------|----------|----------|------|----------|--------|----------|--------|----------|"
+        )
+        for stock in trending_passed[:12]:
+            tech = stock.get("technical") or {}
+            d5 = tech.get("distance_ma5_pct")
+            d5_str = f"距5日线{d5:+.1f}%" if d5 is not None else "-"
+            parts.append(
+                f"| {_display_stock_name(stock)} | {stock.get('opportunity_type', '-')} | "
+                f"{stock.get('trade_period', '-')} | {_fmt_market_cap(stock.get('market_cap_yi'))} | "
+                f"{stock.get('entry_ref', '-')} | "
+                f"{stock.get('sector', '-')} | {_trend_badge(stock)} | "
+                f"{d5_str}；{stock.get('technical_view', '-')} | "
+                f"{_emphasize_cell(stock.get('logic', '')[:60] if stock.get('logic') else '')} | "
+                f"{stock.get('risk_display', '-')[:70]} | "
+                f"{_format_score_display(stock)} |"
+            )
+        parts.append("")
 
     # ── -1. 当前最佳买入清单 ──
     buy_candidates = [

@@ -441,6 +441,7 @@ def _fetch_one_technical(tc: str, code: str, timeout: int) -> Optional[dict]:
         above_ma10 = ma10 is not None and close >= ma10
         above_ma20 = ma20 is not None and close >= ma20
         ma_bullish = ma5 is not None and ma10 is not None and ma20 is not None and ma5 >= ma10 >= ma20
+        distance_ma5_pct = round((close / ma5 - 1) * 100, 2) if ma5 else None
         distance_ma20_pct = round((close / ma20 - 1) * 100, 2) if ma20 else None
         position_20d = None
         if high20 > low20:
@@ -455,6 +456,7 @@ def _fetch_one_technical(tc: str, code: str, timeout: int) -> Optional[dict]:
             "above_ma10": above_ma10,
             "above_ma20": above_ma20,
             "ma_bullish": ma_bullish,
+            "distance_ma5_pct": distance_ma5_pct,
             "distance_ma20_pct": distance_ma20_pct,
             "position_20d": position_20d,
             "change_5d": change_5d,
