@@ -418,6 +418,71 @@ def _atr(closes: list[float], highs: list[float], lows: list[float], n: int = 14
     return sum(trs[-n:]) / n
 
 
+def _rsi(closes: list[float], n: int = 14) -> Optional[float]:
+    """计算 RSI（相对强弱指标）。
+
+    RSI = 100 - 100 / (1 + avg_gain / avg_loss)
+    使用 Wilder 平滑（指数移动平均）。
+    """
+    if len(closes) < n + 1:
+        return None
+    gains = []
+    losses = []
+    for i in range(1, len(closes)):
+        delta = closes[i] - closes[i - 1]
+        gains.append(max(0, delta))
+        losses.append(max(0, -delta))
+    # 初始平均
+    avg_gain = sum(gains[:n]) / n
+    avg_loss = sum(losses[:n]) / n
+    # Wilder 平滑
+    for i in range(n, len(gains)):
+        avg_gain = (avg_gain * (n - 1) + gains[i]) / n
+        avg_loss = (avg_loss * (n - 1) + losses[i]) / n
+    if avg_loss == 0:
+        return 100.0
+    rs = avg_gain / avg_loss
+    return round(100 - 100 / (1 + rs), 1)
+
+
+def _macd(closes: list[float], fast: int = 12, slow: int = 26, signal: int = 9) -> tuple[Optional[float], Optional[float], Optional[float]]:
+    """计算 MACD（指数平滑异同移动平均线）。
+
+    Returns:
+        (macd_line, signal_line, histogram)
+        - macd_line = EMA(fast) - EMA(slow)
+        - signal_line = EMA(macd_line, signal)
+        - histogram = macd_line - signal_line
+    """
+    if len(closes) < slow + signal:
+        return None, None, None
+
+    def _ema(values: list[float], n: int) -> list[float]:
+        if len(values) < n:
+            return []
+        k = 2 / (n + 1)
+        result = [sum(values[:n]) / n]
+        for v in values[n:]:
+            result.append(v * k + result[-1] * (1 - k))
+        return result
+
+    ema_fast = _ema(closes, fast)
+    ema_slow = _ema(closes, slow)
+    if not ema_fast or not ema_slow:
+        return None, None, None
+    # 对齐长度
+    offset = len(ema_fast) - len(ema_slow)
+    macd_line = [ema_fast[offset + i] - ema_slow[i] for i in range(len(ema_slow))]
+    if len(macd_line) < signal:
+        return None, None, None
+    signal_line = _ema(macd_line, signal)
+    if not signal_line:
+        return None, None, None
+    offset2 = len(macd_line) - len(signal_line)
+    histogram = macd_line[-1] - signal_line[-1]
+    return round(macd_line[-1], 3), round(signal_line[-1], 3), round(histogram, 3)
+
+
 def _fetch_one_technical(tc: str, code: str, timeout: int) -> Optional[dict]:
     """获取单只股票技术指标快照。"""
     try:
@@ -475,6 +540,12 @@ def _fetch_one_technical(tc: str, code: str, timeout: int) -> Optional[dict]:
         if ma5 and atr_14 and atr_14 > 0:
             distance_ma5_atr = round((close - ma5) / atr_14, 2)
 
+        # RSI(14)
+        rsi_14 = _rsi(closes, 14)
+
+        # MACD(12, 26, 9)
+        macd_line, macd_signal, macd_hist = _macd(closes, 12, 26, 9)
+
         return {
             "close": close,
             "ma5": round(ma5, 3) if ma5 else None,
@@ -492,6 +563,10 @@ def _fetch_one_technical(tc: str, code: str, timeout: int) -> Optional[dict]:
             "volume_ratio": vol_ratio,
             "atr_14": round(atr_14, 3) if atr_14 else None,
             "distance_ma5_atr": distance_ma5_atr,
+            "rsi_14": rsi_14,
+            "macd_line": macd_line,
+            "macd_signal": macd_signal,
+            "macd_hist": macd_hist,
         }
     except requests.Timeout:
         print(f"[技术指标] {code} 请求超时（{timeout}s）", flush=True)

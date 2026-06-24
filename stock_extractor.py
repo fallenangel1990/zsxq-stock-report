@@ -278,8 +278,8 @@ def extract_stock_opportunities(
             from storage import append_recommendation_history, save_enriched_stocks
             save_enriched_stocks(enriched, group_name="latest")
             append_recommendation_history(enriched, group_name="latest")
-        except Exception:
-            pass  # 保存失败不影响主流程
+        except Exception as exc:
+            print(f"[存储] 推荐历史保存失败（不影响主流程）: {exc}", flush=True)
 
     merged = _rebuild_report(enriched, merged_md, trend_data)
 
@@ -1533,6 +1533,40 @@ def _technical_buy_score(stock: dict) -> tuple[float, str]:
     if change_20d is not None and change_20d < -12:
         score -= 0.5
         notes.append("20日趋势偏弱")
+
+    # RSI 信号
+    rsi = tech.get("rsi_14")
+    if rsi is not None:
+        if rsi <= 30:
+            score += 1.2
+            notes.append(f"RSI超卖({rsi:.0f})")
+        elif rsi <= 40:
+            score += 0.5
+            notes.append(f"RSI偏低({rsi:.0f})")
+        elif rsi >= 80:
+            score -= 1.4
+            notes.append(f"RSI超买({rsi:.0f})")
+        elif rsi >= 70:
+            score -= 0.5
+            notes.append(f"RSI偏高({rsi:.0f})")
+
+    # MACD 信号
+    macd_hist = tech.get("macd_hist")
+    macd_line = tech.get("macd_line")
+    macd_signal = tech.get("macd_signal")
+    if macd_hist is not None and macd_line is not None:
+        if macd_hist > 0 and macd_line > 0:
+            score += 0.8
+            notes.append("MACD多头")
+        elif macd_hist > 0 and macd_line <= 0:
+            score += 0.4
+            notes.append("MACD金叉")
+        elif macd_hist < 0 and macd_line < 0:
+            score -= 0.8
+            notes.append("MACD空头")
+        elif macd_hist < 0 and macd_line >= 0:
+            score -= 0.4
+            notes.append("MACD死叉")
 
     if not notes:
         notes.append("技术面中性")

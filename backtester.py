@@ -41,17 +41,29 @@ def _load_history(path: Optional[Path] = None) -> list[dict]:
     return records
 
 
-def _get_forward_returns(code: str, entry_price: float, days: list[int] = None) -> dict:
-    """获取股票的未来 N 日收益率。
+def _get_forward_returns(
+    code: str,
+    entry_price: float,
+    entry_date: str,
+    days: list[int] = None,
+) -> dict:
+    """获取股票从推荐日起的未来 N 日收益率。
 
-    通过获取 K 线数据，找到推荐日期之后的收盘价来计算收益。
+    通过获取 K 线数据，根据推荐日期定位 K 线位置，
+    计算 T+1/T+5/T+10/T+20 的真实收益率。
+
+    Args:
+        code: 6位股票代码。
+        entry_price: 推荐时的入场价。
+        entry_date: 推荐日期（ISO 格式，取前10位 YYYY-MM-DD）。
+        days: 要计算收益的天数列表。
 
     Returns:
-        {1: return_1d, 5: return_5d, 10: return_10d, 20: return_20d}
+        {1: return_1d_pct, 5: return_5d_pct, ...}
     """
     if days is None:
         days = [1, 5, 10, 20]
-    if not code or not entry_price or entry_price <= 0:
+    if not code or not entry_price or entry_price <= 0 or not entry_date:
         return {}
 
     tc = _code_to_tencent(code)
@@ -60,7 +72,8 @@ def _get_forward_returns(code: str, entry_price: float, days: list[int] = None) 
 
     import requests
     try:
-        url = f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={tc},day,,,30,qfq"
+        # 获取足够多的 K 线数据（推荐日期之后至少 25 个交易日）
+        url = f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={tc},day,,,60,qfq"
         resp = requests.get(url, timeout=10)
         resp.raise_for_status()
         data = resp.json()
@@ -71,21 +84,40 @@ def _get_forward_returns(code: str, entry_price: float, days: list[int] = None) 
         if not klines:
             return {}
 
-        closes = [float(k[2]) for k in klines if len(k) >= 3]
-        if not closes:
-            return {}
+        # 解析 K 线数据：[日期, 开, 收, 高, 低, 量]
+        kline_dates = [k[0] for k in klines if len(k) >= 3]
+        kline_closes = [float(k[2]) for k in klines if len(k) >= 3]
 
-        # 用最新收盘价与入场价的差异估算
-        # 注意：这里简化处理，实际应该根据推荐日期定位K线位置
-        latest_close = closes[-1]
+        # 找到推荐日期对应的 K 线位置（推荐日期当天或之后最近的交易日）
+        target_date = entry_date[:10]
+        start_idx = None
+        for i, kd in enumerate(kline_dates):
+            if kd >= target_date:
+                start_idx = i
+                break
+
+        if start_idx is None:
+            # 推荐日期在 K 线范围之外，用最新价估算
+            latest_close = kline_closes[-1]
+            return {0: round((latest_close / entry_price - 1) * 100, 2)}
+
+        # 计算前向收益
         returns = {}
         for d in days:
-            if len(closes) >= d:
-                future_close = closes[-1]  # 简化：用最新价
+            future_idx = start_idx + d
+            if future_idx < len(kline_closes):
+                future_close = kline_closes[future_idx]
                 returns[d] = round((future_close / entry_price - 1) * 100, 2)
+            elif start_idx < len(kline_closes):
+                # 数据不足，用最新可用收盘价
+                future_close = kline_closes[-1]
+                actual_days = len(kline_closes) - 1 - start_idx
+                returns[d] = round((future_close / entry_price - 1) * 100, 2)
+
         # 始终包含最新收益
-        if not returns:
-            returns[0] = round((latest_close / entry_price - 1) * 100, 2)
+        latest_close = kline_closes[-1]
+        returns[0] = round((latest_close / entry_price - 1) * 100, 2)
+
         return returns
     except Exception:
         return {}
@@ -214,6 +246,7 @@ def calculate_performance_metrics(records: list[dict]) -> dict:
             "date_range": str,
             "factor_ic": {factor_name: {ic, count}},
             "score_group_returns": {score_range: avg_return},
+            "forward_returns": {horizon: {avg_return, win_rate, count}},
         }
     """
     if not records:
@@ -226,29 +259,41 @@ def calculate_performance_metrics(records: list[dict]) -> dict:
     # 因子 IC
     factor_ic = calculate_factor_ic(records)
 
-    # 按评分分组的收益
+    # 计算前向收益（T+0 最新, T+5, T+20）
+    forward_returns_by_horizon = {"latest": [], "5d": [], "20d": []}
     score_groups = {"1-3": [], "3-5": [], "5-7": [], "7-10": []}
-    current_prices = fetch_prices(list(codes))
 
     for rec in records:
         code = rec.get("code")
         entry_price = rec.get("current_price")
+        entry_date = (rec.get("generated_at") or "")[:10]
         score = rec.get("score", 0)
         if not code or not entry_price or entry_price <= 0:
             continue
-        price_info = current_prices.get(code)
-        if not price_info or not price_info.get("price"):
-            continue
-        ret = (price_info["price"] / entry_price - 1) * 100
 
-        if score < 3:
-            score_groups["1-3"].append(ret)
-        elif score < 5:
-            score_groups["3-5"].append(ret)
-        elif score < 7:
-            score_groups["5-7"].append(ret)
-        else:
-            score_groups["7-10"].append(ret)
+        fwd = _get_forward_returns(code, entry_price, entry_date, days=[5, 20])
+        if not fwd:
+            continue
+
+        ret_latest = fwd.get(0)
+        ret_5d = fwd.get(5)
+        ret_20d = fwd.get(20)
+
+        if ret_latest is not None:
+            forward_returns_by_horizon["latest"].append(ret_latest)
+            # 按评分分组
+            if score < 3:
+                score_groups["1-3"].append(ret_latest)
+            elif score < 5:
+                score_groups["3-5"].append(ret_latest)
+            elif score < 7:
+                score_groups["5-7"].append(ret_latest)
+            else:
+                score_groups["7-10"].append(ret_latest)
+        if ret_5d is not None:
+            forward_returns_by_horizon["5d"].append(ret_5d)
+        if ret_20d is not None:
+            forward_returns_by_horizon["20d"].append(ret_20d)
 
     score_group_returns = {}
     for group, rets in score_groups.items():
@@ -259,12 +304,24 @@ def calculate_performance_metrics(records: list[dict]) -> dict:
                 "count": len(rets),
             }
 
+    forward_returns = {}
+    for horizon, rets in forward_returns_by_horizon.items():
+        if rets:
+            forward_returns[horizon] = {
+                "avg_return": round(sum(rets) / len(rets), 2),
+                "win_rate": round(sum(1 for r in rets if r > 0) / len(rets) * 100, 1),
+                "max_return": round(max(rets), 2),
+                "min_return": round(min(rets), 2),
+                "count": len(rets),
+            }
+
     return {
         "total_recommendations": len(records),
         "unique_stocks": len(codes),
         "date_range": f"{dates[0]} ~ {dates[-1]}" if dates else "无",
         "factor_ic": factor_ic,
         "score_group_returns": score_group_returns,
+        "forward_returns": forward_returns,
         "generated_at": _now_shanghai().isoformat(),
     }
 
@@ -336,6 +393,21 @@ def format_backtest_report(metrics: dict) -> str:
             if info:
                 lines.append(
                     f"| {group} | {info['avg_return']:+.2f}% | {info['win_rate']:.1f}% | {info['count']} |"
+                )
+        lines.append("")
+
+    # 前向收益
+    forward = metrics.get("forward_returns", {})
+    if forward:
+        lines.append("## 前向收益分析\n")
+        lines.append("| 持有期 | 平均收益 | 胜率 | 最大盈利 | 最大亏损 | 样本数 |")
+        lines.append("|--------|----------|------|----------|----------|--------|")
+        for label, key in [("最新", "latest"), ("T+5", "5d"), ("T+20", "20d")]:
+            info = forward.get(key)
+            if info:
+                lines.append(
+                    f"| {label} | {info['avg_return']:+.2f}% | {info['win_rate']:.1f}% | "
+                    f"{info['max_return']:+.2f}% | {info['min_return']:+.2f}% | {info['count']} |"
                 )
         lines.append("")
 
