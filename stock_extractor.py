@@ -843,12 +843,30 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
 
     # 加载评分配置权重
     scoring = _load_scoring_config()
-    w_upside = scoring.get("upside_weight", 0.30)
-    w_quality = scoring.get("quality_weight", 0.20)
-    w_consensus = scoring.get("consensus_weight", 0.16)
-    w_sector = scoring.get("sector_weight", 0.14)
-    w_trend = scoring.get("trend_weight", 0.10)
-    w_fundamentals = scoring.get("fundamentals_weight", 0.10)
+    w_upside = scoring.get("upside_weight", 0.22)
+    w_quality = scoring.get("quality_weight", 0.16)
+    w_consensus = scoring.get("consensus_weight", 0.12)
+    w_sector = scoring.get("sector_weight", 0.12)
+    w_trend = scoring.get("trend_weight", 0.08)
+    w_fundamentals = scoring.get("fundamentals_weight", 0.08)
+    w_capital_flow = scoring.get("capital_flow_weight", 0.08)
+    w_volume_confirm = scoring.get("volume_confirm_weight", 0.07)
+    w_logic_adj = scoring.get("logic_weight", 0.07)
+
+    # 获取龙虎榜数据（用于资金流评分）
+    lhb_code_map = {}
+    try:
+        from market_review import fetch_lhb_details
+        lhb_data = fetch_lhb_details(max_days=5)
+        for row in lhb_data.get("rows", []):
+            lhb_code = (row.get("code") or "").strip()
+            if lhb_code:
+                lhb_code_map[lhb_code] = row
+        if verbose and lhb_code_map:
+            print(f"  龙虎榜数据: {len(lhb_code_map)} 只近期上榜股票", flush=True)
+    except Exception as exc:
+        if verbose:
+            print(f"  龙虎榜数据获取失败（不影响主流程）: {exc}", flush=True)
 
     # 行业趋势检测
     sector_aliases = scoring.get("sector_aliases", {})
@@ -919,6 +937,12 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
         # 6. 公司基本面得分（0-10）
         fundamentals_score = _fundamentals_score(pe, pb, market_cap)
 
+        # 7. 资金流得分（0-10）
+        cap_flow_score = _capital_flow_score(code, lhb_code_map)
+
+        # 8. 量价确认得分（0-10）
+        vol_confirm_score = _volume_confirm_score(technical)
+
         logic_score = _sentiment_score(stock.get("logic", ""))
         target_precision = _target_precision_score(stock.get("target_str", ""))
 
@@ -929,6 +953,8 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
             + w_sector * sector_score
             + w_trend * trend_score
             + w_fundamentals * fundamentals_score
+            + w_capital_flow * cap_flow_score
+            + w_volume_confirm * vol_confirm_score
         )
         total_score = _calibrate_recommendation_score(
             base_score=base_score,
@@ -979,6 +1005,8 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
                 "sector": round(sector_score, 1),
                 "trend": round(trend_score, 1),
                 "fundamentals": round(fundamentals_score, 1),
+                "capital_flow": round(cap_flow_score, 1),
+                "volume_confirm": round(vol_confirm_score, 1),
                 "logic": round(logic_score, 1),
                 "target": round(target_precision, 1),
             },
@@ -1005,6 +1033,59 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
         "market_filter": market_filter,
     }
     return enriched, trend_data
+
+
+def _capital_flow_score(code: str, lhb_code_map: dict) -> float:
+    """基于龙虎榜数据计算资金流得分（0-10）。
+
+    - 近5日龙虎榜净买入：+3 分
+    - 龙虎榜成交占比 > 10%：+2 分（机构参与度高）
+    - 基础分 5 分（中性）
+    """
+    score = 5.0
+    row = lhb_code_map.get(code)
+    if not row:
+        return score
+    net_yi = row.get("net_yi") or 0
+    deal_ratio = row.get("deal_ratio") or 0
+    if net_yi > 0:
+        score += 3.0
+    elif net_yi < 0:
+        score -= 2.0
+    if deal_ratio > 10:
+        score += 2.0
+    elif deal_ratio > 5:
+        score += 1.0
+    return max(0.0, min(10.0, score))
+
+
+def _volume_confirm_score(technical: dict) -> float:
+    """基于量价关系计算量价确认得分（0-10）。
+
+    - 放量上涨（量比 > 1.2 且涨）：8-10 分
+    - 缩量回调（量比 < 0.8 且跌 < 3%）：6-7 分（健康回调）
+    - 放量滞涨（量比 > 2.0 且涨 < 1%）：2-3 分（出货风险）
+    - 其他：4-5 分
+    """
+    if not technical:
+        return 5.0
+    vol_ratio = technical.get("volume_ratio")
+    change_5d = technical.get("change_5d")
+    if vol_ratio is None or change_5d is None:
+        return 5.0
+    # 放量上涨
+    if vol_ratio > 1.2 and change_5d > 0:
+        return min(10.0, 7.0 + min(3.0, (vol_ratio - 1.2) * 2 + change_5d * 0.3))
+    # 缩量回调（健康）
+    if vol_ratio < 0.8 and -3 <= change_5d <= 0:
+        return 6.5
+    # 放量滞涨（出货风险）
+    if vol_ratio > 2.0 and change_5d < 1.0:
+        return max(0.0, 3.0 - (vol_ratio - 2.0))
+    # 放量下跌
+    if vol_ratio > 1.5 and change_5d < -2:
+        return max(0.0, 2.0 - abs(change_5d) * 0.3)
+    return 5.0
 
 
 def _fundamentals_score(pe, pb, market_cap_yi) -> float:
@@ -1521,26 +1602,66 @@ def _is_sector_rising(stock: dict) -> bool:
     return trend_score >= 5.0
 
 
-def _is_near_ma5(stock: dict, tolerance_pct: float = 3.0) -> bool:
+def _is_near_ma5(stock: dict, tolerance_pct: float = 3.0, atr_tolerance: float = 1.5) -> bool:
     """判断当前股价是否在 5 日均线附近。
+
+    优先使用 ATR 归一化距离（距5日线不超过 1.5 倍 ATR），
+    无 ATR 数据时回退到固定百分比（默认 ±3%）。
 
     Args:
         stock: 增强后的股票数据。
-        tolerance_pct: 容忍偏离百分比，默认 3%（即价格距5日线偏离不超过 ±3%）。
+        tolerance_pct: 回退方案的容忍偏离百分比。
+        atr_tolerance: ATR 归一化容忍倍数。
     """
     tech = stock.get("technical") or {}
-    distance = tech.get("distance_ma5_pct")
-    if distance is None:
+    # 优先使用 ATR 归一化
+    distance_atr = tech.get("distance_ma5_atr")
+    if distance_atr is not None:
+        return abs(distance_atr) <= atr_tolerance
+    # 回退到固定百分比
+    distance_pct = tech.get("distance_ma5_pct")
+    if distance_pct is None:
         return False
-    return abs(distance) <= tolerance_pct
+    return abs(distance_pct) <= tolerance_pct
+
+
+def _apply_portfolio_constraints(passed: list[dict], max_per_sector: int = 3) -> list[dict]:
+    """行业集中度控制：同一板块最多保留 max_per_sector 只，按得分降序保留。
+
+    Args:
+        passed: 通过趋势精选的股票列表（已按得分降序）。
+        max_per_sector: 每个板块最多保留的股票数。
+
+    Returns:
+        通过行业集中度检查的股票列表。
+    """
+    sector_count = {}
+    result = []
+    for stock in passed:
+        sector = stock.get("sector") or "未分类"
+        sector_count[sector] = sector_count.get(sector, 0) + 1
+        if sector_count[sector] <= max_per_sector:
+            stock.pop("_sector_limited", None)
+            result.append(stock)
+        else:
+            stock["_filter_reason"] = f"板块'{sector}'已选{max_per_sector}只，集中度限制"
+            stock["_sector_limited"] = True
+    return result
 
 
 def _filter_trending_near_ma5(
     enriched: list[dict],
     score_threshold: float = 5.0,
     ma5_tolerance: float = 3.0,
+    atr_tolerance: float = 1.5,
 ) -> tuple[list[dict], list[dict]]:
     """筛选处于上升趋势、板块上涨、得分达标且价格在5日均线附近的股票。
+
+    Args:
+        enriched: 增强后的股票列表。
+        score_threshold: 推荐指数最低分。
+        ma5_tolerance: 无 ATR 时回退的固定百分比容忍度。
+        atr_tolerance: ATR 归一化容忍倍数（距5日线不超过 N 倍 ATR）。
 
     Returns:
         (passed, filtered): 通过筛选的股票列表和被过滤的股票列表。
@@ -1555,10 +1676,16 @@ def _filter_trending_near_ma5(
             reasons.append("未处于上升趋势")
         if not _is_sector_rising(stock):
             reasons.append(f"板块趋势不足({stock.get('trend_score', 0):.1f})")
-        if not _is_near_ma5(stock, ma5_tolerance):
+        if not _is_near_ma5(stock, ma5_tolerance, atr_tolerance):
             tech = stock.get("technical") or {}
-            d = tech.get("distance_ma5_pct")
-            reasons.append(f"偏离5日线{d:+.1f}%" if d is not None else "无5日线数据")
+            d_atr = tech.get("distance_ma5_atr")
+            d_pct = tech.get("distance_ma5_pct")
+            if d_atr is not None:
+                reasons.append(f"距5日线{d_atr:+.1f}倍ATR(超{atr_tolerance})")
+            elif d_pct is not None:
+                reasons.append(f"偏离5日线{d_pct:+.1f}%")
+            else:
+                reasons.append("无5日线数据")
         if reasons:
             stock["_filter_reason"] = "；".join(reasons)
             filtered.append(stock)
@@ -1895,7 +2022,8 @@ def _score_breakdown(stock: dict) -> str:
         f"逻辑{detail.get('logic', 0):.1f}",
         f"目标{detail.get('target', 0):.1f}",
         f"趋势{detail.get('trend', 0):.1f}",
-        f"共识{detail.get('consensus', 0):.1f}",
+        f"资金{detail.get('capital_flow', 0):.1f}",
+        f"量价{detail.get('volume_confirm', 0):.1f}",
         f"基本面{detail.get('fundamentals', 0):.1f}",
         f"技术{stock.get('technical_score', 0):.1f}",
     ]
@@ -2236,6 +2364,9 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
     # ── 统一过滤：仅保留得分≥5、上升趋势、板块上涨、5日均线附近的股票 ──
     passed, filtered_out = _filter_trending_near_ma5(enriched, score_threshold=5.0, ma5_tolerance=3.0)
     passed.sort(key=lambda s: s.get("score", 0), reverse=True)
+
+    # ── 组合层风控：行业集中度限制（同板块最多3只）──
+    passed = _apply_portfolio_constraints(passed, max_per_sector=3)
 
     # 诊断统计
     total_scored = len(enriched)

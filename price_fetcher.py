@@ -397,6 +397,27 @@ def _ma(values: list[float], n: int) -> Optional[float]:
     return sum(values[-n:]) / n
 
 
+def _atr(closes: list[float], highs: list[float], lows: list[float], n: int = 14) -> Optional[float]:
+    """计算 ATR（平均真实波幅）。
+
+    TR = max(high - low, |high - prev_close|, |low - prev_close|)
+    ATR = SMA(TR, n)
+    """
+    if len(closes) < n + 1 or len(highs) < n + 1 or len(lows) < n + 1:
+        return None
+    trs = []
+    for i in range(1, len(closes)):
+        tr = max(
+            highs[i] - lows[i],
+            abs(highs[i] - closes[i - 1]),
+            abs(lows[i] - closes[i - 1]),
+        )
+        trs.append(tr)
+    if len(trs) < n:
+        return None
+    return sum(trs[-n:]) / n
+
+
 def _fetch_one_technical(tc: str, code: str, timeout: int) -> Optional[dict]:
     """获取单只股票技术指标快照。"""
     try:
@@ -418,6 +439,7 @@ def _fetch_one_technical(tc: str, code: str, timeout: int) -> Optional[dict]:
             return None
 
         closes = [float(k[2]) for k in klines if len(k) >= 3]
+        highs = [float(k[3]) for k in klines if len(k) >= 4]
         lows = [float(k[4]) for k in klines if len(k) >= 5]
         volumes = [float(k[5]) for k in klines if len(k) >= 6]
         if len(closes) < 20 or len(lows) < 20:
@@ -447,6 +469,12 @@ def _fetch_one_technical(tc: str, code: str, timeout: int) -> Optional[dict]:
         if high20 > low20:
             position_20d = round((close - low20) / (high20 - low20) * 100, 1)
 
+        # ATR(14) 及距5日线的 ATR 归一化距离
+        atr_14 = _atr(closes, highs, lows, 14)
+        distance_ma5_atr = None
+        if ma5 and atr_14 and atr_14 > 0:
+            distance_ma5_atr = round((close - ma5) / atr_14, 2)
+
         return {
             "close": close,
             "ma5": round(ma5, 3) if ma5 else None,
@@ -462,6 +490,8 @@ def _fetch_one_technical(tc: str, code: str, timeout: int) -> Optional[dict]:
             "change_5d": change_5d,
             "change_20d": change_20d,
             "volume_ratio": vol_ratio,
+            "atr_14": round(atr_14, 3) if atr_14 else None,
+            "distance_ma5_atr": distance_ma5_atr,
         }
     except requests.Timeout:
         print(f"[技术指标] {code} 请求超时（{timeout}s）", flush=True)

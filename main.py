@@ -586,6 +586,28 @@ def cmd_all(group_url: str, max_posts: int = 0) -> None:
     _log("=" * 50)
 
 
+def cmd_backtest() -> None:
+    """回测评分因子有效性。"""
+    from backtester import run_backtest, format_backtest_report
+    _log("开始回测评分因子...")
+    metrics = run_backtest()
+    report = format_backtest_report(metrics)
+    print(report)
+    if metrics.get("output_file"):
+        _log(f"回测结果已保存: {metrics['output_file']}")
+
+
+def cmd_performance() -> None:
+    """追踪推荐绩效。"""
+    from performance_tracker import track_performance, format_performance_report
+    _log("开始追踪推荐绩效...")
+    metrics = track_performance()
+    report = format_performance_report(metrics)
+    print(report)
+    if metrics.get("output_file"):
+        _log(f"绩效报告已保存: {metrics['output_file']}")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="知识星球内容爬取与总结工具",
@@ -711,6 +733,9 @@ def main():
     consec_parser.add_argument("--no-ai", action="store_true", help="不使用AI分类，仅规则分组")
     consec_parser.add_argument("--email", action="store_true", help="生成后发送邮件")
 
+    subparsers.add_parser("backtest", help="回测评分因子有效性")
+    subparsers.add_parser("performance", help="追踪推荐绩效（胜率、盈亏比、分组收益）")
+
     args = parser.parse_args()
 
     if args.command == "login":
@@ -735,6 +760,10 @@ def main():
         cmd_review(args)
     elif args.command == "consec":
         cmd_consec(args)
+    elif args.command == "backtest":
+        cmd_backtest()
+    elif args.command == "performance":
+        cmd_performance()
     elif args.command == "all":
         cmd_all(args.url, max_posts=args.max_posts)
     else:
