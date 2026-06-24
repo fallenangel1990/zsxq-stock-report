@@ -358,5 +358,65 @@ def save_research_report(report: str, stock_name: str = "") -> str:
     return str(filepath)
 
 
+def mark_expired_recommendations(
+    history_path: str = None,
+    valid_days: int = 30,
+) -> dict:
+    """标记过期的推荐记录。
+
+    Args:
+        history_path: JSONL 文件路径。
+        valid_days: 推荐有效期天数（超过此天数的推荐标记为过期）。
+
+    Returns:
+        {total, active, expired, expired_codes: list}
+    """
+    _, summary_dir = _get_dirs()
+    path = Path(history_path) if history_path else summary_dir / "history" / "recommendations.jsonl"
+    if not path.exists():
+        return {"total": 0, "active": 0, "expired": 0, "expired_codes": []}
+
+    from datetime import timedelta
+    now = datetime.now()
+    cutoff = now - timedelta(days=valid_days)
+
+    records = []
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                records.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+
+    active = []
+    expired = []
+    expired_codes = []
+    for rec in records:
+        gen_str = (rec.get("generated_at") or "")[:19]
+        try:
+            gen_time = datetime.fromisoformat(gen_str)
+        except Exception:
+            active.append(rec)
+            continue
+        if gen_time < cutoff:
+            rec["_expired"] = True
+            expired.append(rec)
+            if rec.get("code"):
+                expired_codes.append(rec["code"])
+        else:
+            active.append(rec)
+
+    _log(f"推荐有效期检查: 总计 {len(records)} 条，有效 {len(active)} 条，过期 {len(expired)} 条")
+    return {
+        "total": len(records),
+        "active": len(active),
+        "expired": len(expired),
+        "expired_codes": list(set(expired_codes)),
+    }
+
+
 def _log(msg: str) -> None:
     print(msg, flush=True)
