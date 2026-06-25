@@ -939,8 +939,18 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
         # 2. 信息质量得分（0-10）
         quality_score = stock["quality"] * 10
 
-        # 3. 分析师共识得分（0-10）
-        consensus_score = min(10, 2.0 + math.log1p(stock["post_count"]) * 3.0)
+        # 3. 分析师共识得分（0-10）— 多次提及的股票获得显著更高权重
+        post_count = stock["post_count"]
+        if post_count >= 6:
+            consensus_score = 9.5  # 6次以上：强共识，可能已 price in，但仍高分
+        elif post_count >= 4:
+            consensus_score = 8.0 + (post_count - 4) * 0.75  # 4-5次：高共识
+        elif post_count >= 3:
+            consensus_score = 6.5  # 3次：多次验证
+        elif post_count >= 2:
+            consensus_score = 5.0  # 2次：二次提及
+        else:
+            consensus_score = 2.5  # 1次：单次提及
 
         # 4. 板块热度得分（0-10）
         sector_score = 0
@@ -1537,7 +1547,7 @@ def _calibrate_recommendation_score(
 ) -> float:
     """把原始加权分映射为更有区分度的推荐指数。"""
     category_bonus = 0.25 if category == "quantitative" else 0.0
-    consensus_nudge = min(0.45, max(0, post_count - 1) * 0.15)
+    consensus_nudge = min(0.8, max(0, post_count - 1) * 0.25)
     logic_delta = (logic_score - 5.0) * 0.10
     target_delta = (target_precision - 5.0) * 0.08
     calibrated = base_score + category_bonus + consensus_nudge + logic_delta + target_delta
@@ -2039,7 +2049,15 @@ def _source_credibility_score(stock: dict) -> float:
     """来源可信度评分，补强多次提及和研报型机会。"""
     score = 5.0
     post_count = stock.get("post_count", 1) or 1
-    score += min(1.5, math.log1p(post_count) * 0.8)
+    # 多次提及的来源可信度更高
+    if post_count >= 5:
+        score += 2.5
+    elif post_count >= 3:
+        score += 1.8
+    elif post_count >= 2:
+        score += 1.0
+    else:
+        score += 0.3
     if stock.get("category") == "quantitative" or stock.get("target_str"):
         score += 1.0
     if stock.get("foreign_research") or "研报" in (stock.get("logic") or ""):
@@ -2182,10 +2200,12 @@ def _opportunity_type(stock: dict) -> str:
 def _repeat_strength(stock: dict) -> str:
     """把重复提及强度转成易读标签。"""
     count = stock.get("post_count", 1) or 1
-    if count >= 5:
-        return f"强共识：{count}次提及"
+    if count >= 6:
+        return f"🔥强共识({count}次)"
+    if count >= 4:
+        return f"⭐高关注({count}次)"
     if count >= 3:
-        return f"多次提及：{count}次"
+        return f"✅多次提及({count}次)"
     if count == 2:
         return "二次提及"
     return "单次提及"
