@@ -1809,6 +1809,99 @@ def _apply_portfolio_constraints(passed: list[dict], max_per_sector: int = 3) ->
     return result
 
 
+def _apply_liquidity_filter(
+    stocks: list[dict],
+    min_amount_yi: float = 0.5,
+    min_market_cap_yi: float = 20.0,
+) -> list[dict]:
+    """流动性过滤：剔除日均成交额过低或流通市值过小的标的。
+
+    Args:
+        stocks: 股票列表。
+        min_amount_yi: 最低日均成交额（亿元），默认 0.5 亿。
+        min_market_cap_yi: 最低流通市值（亿元），默认 20 亿。
+
+    Returns:
+        通过流动性检查的股票列表。
+    """
+    result = []
+    for stock in stocks:
+        reasons = []
+        market_cap = stock.get("market_cap_yi")
+        # 成交额：用 technical.volume_ratio * 近5日均成交额近似
+        tech = stock.get("technical") or {}
+        turnover = stock.get("turnover_rate")
+        price = stock.get("current_price")
+
+        # 市值检查
+        if market_cap is not None and market_cap < min_market_cap_yi:
+            reasons.append(f"市值{market_cap:.1f}亿<{min_market_cap_yi}亿")
+
+        # 换手率极低 + 小市值 = 流动性差
+        if turnover is not None and turnover < 0.5 and (market_cap or 0) < 50:
+            reasons.append(f"换手率{turnover:.2f}%过低，流动性不足")
+
+        if reasons:
+            stock["_filter_reason"] = "；".join(reasons)
+        else:
+            stock.pop("_filter_reason", None)
+            result.append(stock)
+    return result
+
+
+def _estimate_slippage(stock: dict) -> dict:
+    """估算滑点和冲击成本。
+
+    基于个股流动性（换手率、市值）估算：
+    - 小盘低换手：滑点大（0.3-0.5%）
+    - 大盘高换手：滑点小（0.05-0.1%）
+
+    Returns:
+        增加 slippage_pct 和 impact_cost 字段的 stock dict。
+    """
+    tech = stock.get("technical") or {}
+    turnover = stock.get("turnover_rate") or 1.0
+    market_cap = stock.get("market_cap_yi") or 100
+    vol_ratio = tech.get("volume_ratio") or 1.0
+
+    # 基础滑点：与换手率成反比
+    if turnover >= 3:
+        base_slip = 0.05
+    elif turnover >= 1.5:
+        base_slip = 0.10
+    elif turnover >= 0.8:
+        base_slip = 0.15
+    elif turnover >= 0.3:
+        base_slip = 0.25
+    else:
+        base_slip = 0.40
+
+    # 市值调整：小盘加滑点
+    if market_cap < 30:
+        base_slip += 0.15
+    elif market_cap < 80:
+        base_slip += 0.08
+    elif market_cap < 200:
+        base_slip += 0.03
+
+    # 放量时滑点减小
+    if vol_ratio > 1.5:
+        base_slip *= 0.8
+
+    slippage_pct = round(base_slip, 2)
+
+    # 冲击成本：假设买入 50 万，占日成交额的比例
+    # 日成交额 = 市值 * 换手率 / 100
+    daily_amount = market_cap * turnover / 100 if market_cap and turnover else 1
+    impact_ratio = 0.5 / max(daily_amount, 0.01)  # 50万 / 日成交额（亿）
+    impact_cost = round(min(1.0, impact_ratio * 0.1), 3)  # 简化模型
+
+    stock["slippage_pct"] = slippage_pct
+    stock["impact_cost_pct"] = impact_cost
+    stock["total_cost_pct"] = round(slippage_pct + impact_cost, 2)
+    return stock
+
+
 def _filter_trending_near_ma5(
     enriched: list[dict],
     score_threshold: float = 5.0,
@@ -1975,12 +2068,13 @@ def _buy_bucket(stock: dict) -> str:
 
 
 def _technical_buy_reference(stock: dict) -> str:
-    """结合技术指标生成买点参考。"""
+    """结合技术指标生成买点参考（含成本估算）。"""
     current = stock.get("current_price")
     tech = stock.get("technical") or {}
     buy_score = stock.get("buy_score", 0)
     distance = tech.get("distance_ma20_pct")
     ma20 = tech.get("ma20")
+    total_cost = stock.get("total_cost_pct", 0)
 
     if not current or current <= 0:
         return stock.get("entry_ref", "缺少行情，先观察")
@@ -1989,16 +2083,18 @@ def _technical_buy_reference(stock: dict) -> str:
     if bucket == "只观察":
         return "先观察，不急买；等趋势、量能或风险改善"
 
+    cost_note = f"（成本约{total_cost:.1f}%）" if total_cost > 0.2 else ""
+
     if buy_score >= 7.5:
         if distance is not None and distance > 7:
-            return f"不追涨；回踩 {_fmt_price(current * 0.96)} 附近再分批"
+            return f"不追涨；回踩 {_fmt_price(current * 0.96)} 附近再分批{cost_note}"
         if ma20:
-            return f"分批低吸；优先看 {_fmt_price(max(current * 0.97, ma20))} 附近承接"
+            return f"分批低吸；优先看 {_fmt_price(max(current * 0.97, ma20))} 附近承接{cost_note}"
         return stock.get("entry_ref", "-")
     if buy_score >= 6.5:
         if ma20:
-            return f"等回踩20日线附近（约 {_fmt_price(ma20)}）或放量站稳再买"
-        return "等回踩或放量确认"
+            return f"等回踩20日线附近（约 {_fmt_price(ma20)}）或放量站稳再买{cost_note}"
+        return f"等回踩或放量确认{cost_note}"
     if buy_score >= 5.5:
         return "先观察，不急买；等技术面修复"
     return "暂不买入，等待趋势和风险改善"
@@ -2537,6 +2633,13 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
 
     # ── 组合层风控：行业集中度限制 ──
     passed = _apply_portfolio_constraints(passed, max_per_sector=max_per_sector)
+
+    # ── 流动性过滤：剔除低流动性标的 ──
+    passed = _apply_liquidity_filter(passed)
+
+    # ── 滑点与冲击成本估算 ──
+    for s in passed:
+        _estimate_slippage(s)
 
     # ── 组合层风控：个股间相关性控制 ──
     try:

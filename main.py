@@ -619,6 +619,41 @@ def cmd_monitor(args) -> None:
     )
 
 
+def cmd_factor_decay() -> None:
+    """监控因子衰减趋势。"""
+    from backtester import monitor_factor_decay
+    _log("分析因子衰减趋势...")
+    result = monitor_factor_decay()
+    alerts = result.get("alerts", [])
+    if alerts:
+        print("\n".join(alerts))
+    else:
+        print("所有因子趋势正常")
+    trends = result.get("factor_trends", {})
+    if trends:
+        print("\n因子趋势详情:")
+        for name, info in trends.items():
+            print(f"  {name}: IC={info['current_ic']:.4f}, 趋势={info['trend']}, 均值={info['avg_ic']:.4f}")
+
+
+def cmd_adaptive_weights() -> None:
+    """基于 IC 计算自适应权重。"""
+    from backtester import compute_adaptive_weights, _load_history
+    _log("计算自适应权重...")
+    records = _load_history()
+    if not records:
+        print("无推荐历史数据")
+        return
+    result = compute_adaptive_weights(records)
+    weights = result.get("weights", {})
+    if weights:
+        print("自适应权重:")
+        for name, w in sorted(weights.items(), key=lambda x: -x[1]):
+            print(f"  {name}: {w:.4f}")
+    else:
+        print("无法计算权重（数据不足或因子 IC 均不显著）")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="知识星球内容爬取与总结工具",
@@ -746,6 +781,8 @@ def main():
 
     subparsers.add_parser("backtest", help="回测评分因子有效性")
     subparsers.add_parser("performance", help="追踪推荐绩效（胜率、盈亏比、分组收益）")
+    subparsers.add_parser("factor-decay", help="监控因子衰减趋势")
+    subparsers.add_parser("adaptive-weights", help="基于 IC 计算自适应权重")
 
     monitor_parser = subparsers.add_parser("monitor", help="盘中动态预警监控（交易时段自动轮询）")
     monitor_parser.add_argument("--interval", type=int, default=300, help="轮询间隔秒数（默认300=5分钟）")
@@ -780,6 +817,10 @@ def main():
         cmd_backtest()
     elif args.command == "performance":
         cmd_performance()
+    elif args.command == "factor-decay":
+        cmd_factor_decay()
+    elif args.command == "adaptive-weights":
+        cmd_adaptive_weights()
     elif args.command == "monitor":
         cmd_monitor(args)
     elif args.command == "all":

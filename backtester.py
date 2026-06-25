@@ -413,3 +413,383 @@ def format_backtest_report(metrics: dict) -> str:
 
     lines.append("---\n*本报告由回测系统自动生成。*")
     return "\n".join(lines)
+
+
+# ── Walk-Forward 回测 ──
+
+def walk_forward_backtest(
+    records: list[dict],
+    train_days: int = 30,
+    test_days: int = 10,
+) -> dict:
+    """Walk-Forward 滚动窗口回测。
+
+    将推荐历史按时间分窗：
+    - 训练窗：计算各因子 IC
+    - 测试窗：用训练窗的 IC 排序验证实际收益
+
+    Args:
+        records: 推荐历史。
+        train_days: 训练窗口天数。
+        test_days: 测试窗口天数。
+
+    Returns:
+        {
+            "windows": [{train_start, train_end, test_start, test_end, ic_values, test_return}],
+            "avg_test_return": float,
+            "avg_test_win_rate": float,
+            "stability": float,  # 各窗口收益的一致性
+        }
+    """
+    if not records:
+        return {"error": "无推荐历史数据"}
+
+    # 按日期排序
+    dated = [(r.get("generated_at", "")[:10], r) for r in records if r.get("generated_at")]
+    dated.sort(key=lambda x: x[0])
+    if len(dated) < 10:
+        return {"error": "数据不足以进行 Walk-Forward 回测"}
+
+    from datetime import datetime, timedelta
+    dates = sorted(set(d[0] for d in dated))
+    date_records = {}
+    for d, r in dated:
+        date_records.setdefault(d, []).append(r)
+
+    windows = []
+    i = 0
+    while i + train_days + test_days <= len(dates):
+        train_dates = dates[i:i + train_days]
+        test_dates = dates[i + train_days:i + train_days + test_days]
+
+        # 训练期：计算 IC
+        train_records = []
+        for d in train_dates:
+            train_records.extend(date_records.get(d, []))
+        ic_values = calculate_factor_ic(train_records) if train_records else {}
+
+        # 测试期：用 IC 最高的因子排序，计算 top 组收益
+        test_records = []
+        for d in test_dates:
+            test_records.extend(date_records.get(d, []))
+
+        test_return = 0.0
+        test_count = 0
+        if test_records and ic_values:
+            # 找 IC 最高的因子
+            best_factor = max(ic_values.items(), key=lambda x: abs(x[1].get("ic", 0)))
+            factor_name = best_factor[0]
+            # 按该因子排序，取 top 3
+            scored = []
+            for r in test_records:
+                val = r.get(factor_name) or (r.get("score_detail") or {}).get(factor_name.split(".")[-1])
+                if val is not None:
+                    scored.append((val, r))
+            scored.sort(key=lambda x: x[0], reverse=True)
+            top_stocks = scored[:3]
+            if top_stocks:
+                codes = [r.get("code") for _, r in top_stocks if r.get("code")]
+                if codes:
+                    current = fetch_prices(codes)
+                    for _, r in top_stocks:
+                        code = r.get("code")
+                        entry = r.get("current_price")
+                        if code and entry and entry > 0 and code in current:
+                            ret = (current[code]["price"] / entry - 1) * 100
+                            test_return += ret
+                            test_count += 1
+                if test_count > 0:
+                    test_return /= test_count
+
+        windows.append({
+            "train_start": train_dates[0],
+            "train_end": train_dates[-1],
+            "test_start": test_dates[0],
+            "test_end": test_dates[-1],
+            "best_factor": best_factor[0] if ic_values else None,
+            "best_ic": best_factor[1].get("ic", 0) if ic_values else 0,
+            "test_return": round(test_return, 2),
+            "test_count": test_count,
+        })
+        i += test_days  # 滚动步进
+
+    if not windows:
+        return {"error": "数据不足以生成 Walk-Forward 窗口"}
+
+    returns = [w["test_return"] for w in windows if w["test_count"] > 0]
+    win_count = sum(1 for r in returns if r > 0)
+    avg_ret = sum(returns) / len(returns) if returns else 0
+    std_ret = (sum((r - avg_ret) ** 2 for r in returns) / max(len(returns) - 1, 1)) ** 0.5 if len(returns) > 1 else 1
+    stability = avg_ret / std_ret if std_ret > 0 else 0
+
+    return {
+        "windows": windows,
+        "train_days": train_days,
+        "test_days": test_days,
+        "total_windows": len(windows),
+        "valid_windows": len(returns),
+        "avg_test_return": round(avg_ret, 2),
+        "avg_test_win_rate": round(win_count / max(len(returns), 1) * 100, 1),
+        "stability": round(stability, 2),
+    }
+
+
+# ── 压力测试 ──
+
+def stress_test(stocks: list[dict], scenario: str = "crash") -> dict:
+    """压力测试：模拟极端行情下组合的最大回撤。
+
+    Args:
+        stocks: 当前组合股票列表。
+        scenario: 压力场景 - "crash"（大盘-5%）、"sector_collapse"（板块集体跌停）、"liquidity_crisis"（流动性枯竭）。
+
+    Returns:
+        {
+            "scenario": str,
+            "portfolio_impact": float (预估组合回撤%),
+            "worst_stock": str,
+            "worst_loss": float,
+            "details": list,
+        }
+    """
+    if not stocks:
+        return {"error": "无组合数据"}
+
+    scenarios = {
+        "crash": {"label": "大盘暴跌", "base_drop": -5.0, "beta_mult": 1.2},
+        "sector_collapse": {"label": "板块集体跌停", "base_drop": -8.0, "beta_mult": 1.5},
+        "liquidity_crisis": {"label": "流动性枯竭", "base_drop": -3.0, "beta_mult": 0.8, "slippage_mult": 3.0},
+    }
+    cfg = scenarios.get(scenario, scenarios["crash"])
+    base_drop = cfg["base_drop"]
+    beta_mult = cfg["beta_mult"]
+    slip_mult = cfg.get("slippage_mult", 1.0)
+
+    details = []
+    total_impact = 0.0
+    total_weight = 0.0
+    worst_stock = ""
+    worst_loss = 0.0
+
+    for s in stocks:
+        tech = s.get("technical") or {}
+        # 用 20 日涨跌幅的波动率近似 beta
+        change_20d = tech.get("change_20d") or 0
+        vol_ratio = abs(change_20d) / 5 if abs(change_20d) > 0 else 1.0
+        beta = min(2.0, max(0.5, vol_ratio))
+
+        stock_drop = base_drop * beta * beta_mult
+        slippage = s.get("slippage_pct", 0.1) * slip_mult
+        total_loss = stock_drop - slippage
+
+        weight = s.get("position_pct", 20)
+        weighted_impact = total_loss * weight / 100
+        total_impact += weighted_impact
+        total_weight += weight
+
+        details.append({
+            "name": s.get("name", ""),
+            "code": s.get("code", ""),
+            "beta": round(beta, 2),
+            "stock_drop": round(stock_drop, 2),
+            "slippage": round(slippage, 2),
+            "total_loss": round(total_loss, 2),
+            "weight": weight,
+            "weighted_impact": round(weighted_impact, 2),
+        })
+
+        if total_loss < worst_loss:
+            worst_loss = total_loss
+            worst_stock = s.get("name", "")
+
+    return {
+        "scenario": cfg["label"],
+        "portfolio_impact": round(total_impact, 2),
+        "worst_stock": worst_stock,
+        "worst_loss": round(worst_loss, 2),
+        "details": details,
+    }
+
+
+def calculate_var(stocks: list[dict], confidence: float = 0.95) -> dict:
+    """计算组合在险价值（VaR）。
+
+    基于各股历史波动率和相关性，用参数法估算组合 VaR。
+
+    Args:
+        stocks: 组合股票列表。
+        confidence: 置信度（0.95 或 0.99）。
+
+    Returns:
+        {"var_pct": float, "cvar_pct": float, "confidence": float}
+    """
+    if not stocks:
+        return {"var_pct": 0, "cvar_pct": 0, "confidence": confidence}
+
+    import math
+
+    vols = []
+    weights = []
+    for s in stocks:
+        tech = s.get("technical") or {}
+        atr = tech.get("atr_14")
+        price = s.get("current_price")
+        if atr and price and price > 0:
+            daily_vol = atr / price
+        else:
+            daily_vol = 0.025
+        vols.append(daily_vol)
+        weights.append(s.get("position_pct", 20) / 100)
+
+    w_sum = sum(weights)
+    if w_sum > 0:
+        weights = [w / w_sum for w in weights]
+
+    portfolio_var = math.sqrt(sum((w * v) ** 2 for w, v in zip(weights, vols)))
+
+    z_map = {0.95: 1.645, 0.99: 2.326}
+    z = z_map.get(confidence, 1.645)
+
+    var_pct = round(portfolio_var * z * 100, 2)
+    cvar_pct = round(var_pct * 1.2, 2)
+
+    return {
+        "var_pct": var_pct,
+        "cvar_pct": cvar_pct,
+        "confidence": confidence,
+        "holding_period": "1日",
+    }
+
+
+# ── 因子衰减监控 ──
+
+def monitor_factor_decay(history_path: Optional[Path] = None, window_days: int = 14) -> dict:
+    """监控各因子 IC 的时序变化，检测因子衰减。
+
+    将推荐历史按周分组，计算每周的因子 IC，
+    检查是否存在 IC 连续下降的趋势。
+
+    Returns:
+        {
+            "factor_trends": {
+                factor_name: {
+                    "weekly_ic": [float, ...],
+                    "trend": "declining" | "stable" | "improving",
+                    "current_ic": float,
+                    "avg_ic": float,
+                }
+            },
+            "alerts": [str],  # 因子衰减警告
+        }
+    """
+    records = _load_history(history_path)
+    if len(records) < 20:
+        return {"factor_trends": {}, "alerts": ["数据不足，无法分析因子衰减"]}
+
+    # 按周分组
+    from collections import defaultdict
+    weekly_records = defaultdict(list)
+    for rec in records:
+        date_str = (rec.get("generated_at") or "")[:10]
+        if not date_str:
+            continue
+        try:
+            dt = datetime.strptime(date_str, "%Y-%m-%d")
+            week_key = f"{dt.isocalendar()[0]}-W{dt.isocalendar()[1]:02d}"
+            weekly_records[week_key].append(rec)
+        except Exception:
+            continue
+
+    # 按时间排序的周列表
+    sorted_weeks = sorted(weekly_records.keys())
+    if len(sorted_weeks) < 3:
+        return {"factor_trends": {}, "alerts": ["周数据不足 3 周，无法分析趋势"]}
+
+    # 计算每周的因子 IC
+    factor_names = [
+        "score", "buy_score",
+        "detail.upside", "detail.quality", "detail.consensus",
+        "detail.sector", "detail.trend", "detail.fundamentals",
+        "detail.capital_flow", "detail.volume_confirm",
+    ]
+
+    factor_trends = {}
+    alerts = []
+
+    for fname in factor_names:
+        weekly_ics = []
+        for week in sorted_weeks:
+            week_recs = weekly_records[week]
+            ic_data = calculate_factor_ic(week_recs)
+            ic_val = ic_data.get(fname, {}).get("ic")
+            if ic_val is not None:
+                weekly_ics.append(ic_val)
+
+        if len(weekly_ics) < 2:
+            continue
+
+        # 趋势检测：最近 3 周的 IC 是否连续下降
+        recent = weekly_ics[-3:] if len(weekly_ics) >= 3 else weekly_ics
+        declining = all(recent[i] > recent[i + 1] for i in range(len(recent) - 1))
+        improving = all(recent[i] < recent[i + 1] for i in range(len(recent) - 1))
+
+        trend = "declining" if declining else ("improving" if improving else "stable")
+        current_ic = weekly_ics[-1]
+        avg_ic = sum(weekly_ics) / len(weekly_ics)
+
+        factor_trends[fname] = {
+            "weekly_ic": [round(ic, 4) for ic in weekly_ics],
+            "trend": trend,
+            "current_ic": round(current_ic, 4),
+            "avg_ic": round(avg_ic, 4),
+        }
+
+        if trend == "declining" and abs(current_ic) < 0.02:
+            alerts.append(f"⚠️ 因子 {fname} IC 连续下降，当前 {current_ic:.4f}，可能已失效")
+        elif trend == "declining":
+            alerts.append(f"📉 因子 {fname} IC 趋势下降，当前 {current_ic:.4f}，需关注")
+
+    return {"factor_trends": factor_trends, "alerts": alerts}
+
+
+# ── 自适应权重 ──
+
+def compute_adaptive_weights(records: list[dict]) -> dict:
+    """基于各因子 IC 计算自适应权重。
+
+    IC 越高的因子分配越高的权重，IC 为负的因子权重归零。
+
+    Returns:
+        {
+            "weights": {factor_name: weight},
+            "ic_values": {factor_name: {ic, count}},
+            "method": "ic_inverse_variance",
+        }
+    """
+    ic_data = calculate_factor_ic(records)
+    if not ic_data:
+        return {"weights": {}, "ic_values": {}, "method": "ic_inverse_variance"}
+
+    # IC 加权：IC 为正的因子按 IC 大小加权，IC 为负或接近零的归零
+    raw_weights = {}
+    for name, info in ic_data.items():
+        ic = info.get("ic", 0)
+        if ic > 0.02:
+            raw_weights[name] = ic
+        else:
+            raw_weights[name] = 0.0
+
+    # 归一化
+    total = sum(raw_weights.values())
+    if total > 0:
+        weights = {k: round(v / total, 4) for k, v in raw_weights.items()}
+    else:
+        # 全部因子 IC 都不好，使用均匀权重
+        n = len(raw_weights)
+        weights = {k: round(1 / n, 4) for k in raw_weights} if n > 0 else {}
+
+    return {
+        "weights": weights,
+        "ic_values": {k: v for k, v in ic_data.items()},
+        "method": "ic_inverse_variance",
+    }
