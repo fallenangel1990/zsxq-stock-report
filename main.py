@@ -608,6 +608,17 @@ def cmd_performance() -> None:
         _log(f"绩效报告已保存: {metrics['output_file']}")
 
 
+def cmd_monitor(args) -> None:
+    """盘中动态预警监控。"""
+    from intraday_monitor import run_monitor
+    _log(f"启动盘中预警监控（间隔 {args.interval}s）...")
+    run_monitor(
+        poll_interval=args.interval,
+        max_rounds=args.rounds,
+        email=not args.no_email,
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="知识星球内容爬取与总结工具",
@@ -736,6 +747,11 @@ def main():
     subparsers.add_parser("backtest", help="回测评分因子有效性")
     subparsers.add_parser("performance", help="追踪推荐绩效（胜率、盈亏比、分组收益）")
 
+    monitor_parser = subparsers.add_parser("monitor", help="盘中动态预警监控（交易时段自动轮询）")
+    monitor_parser.add_argument("--interval", type=int, default=300, help="轮询间隔秒数（默认300=5分钟）")
+    monitor_parser.add_argument("--rounds", type=int, default=0, help="最大轮询次数（0=无限）")
+    monitor_parser.add_argument("--no-email", action="store_true", help="不发送邮件预警")
+
     args = parser.parse_args()
 
     if args.command == "login":
@@ -764,6 +780,8 @@ def main():
         cmd_backtest()
     elif args.command == "performance":
         cmd_performance()
+    elif args.command == "monitor":
+        cmd_monitor(args)
     elif args.command == "all":
         cmd_all(args.url, max_posts=args.max_posts)
     else:

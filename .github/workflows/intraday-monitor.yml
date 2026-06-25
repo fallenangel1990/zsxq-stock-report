@@ -1,0 +1,113 @@
+"on":
+  workflow_dispatch:
+    inputs:
+      rounds:
+        description: "监控轮次（0=持续到收盘）"
+        required: false
+        default: "0"
+      interval:
+        description: "轮询间隔秒数"
+        required: false
+        default: "300"
+
+  schedule:
+    # 北京时间 09:25 UTC 01:25，开盘前5分钟启动
+    - cron: "25 1 * * 1-5"
+    # 北京时间 13:00 UTC 05:00，午盘启动
+    - cron: "0 5 * * 1-5"
+
+name: 盘中动态预警
+
+permissions:
+  contents: read
+
+concurrency:
+  group: intraday-monitor
+  cancel-in-progress: true
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      TZ: Asia/Shanghai
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v6
+
+      - name: 设置 Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: 安装依赖
+        run: |
+          pip install --upgrade pip -q
+          pip install -r requirements.txt -q
+
+      - name: 创建 config.yaml
+        run: |
+          cp config.example.yaml config.yaml
+          python3 - <<'PY'
+          import yaml
+          with open("config.yaml", encoding="utf-8") as f:
+              cfg = yaml.safe_load(f) or {}
+          # 预警不需要同花顺同步
+          ths = cfg.setdefault("ths", {})
+          ths["enabled"] = False
+          with open("config.yaml", "w", encoding="utf-8") as f:
+              yaml.safe_dump(cfg, f, allow_unicode=True, sort_keys=False)
+          PY
+
+      - name: 加载邮件配置
+        if: env.SMTP_PASSWORD != ''
+        env:
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+        run: |
+          python3 - <<'PY'
+          import yaml
+          with open("config.yaml", encoding="utf-8") as f:
+              cfg = yaml.safe_load(f) or {}
+          email_cfg = cfg.setdefault("email", {})
+          import os
+          if os.environ.get("SMTP_USER"):
+              email_cfg["smtp_user"] = os.environ["SMTP_USER"]
+          if os.environ.get("SMTP_PASSWORD"):
+              email_cfg["smtp_password"] = os.environ["SMTP_PASSWORD"]
+          if os.environ.get("EMAIL_TO"):
+              email_cfg["to"] = os.environ["EMAIL_TO"]
+          with open("config.yaml", "w", encoding="utf-8") as f:
+              yaml.safe_dump(cfg, f, allow_unicode=True, sort_keys=False)
+          PY
+
+      - name: 恢复推荐历史
+        uses: actions/cache/restore@v4
+        with:
+          path: data/summary
+          key: enriched-latest
+
+      - name: 运行盘中预警
+        env:
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+        run: |
+          ROUNDS="${{ github.event.inputs.rounds || '0' }}"
+          INTERVAL="${{ github.event.inputs.interval || '300' }}"
+          echo "监控轮次: ${ROUNCS:-0}, 间隔: ${INTERVAL}s"
+
+          # 如果没有推荐数据，先运行一次股票提取
+          if ! ls data/summary/*_enriched_*.json 2>/dev/null; then
+            echo "未发现推荐数据，尝试加载最新 raw 数据..."
+            if ls data/raw/*.json 2>/dev/null; then
+              python3 main.py stocks || echo "股票提取失败，预警将缺少推荐标的"
+            else
+              echo "无 raw 数据，预警将仅监控行情异动"
+            fi
+          fi
+
+          python3 main.py monitor --interval "${INTERVAL}" --rounds "${ROUNDS:-0}"
