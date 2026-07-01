@@ -1432,6 +1432,42 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-07-01"
+    },
+    {
+      "id": "bug-013",
+      "timestamp": "2026-07-01T16:00:00+08:00",
+      "error_message": "stock_extractor.py: _assess_quality function called but not defined -> NameError",
+      "file": "stock_extractor.py",
+      "root_cause": "函数定义缺失（重构遗留）",
+      "fix": "新增 _assess_quality(target_str) 函数，从量化参考文本评估信息质量（0.0-1.0）",
+      "tags": [
+        "missing-function",
+        "runtime-error",
+        "name-error"
+      ],
+      "related_bugs": [
+        "bug-011"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-01"
+    },
+    {
+      "id": "bug-014",
+      "timestamp": "2026-07-01T16:00:00+08:00",
+      "error_message": "stock_extractor.py: _normalize_sector_name function called but not defined -> NameError",
+      "file": "stock_extractor.py",
+      "root_cause": "函数定义缺失（重构遗留）",
+      "fix": "新增 _normalize_sector_name(sector, sector_aliases) 函数，标准化板块名为规范名",
+      "tags": [
+        "missing-function",
+        "runtime-error",
+        "name-error"
+      ],
+      "related_bugs": [
+        "bug-011"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-01"
     }
   ]
 }

@@ -678,6 +678,51 @@ def _split_sector_stock_entries(sector_entry: dict) -> list[dict]:
     return entries
 
 
+def _assess_quality(target_str: str) -> float:
+    """从量化参考文本评估信息质量（0.0 ~ 1.0）。
+
+    有明确目标价/市值 = 高质量 (0.7-1.0)
+    有逻辑但无量化 = 中等 (0.3-0.6)
+    纯定性 = 较低 (0.1-0.3)
+    """
+    if not target_str:
+        return 0.3
+    score = 0.3
+    # 有价格目标
+    import re
+    if re.search(r'\d+[\.\d]*\s*(?:元|块)', target_str):
+        score += 0.3
+    # 有市值目标
+    if re.search(r'\d+[\.\d]*\s*(?:亿|e|E)', target_str):
+        score += 0.2
+    # 有 PE/PB/估值
+    if re.search(r'(?:PE|PB|PS|估值|倍)', target_str, re.IGNORECASE):
+        score += 0.1
+    # 有增速/业绩
+    if re.search(r'(?:增速|增长|利润|营收|EPS|业绩)', target_str, re.IGNORECASE):
+        score += 0.1
+    return min(1.0, score)
+
+
+def _normalize_sector_name(sector: str, sector_aliases: dict) -> str:
+    """将板块名标准化为规范名。
+
+    用 sector_aliases 映射各种别名为标准板块名。
+    返回标准化后的板块名，未匹配返回空字符串。
+    """
+    if not sector:
+        return ""
+    sector = sector.strip()
+    # 直接匹配
+    if sector in sector_aliases:
+        return sector_aliases[sector]
+    # 子字符串匹配
+    for alias, canonical in sector_aliases.items():
+        if alias in sector or sector in alias:
+            return canonical
+    return ""
+
+
 def _parse_moat_score(value) -> float:
     """解析护城河评分（1-5 分映射到 0-10）。"""
     if isinstance(value, (int, float)) and 1 <= value <= 5:
