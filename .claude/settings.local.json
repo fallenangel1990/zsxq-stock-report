@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python3 *)"
+      "Bash(python3 *)",
+      "Bash(git commit -m 'feat: 评分体系优化 — 回测验证、组合风控、ATR归一化、资金流评分 *)",
+      "Bash(git push *)",
+      "Bash(git add *)",
+      "Bash(git commit -m 'feat: 新增 RSI/MACD 技术指标 + 完善回测前向收益 + 修复存储日志 *)"
     ]
   }
 }

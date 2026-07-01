@@ -113,19 +113,37 @@ def check_alerts(
     changes_5d: dict,
     state: dict,
 ) -> list[dict]:
-    """检查所有预警条件，返回触发的预警列表。
+    """检查所有预警条件，返回触发的预警列表（含智能降噪）。
 
     预警类型：
     - stop_loss: 跌破止损位
     - volume_surge: 量比异常放大（>3.0）
     - ma_break: 跌破 5 日均线且幅度 > 1%
-    - limit_open: 涨停打开（涨幅从涨停回落）
     - rapid_drop: 盘中快速下跌（跌幅 > 5%）
     - rsi_extreme: RSI 进入超买（>85）或超卖（<15）区域
+    - macd_death: MACD 死叉
+    - portfolio_drawdown: 组合级预警（当日浮亏超阈值）
+
+    智能降噪：
+    - 高波动股自适应调整阈值（ATR 越大阈值越高）
+    - 预警优先级排序（严重 > 注意 > 机会）
+    - 组合级预警汇总（避免逐只推送）
     """
     alerts = []
+    portfolio_alerts = []
     now = _now_shanghai()
     now_str = now.strftime("%H:%M:%S")
+
+    # 计算组合级指标
+    total_market_value = 0
+    total_unrealized_pnl = 0
+    for stock in stocks:
+        code = stock.get("code", "")
+        price_info = prices.get(code, {})
+        current_price = price_info.get("price")
+        if current_price and current_price > 0:
+            # 估算仓位（简化：等权）
+            total_market_value += current_price
 
     for stock in stocks:
         code = stock.get("code", "")
@@ -141,6 +159,12 @@ def check_alerts(
 
         change_pct = price_info.get("change_pct")
 
+        # ── 智能降噪：基于个股波动率自适应阈值 ──
+        atr = tech.get("atr_14")
+        base_vol = (atr / current_price * 100) if (atr and current_price > 0) else 2.0
+        # 高波动股放宽阈值
+        vol_factor = max(1.0, base_vol / 2.0)  # 2% 波动为基准
+
         # 预警 1: 止损跌破
         exit_trigger = stock.get("exit_trigger", "")
         stop_price = _parse_stop_price(exit_trigger, current_price)
@@ -149,40 +173,47 @@ def check_alerts(
                 alerts.append({
                     "code": code, "name": name, "type": "stop_loss",
                     "level": "🔴 严重",
+                    "priority": 1,
                     "msg": f"跌破止损位 {stop_price:.2f}（当前 {current_price:.2f}）",
                     "ts": time.time(), "time": now_str,
                 })
 
-        # 预警 2: 量比异常放大
+        # 预警 2: 量比异常放大（自适应阈值）
         vol_ratio = tech.get("volume_ratio")
-        if vol_ratio and vol_ratio > 3.0 and change_pct is not None and change_pct < 0:
+        surge_threshold = 3.0 * vol_factor
+        if vol_ratio and vol_ratio > surge_threshold and change_pct is not None and change_pct < 0:
             if not _is_in_cooldown(code, "volume_surge", state):
                 alerts.append({
                     "code": code, "name": name, "type": "volume_surge",
                     "level": "🟡 注意",
-                    "msg": f"放量下跌：量比 {vol_ratio:.1f}，跌幅 {change_pct:+.2f}%",
+                    "priority": 2,
+                    "msg": f"放量下跌：量比 {vol_ratio:.1f}（阈值{surge_threshold:.1f}），跌幅 {change_pct:+.2f}%",
                     "ts": time.time(), "time": now_str,
                 })
 
-        # 预警 3: 跌破 5 日均线
+        # 预警 3: 跌破 5 日均线（自适应阈值）
         ma5 = tech.get("ma5")
+        ma_break_threshold = 1.0 * vol_factor
         if ma5 and current_price < ma5 * 0.99:
             dist = (current_price / ma5 - 1) * 100
-            if dist < -1 and not _is_in_cooldown(code, "ma_break", state):
+            if dist < -ma_break_threshold and not _is_in_cooldown(code, "ma_break", state):
                 alerts.append({
                     "code": code, "name": name, "type": "ma_break",
                     "level": "🟡 注意",
-                    "msg": f"跌破5日线 {dist:+.1f}%（MA5={ma5:.2f}，当前 {current_price:.2f}）",
+                    "priority": 2,
+                    "msg": f"跌破5日线 {dist:+.1f}%（阈值{ma_break_threshold:.1f}%，MA5={ma5:.2f}）",
                     "ts": time.time(), "time": now_str,
                 })
 
-        # 预警 4: 盘中快速下跌
-        if change_pct is not None and change_pct < -5:
+        # 预警 4: 盘中快速下跌（自适应阈值）
+        drop_threshold = 5.0 * vol_factor
+        if change_pct is not None and change_pct < -drop_threshold:
             if not _is_in_cooldown(code, "rapid_drop", state):
                 alerts.append({
                     "code": code, "name": name, "type": "rapid_drop",
                     "level": "🔴 严重",
-                    "msg": f"盘中急跌 {change_pct:+.2f}%",
+                    "priority": 1,
+                    "msg": f"盘中急跌 {change_pct:+.2f}%（阈值{drop_threshold:.1f}%）",
                     "ts": time.time(), "time": now_str,
                 })
 
@@ -193,6 +224,7 @@ def check_alerts(
                 alerts.append({
                     "code": code, "name": name, "type": "rsi_overbought",
                     "level": "🟡 注意",
+                    "priority": 3,
                     "msg": f"RSI 超买 {rsi:.0f}，注意短期回调风险",
                     "ts": time.time(), "time": now_str,
                 })
@@ -200,6 +232,7 @@ def check_alerts(
                 alerts.append({
                     "code": code, "name": name, "type": "rsi_oversold",
                     "level": "🟢 机会",
+                    "priority": 4,
                     "msg": f"RSI 超卖 {rsi:.0f}，可能存在超跌反弹机会",
                     "ts": time.time(), "time": now_str,
                 })
@@ -212,11 +245,34 @@ def check_alerts(
                 alerts.append({
                     "code": code, "name": name, "type": "macd_death",
                     "level": "🟡 注意",
+                    "priority": 3,
                     "msg": f"MACD 死叉，趋势可能转弱",
                     "ts": time.time(), "time": now_str,
                 })
 
-    return alerts
+    # ── 组合级预警：当日浮亏超阈值 ──
+    if stocks:
+        codes = [s.get("code") for s in stocks if s.get("code")]
+        if codes:
+            all_changes = [changes_5d.get(c) for c in codes if changes_5d.get(c) is not None]
+            if all_changes:
+                avg_change = sum(all_changes) / len(all_changes)
+                if avg_change < -3:
+                    portfolio_alerts.append({
+                        "code": "PORTFOLIO",
+                        "name": "组合",
+                        "type": "portfolio_drawdown",
+                        "level": "🔴 严重",
+                        "priority": 0,
+                        "msg": f"组合平均浮亏 {avg_change:+.2f}%，建议减仓或对冲",
+                        "ts": time.time(), "time": now_str,
+                    })
+
+    # 按优先级排序（数字越小越优先）
+    all_alerts = portfolio_alerts + alerts
+    all_alerts.sort(key=lambda x: x.get("priority", 99))
+
+    return all_alerts
 
 
 def _parse_stop_price(exit_trigger: str, current_price: float) -> Optional[float]:

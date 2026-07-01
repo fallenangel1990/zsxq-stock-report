@@ -165,7 +165,7 @@ def refresh_cookies_if_needed(
     }
 
 
-def load_cookies() -> dict:
+def load_cookies() -> list[dict]:
     """加载本地持久化的 cookies。
 
     优先级：
@@ -305,7 +305,6 @@ def get_cookie_status() -> dict:
                 "warning": True,
                 "metadata_expired": False,
             }
-            break
 
     return {
         "valid": False,

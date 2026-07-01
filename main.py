@@ -565,7 +565,7 @@ def cmd_all(group_url: str, max_posts: int = 0) -> None:
     _log("股票机会提取结果：")
     _log("=" * 60)
     print(stock_report)
-    save_stock_report(stock_report, group_name=group_id)
+    stock_report_path = save_stock_report(stock_report, group_name=group_id)
 
     # ── 第 4 步：完整 AI 总结 ──
     _log(f"\n[4/4] 对{report_scope} ({len(posts)} 篇) 生成完整 AI 总结...")
@@ -580,6 +580,21 @@ def cmd_all(group_url: str, max_posts: int = 0) -> None:
 
     # ── 第 5 步：同花顺同步（可选，根据配置） ──
     _try_thssync_auto()
+
+    # ── 第 6 步：发送邮件 ──
+    _log("\n[6/6] 发送邮件报告...")
+    try:
+        from email_sender import send_report_notification
+        from datetime import datetime as _dt
+        send_report_notification(
+            stock_report_path,
+            to_email="470337944@qq.com",
+            subject_override=f"📊 知识星球股票机会报告 {_dt.now().strftime('%Y-%m-%d')}",
+            extra_info={"total_posts": len(posts)},
+        )
+        _log("邮件发送成功")
+    except Exception as e:
+        _log(f"邮件发送失败（不影响主流程）: {e}")
 
     _log("\n" + "=" * 50)
     _log("全部完成！请查看 data/ 目录下的输出文件。")
@@ -638,20 +653,97 @@ def cmd_factor_decay() -> None:
 
 def cmd_adaptive_weights() -> None:
     """基于 IC 计算自适应权重。"""
-    from backtester import compute_adaptive_weights, _load_history
+    from adaptive_weights import apply_adaptive_weights, format_weights_report
+    from backtester import _load_history
     _log("计算自适应权重...")
     records = _load_history()
     if not records:
         print("无推荐历史数据")
         return
-    result = compute_adaptive_weights(records)
-    weights = result.get("weights", {})
+    weights = apply_adaptive_weights(records)
     if weights:
-        print("自适应权重:")
+        print("\n自适应权重:")
         for name, w in sorted(weights.items(), key=lambda x: -x[1]):
             print(f"  {name}: {w:.4f}")
     else:
         print("无法计算权重（数据不足或因子 IC 均不显著）")
+
+
+def cmd_benchmark() -> None:
+    """基准对比与收益归因分析。"""
+    from benchmark import generate_performance_report, format_performance_report
+    from backtester import _load_history
+    _log("生成绩效报告（含基准对比）...")
+    records = _load_history()
+    if not records:
+        print("无推荐历史数据")
+        return
+    report = generate_performance_report(records)
+    print(format_performance_report(report))
+
+
+def cmd_factor_research() -> None:
+    """因子研究（分组回测/相关矩阵/换手率）。"""
+    from factor_research import generate_factor_research_report, format_factor_research_report
+    from backtester import _load_history
+    _log("运行因子研究...")
+    records = _load_history()
+    if not records:
+        print("无推荐历史数据")
+        return
+    report = generate_factor_research_report(records)
+    print(format_factor_research_report(report))
+
+
+def cmd_paper_status() -> None:
+    """查看 Paper Trading 模拟组合状态。"""
+    from paper_trader import get_portfolio_summary, format_portfolio_summary
+    _log("获取模拟组合状态...")
+    summary = get_portfolio_summary()
+    print(format_portfolio_summary(summary))
+
+
+def cmd_paper_trade() -> None:
+    """根据最新推荐执行模拟交易。"""
+    from paper_trader import auto_trade_from_recommendations
+    from storage import load_latest_stock_data
+    _log("加载最新推荐数据...")
+    enriched, _ = load_latest_stock_data()
+    if not enriched:
+        print("无最新推荐数据，请先运行 stocks 命令")
+        return
+    _log(f"共 {len(enriched)} 只推荐股票，执行模拟交易...")
+    trades = auto_trade_from_recommendations(enriched, verbose=True)
+    _log(f"\n模拟交易完成：{len(trades)} 笔交易")
+
+
+def cmd_market_sentiment() -> None:
+    """查看市场情绪指标。"""
+    from price_fetcher import fetch_market_sentiment
+    _log("获取市场情绪指标...")
+    sentiment = fetch_market_sentiment()
+    print(f"\n市场情绪得分: {sentiment['score']}/100 ({sentiment['signal']})")
+    margin = sentiment.get("margin", {})
+    if margin:
+        print(f"  融资净买入: {margin.get('margin_change', 0):+.2f}亿 ({margin.get('signal', '')})")
+    north = sentiment.get("northbound", {})
+    if north:
+        print(f"  北向净流入: {north.get('net_inflow', 0):+.2f}亿 ({north.get('signal', '')})")
+
+
+def cmd_web(args) -> None:
+    """启动 Web 仪表盘。"""
+    try:
+        from dashboard import app
+    except ImportError:
+        _log("错误：需要安装 Flask。运行: pip3 install flask")
+        sys.exit(1)
+
+    host = args.host
+    port = args.port
+    _log(f"启动 Web 仪表盘: http://{host}:{port}")
+    _log("按 Ctrl+C 停止服务")
+    app.run(host=host, port=port, debug=False)
 
 
 def main():
@@ -783,6 +875,15 @@ def main():
     subparsers.add_parser("performance", help="追踪推荐绩效（胜率、盈亏比、分组收益）")
     subparsers.add_parser("factor-decay", help="监控因子衰减趋势")
     subparsers.add_parser("adaptive-weights", help="基于 IC 计算自适应权重")
+    subparsers.add_parser("benchmark", help="基准对比与收益归因分析")
+    subparsers.add_parser("factor-research", help="因子研究（分组回测/相关矩阵/换手率）")
+    subparsers.add_parser("paper-status", help="查看 Paper Trading 模拟组合状态")
+    subparsers.add_parser("paper-trade", help="根据最新推荐执行模拟交易")
+    subparsers.add_parser("market-sentiment", help="查看市场情绪指标（资金流向/融资/北向）")
+
+    web_parser = subparsers.add_parser("web", help="启动 Web 仪表盘")
+    web_parser.add_argument("-p", "--port", type=int, default=8501, help="端口号（默认8501）")
+    web_parser.add_argument("--host", default="127.0.0.1", help="监听地址（默认127.0.0.1）")
 
     monitor_parser = subparsers.add_parser("monitor", help="盘中动态预警监控（交易时段自动轮询）")
     monitor_parser.add_argument("--interval", type=int, default=300, help="轮询间隔秒数（默认300=5分钟）")
@@ -821,6 +922,18 @@ def main():
         cmd_factor_decay()
     elif args.command == "adaptive-weights":
         cmd_adaptive_weights()
+    elif args.command == "benchmark":
+        cmd_benchmark()
+    elif args.command == "factor-research":
+        cmd_factor_research()
+    elif args.command == "paper-status":
+        cmd_paper_status()
+    elif args.command == "paper-trade":
+        cmd_paper_trade()
+    elif args.command == "market-sentiment":
+        cmd_market_sentiment()
+    elif args.command == "web":
+        cmd_web(args)
     elif args.command == "monitor":
         cmd_monitor(args)
     elif args.command == "all":

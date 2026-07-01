@@ -700,3 +700,166 @@ def _safe_float(value: str) -> Optional[float]:
         return float(value)
     except ValueError:
         return None
+
+
+# ═══════════════════════════════════════════════════════════════
+# 另类数据源：资金流向
+# ═══════════════════════════════════════════════════════════════
+
+def fetch_money_flow(codes: list[str], timeout: int = 10) -> dict:
+    """获取个股资金流向（主力净流入）。
+
+    使用东方财富资金流向接口。
+
+    Returns:
+        {code: {"main_net_inflow": float, "super_net": float, "big_net": float}}
+    """
+    result = {}
+    secids = []
+    code_map = {}
+    for code in codes:
+        secid = _code_to_eastmoney(code)
+        if secid:
+            secids.append(secid)
+            code_map[secid] = code
+
+    if not secids:
+        return result
+
+    try:
+        url = "https://push2.eastmoney.com/api/qt/ulist.np/get"
+        params = {
+            "secids": ",".join(secids),
+            "fields": "f12,f62,f66,f69,f72,f75,f78,f81,f84,f87",
+        }
+        resp = requests.get(url, params=params, timeout=timeout)
+        resp.raise_for_status()
+        data = resp.json()
+
+        for item in (data.get("data") or {}).get("diff") or []:
+            code = str(item.get("f12") or "")
+            if not code:
+                continue
+            # f62=主力净流入, f66=超大单净流入, f72=大单净流入
+            # 单位：元，转为亿元
+            main_net = _eastmoney_scaled(item.get("f62"), 1e8)
+            super_net = _eastmoney_scaled(item.get("f66"), 1e8)
+            big_net = _eastmoney_scaled(item.get("f72"), 1e8)
+            result[code] = {
+                "main_net_inflow": main_net,
+                "super_net": super_net,
+                "big_net": big_net,
+            }
+    except Exception as e:
+        print(f"[资金流向] 获取失败: {e}", flush=True)
+
+    return result
+
+
+def fetch_margin_data(timeout: int = 10) -> dict:
+    """获取融资融券余额数据（市场情绪指标）。
+
+    Returns:
+        {"margin_balance": float, "margin_change": float, "signal": str}
+    """
+    try:
+        url = "https://push2.eastmoney.com/api/qt/kamt.rtmin/get"
+        params = {"fields1": "f1,f2,f3,f4", "fields2": "f51,f52,f53,f54,f55,f56"}
+        resp = requests.get(url, timeout=timeout)
+        resp.raise_for_status()
+        data = resp.json()
+
+        # 融资余额（亿元）
+        margin_balance = data.get("data", {}).get("s2n", {}).get("rzye", 0)
+        if isinstance(margin_balance, str):
+            margin_balance = float(margin_balance) / 1e8 if margin_balance else 0
+
+        # 融资净买入
+        margin_change = data.get("data", {}).get("s2n", {}).get("rzmre", 0)
+        if isinstance(margin_change, str):
+            margin_change = float(margin_change) / 1e8 if margin_change else 0
+
+        if margin_change > 5:
+            signal = "融资净买入（看多）"
+        elif margin_change < -5:
+            signal = "融资净卖出（看空）"
+        else:
+            signal = "融资平稳"
+
+        return {
+            "margin_balance": round(margin_balance, 2),
+            "margin_change": round(margin_change, 2),
+            "signal": signal,
+        }
+    except Exception as e:
+        print(f"[融资数据] 获取失败: {e}", flush=True)
+        return {"margin_balance": 0, "margin_change": 0, "signal": "数据不可用"}
+
+
+def fetch_northbound_flow(timeout: int = 10) -> dict:
+    """获取北向资金流向（沪深港通）。
+
+    Returns:
+        {"net_inflow": float, "signal": str}
+    """
+    try:
+        url = "https://push2.eastmoney.com/api/qt/kamt.rtmin/get"
+        params = {"fields1": "f1,f2,f3,f4", "fields2": "f51,f52,f53,f54,f55,f56"}
+        resp = requests.get(url, timeout=timeout)
+        resp.raise_for_status()
+        data = resp.json()
+
+        # 北向净买入（亿元）
+        north_net = 0
+        for key in ("hk2sh", "hk2sz"):
+            part = data.get("data", {}).get(key, {})
+            hgt = float(part.get("hgt", 0) or 0) / 1e4  # 万→亿
+            sgt = float(part.get("sgt", 0) or 0) / 1e4
+            north_net += hgt + sgt
+
+        if north_net > 30:
+            signal = "北向大幅流入（强看多）"
+        elif north_net > 10:
+            signal = "北向净流入（看多）"
+        elif north_net < -30:
+            signal = "北向大幅流出（强看空）"
+        elif north_net < -10:
+            signal = "北向净流出（看空）"
+        else:
+            signal = "北向资金平稳"
+
+        return {
+            "net_inflow": round(north_net, 2),
+            "signal": signal,
+        }
+    except Exception as e:
+        print(f"[北向资金] 获取失败: {e}", flush=True)
+        return {"net_inflow": 0, "signal": "数据不可用"}
+
+
+def fetch_market_sentiment(timeout: int = 10) -> dict:
+    """综合市场情绪指标（融资数据）。"""
+    margin = fetch_margin_data(timeout)
+
+    score = 50.0
+
+    # 融资信号
+    if margin.get("margin_change", 0) > 5:
+        score += 15
+    elif margin.get("margin_change", 0) < -5:
+        score -= 15
+
+    score = max(0, min(100, score))
+
+    if score >= 65:
+        signal = "资金面偏多"
+    elif score <= 35:
+        signal = "资金面偏空"
+    else:
+        signal = "资金面中性"
+
+    return {
+        "score": round(score, 1),
+        "signal": signal,
+        "margin": margin,
+    }

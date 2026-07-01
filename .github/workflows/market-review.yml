@@ -12,9 +12,6 @@ name: A股盘后复盘
         description: '重点板块数量'
         required: false
         default: '10'
-  schedule:
-    # 目标北京时间约 17:00 盘后复盘；按历史观察的 Actions 约 4 小时延迟提前配置。
-    - cron: '0 5 * * 1-5'
 
 env:
   PYTHONUNBUFFERED: 1

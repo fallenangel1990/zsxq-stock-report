@@ -13,9 +13,6 @@ name: A股连板股票扫描
         type: boolean
         required: false
         default: false
-  schedule:
-    # 目标北京时间约 15:30 收盘后扫描；按历史观察的 Actions 约 4 小时延迟提前配置。
-    - cron: '30 7 * * 1-5'
 
 env:
   PYTHONUNBUFFERED: 1
