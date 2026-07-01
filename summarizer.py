@@ -188,7 +188,7 @@ def _init_deepseek_v4_flash(ds_config: dict):
     """初始化 DeepSeek-V4-Flash client（OpenAI 兼容接口）。"""
     from openai import OpenAI
 
-    base_url = ds_config.get("base_url", "https://api.deepseek.com")
+    base_url = ds_config.get("base_url", "https://token.sensenova.cn")
     model = ds_config.get("model", "deepseek-v4-flash")
     env_names = ["DEEPSEEK_V4_FLASH_API_KEY"]
     api_key = _resolve_api_key("deepseek_v4_flash", ds_config, env_names)

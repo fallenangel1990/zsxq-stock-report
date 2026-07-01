@@ -31,7 +31,7 @@ ai:
   deepseek_v4_flash:
     api_key: ""
     model: "deepseek-v4-flash"
-    base_url: "https://api.deepseek.com"
+    base_url: "https://token.sensenova.cn"
 
   # Claude API 配置（provider=claude 时生效）
   # API Key 也可通过环境变量 ANTHROPIC_API_KEY 设置
