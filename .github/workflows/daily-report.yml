@@ -12,6 +12,9 @@ name: 每日股票报告
         type: boolean
         required: false
         default: false
+  schedule:
+    # A 股交易日北京时间 08:50 = UTC 00:50（周一至周五）
+    - cron: "50 0 * * 1-5"
 
 env:
   PYTHONUNBUFFERED: 1
