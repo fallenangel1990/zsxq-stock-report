@@ -104,10 +104,12 @@ def get_client():
 
     if provider == "deepseek":
         return _init_deepseek(ai_config.get("deepseek", {}))
+    elif provider == "longcat":
+        return _init_longcat(ai_config.get("longcat", {}))
     elif provider == "claude":
         return _init_claude(ai_config.get("claude", {}))
     else:
-        raise ValueError(f"不支持的 AI provider: {provider}，可选: deepseek, claude")
+        raise ValueError(f"不支持的 AI provider: {provider}，可选: deepseek, longcat, claude")
 
 
 def _init_deepseek(ds_config: dict):
@@ -147,6 +149,37 @@ def _init_deepseek(ds_config: dict):
             return response.choices[0].message.content
 
     return DeepSeekWrapper(), model, "mimo" if is_mimo else "deepseek"
+
+
+def _init_longcat(lc_config: dict):
+    """初始化 LongCat 2.0 client（OpenAI 兼容接口）。"""
+    from openai import OpenAI
+
+    base_url = lc_config.get("base_url", "https://api.longcat.chat/openai")
+    model = lc_config.get("model", "LongCat-2.0")
+    env_names = ["LONGCAT_API_KEY"]
+    api_key = _resolve_api_key("longcat", lc_config, env_names)
+    if not api_key:
+        raise ValueError(
+            f"请设置 LONGCAT_API_KEY 环境变量，或在 config.yaml 中配置 "
+            "ai.longcat.api_key"
+        )
+
+    client = OpenAI(api_key=api_key, base_url=base_url)
+
+    class LongCatWrapper:
+        def create(self, system: str, prompt: str, max_tokens: int = 4096) -> str:
+            response = client.chat.completions.create(
+                model=model,
+                max_tokens=max_tokens,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": prompt},
+                ],
+            )
+            return response.choices[0].message.content
+
+    return LongCatWrapper(), model, "longcat"
 
 
 def _init_claude(claude_config: dict):
