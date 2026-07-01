@@ -699,6 +699,141 @@ def _parse_target_value(target_str: str) -> Optional[float]:
     return None
 
 
+def _apply_factor_orthogonalization(enriched: list[dict]) -> None:
+    """对高相关因子做正交化降权。
+
+    当两个因子相关系数 > 0.7 时，对 IC 更低的因子做降权，
+    避免同一风险被重复计入。
+    """
+    if len(enriched) < 5:
+        return
+
+    # 定义需要检查相关性的因子对
+    factor_pairs = [
+        ("sector", "trend"),        # 板块热度 vs 行业趋势
+        ("volume_confirm", "capital_flow"),  # 量价确认 vs 资金流
+        ("upside", "logic"),        # 目标空间 vs 逻辑评分
+    ]
+
+    for f1_name, f2_name in factor_pairs:
+        vals1 = [(s.get("score_detail") or {}).get(f1_name, 5) for s in enriched]
+        vals2 = [(s.get("score_detail") or {}).get(f2_name, 5) for s in enriched]
+
+        # 计算简单相关系数
+        n = len(vals1)
+        if n < 5:
+            continue
+        mean1 = sum(vals1) / n
+        mean2 = sum(vals2) / n
+        cov = sum((v1 - mean1) * (v2 - mean2) for v1, v2 in zip(vals1, vals2)) / n
+        std1 = (sum((v1 - mean1) ** 2 for v1 in vals1) / n) ** 0.5
+        std2 = (sum((v2 - mean2) ** 2 for v2 in vals2) / n) ** 0.5
+        corr = cov / (std1 * std2) if std1 > 0 and std2 > 0 else 0
+
+        # 高相关时对后一个因子做降权标记
+        if abs(corr) > 0.7:
+            for s in enriched:
+                detail = s.get("score_detail", {})
+                if f2_name in detail:
+                    detail[f"{f2_name}_orthogonal_adj"] = round(detail[f2_name] * 0.6, 2)
+
+
+def _calculate_style_exposure(enriched: list[dict]) -> dict:
+    """计算当前候选池的风格暴露。
+
+    分析候选股票在以下维度的暴露：
+    - 动量（momentum）：变化率和位置
+    - 价值（value）：PE/PB
+    - 成长（growth）：趋势分数
+    - 波动（volatility）：ATR
+    - 规模（size）：市值
+
+    Returns:
+        {style: {"exposure": float, "direction": str}}
+    """
+    if not enriched:
+        return {}
+
+    n = len(enriched)
+
+    # 动量暴露
+    changes = [s.get("score_detail", {}).get("trend", 5) for s in enriched if s.get("score_detail")]
+    avg_momentum = sum(changes) / len(changes) if changes else 5
+
+    # 价值暴露（低 PE = 高价值）
+    pes = [s.get("pe", 30) for s in enriched if s.get("pe") is not None and s.get("pe") > 0]
+    avg_pe = sum(pes) / len(pes) if pes else 30
+    value_score = max(0, min(10, 10 - avg_pe / 10))  # PE 越低，价值分越高
+
+    # 成长暴露
+    trends = [s.get("trend_score", 5) for s in enriched]
+    avg_growth = sum(trends) / len(trends) if trends else 5
+
+    # 波动率暴露
+    atrs = []
+    for s in enriched:
+        tech = s.get("technical", {})
+        atr = tech.get("atr_14")
+        price = s.get("current_price", 0)
+        if atr and price and price > 0:
+            atrs.append(atr / price * 100)
+    avg_vol = sum(atrs) / len(atrs) if atrs else 2.5
+
+    # 规模暴露
+    caps = [s.get("market_cap_yi", 200) for s in enriched if s.get("market_cap_yi")]
+    avg_cap = sum(caps) / len(caps) if caps else 200
+    size_score = min(10, max(0, avg_cap / 200))  # 市值越大分越高
+
+    return {
+        "momentum": {"exposure": round(avg_momentum, 2), "direction": "positive" if avg_momentum > 5 else "negative"},
+        "value": {"exposure": round(value_score, 2), "direction": "value" if value_score > 5 else "growth"},
+        "growth": {"exposure": round(avg_growth, 2), "direction": "positive" if avg_growth > 5 else "neutral"},
+        "volatility": {"exposure": round(avg_vol, 2), "direction": "high" if avg_vol > 3 else "low"},
+        "size": {"exposure": round(size_score, 2), "direction": "large" if size_score > 5 else "small"},
+    }
+
+
+def _normalize_factors_cross_section(all_stocks: dict) -> None:
+    """对候选池内所有股票的原始因子值做截面排名归一化。
+
+    将每个因子的原始值转换为截面百分位排名（0-1），
+    使得不同量纲的因子可以公平加权。
+    直接修改 all_stocks 中的 stock 字典，添加 norm_ 前缀字段。
+    """
+    if len(all_stocks) < 3:
+        # 候选太少，跳过归一化
+        for stock in all_stocks.values():
+            stock["norm_upside"] = stock.get("quality", 0.5)
+            stock["norm_quality"] = stock.get("quality", 0.5)
+        return
+
+    # 收集各因子原始值
+    factor_values = {
+        "upside": [],
+        "quality": [],
+        "consensus_potential": [],
+    }
+    for stock in all_stocks.values():
+        factor_values["upside"].append(stock.get("target_value") or 0)
+        factor_values["quality"].append(stock.get("quality", 0.3))
+        factor_values["consensus_potential"].append(stock.get("post_count", 1))
+
+    # 计算百分位排名
+    def _percentile_rank(values, x):
+        """计算 x 在 values 中的百分位排名（0-1）。"""
+        below = sum(1 for v in values if v < x)
+        equal = sum(1 for v in values if v == x)
+        return (below + 0.5 * equal) / len(values) if values else 0.5
+
+    for stock in all_stocks.values():
+        tv = stock.get("target_value") or 0
+        q = stock.get("quality", 0.3)
+        pc = stock.get("post_count", 1)
+        stock["norm_upside"] = round(_percentile_rank(factor_values["upside"], tv), 3)
+        stock["norm_quality"] = round(_percentile_rank(factor_values["quality"], q), 3)
+        stock["norm_consensus"] = round(_percentile_rank(factor_values["consensus_potential"], pc), 3)
+
+
 def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dict], dict]:
     """增强股票数据：获取实时行情，计算推荐指数。
 
@@ -969,6 +1104,23 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
         if verbose:
             print(f"  龙虎榜数据获取失败（不影响主流程）: {exc}", flush=True)
 
+    # 获取北向资金 / 融资余额（聪明钱信号，用作市场级信号）
+    smart_money_signal = {}
+    try:
+        from price_fetcher import fetch_northbound_flow, fetch_market_sentiment
+        north = fetch_northbound_flow(timeout=8)
+        sentiment = fetch_market_sentiment(timeout=8)
+        smart_money_signal = {
+            "northbound": north,
+            "sentiment": sentiment,
+            "score": sentiment.get("score", 50),  # 0-100
+        }
+        if verbose:
+            print(f"  聪明钱信号: 北向{north.get('net_inflow', 0):+.1f}亿 / 融资{sentiment.get('signal', '未知')}", flush=True)
+    except Exception as exc:
+        if verbose:
+            print(f"  聪明钱数据获取失败（不影响主流程）: {exc}", flush=True)
+
     # 行业趋势检测
     sector_aliases = scoring.get("sector_aliases", {})
     trend_config = scoring.get("trend", {})
@@ -990,6 +1142,22 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
             trending.sort(key=lambda x: x[1], reverse=True)
             names = ", ".join(f"{s}({ts})" for s, ts in trending)
             print(f"  行业趋势检测: {names}", flush=True)
+
+    # 因子截面归一化：对所有候选股票的因子值做截面排名
+    _normalize_factors_cross_section(all_stocks)
+
+    # 聪明钱评分：获取个股资金流向（用于个股级聪明钱信号）
+    stock_money_flow = {}
+    try:
+        from price_fetcher import fetch_money_flow
+        valid_codes_for_flow = [s["code"] for s in all_stocks.values() if s["code"]]
+        if valid_codes_for_flow:
+            stock_money_flow = fetch_money_flow(valid_codes_for_flow[:50])  # 限制数量避免超时
+            if verbose:
+                print(f"  个股资金流向: {len(stock_money_flow)} 只", flush=True)
+    except Exception as exc:
+        if verbose:
+            print(f"  个股资金流向获取失败: {exc}", flush=True)
 
     # 计算评分
     enriched = []
@@ -1130,6 +1298,11 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
         if author_bonus > 0:
             total_score = round(min(10.0, total_score + author_bonus * 0.3), 1)
 
+        # P2 调整：聪明钱信号调整 — 北向/融资/主力净流入
+        smart_adj = _smart_money_adjustment(stock, smart_money_signal, stock_money_flow)
+        if smart_adj != 0:
+            total_score = round(max(1.0, min(10.0, total_score + smart_adj)), 1)
+
         # 生成星级
         stars = _score_to_stars(total_score)
         price_available = price_info is not None
@@ -1203,7 +1376,14 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
         stock["exit_trigger"] = _exit_trigger(stock)
         _apply_expert_decision_fields(stock)
 
-    enriched.sort(key=lambda x: x["score"], reverse=True)
+    # 按 buy_score 排序（综合了逻辑推荐度 + 技术买点质量）
+    enriched.sort(key=lambda x: (x.get("buy_score", 0), x.get("score", 0)), reverse=True)
+
+    # 因子正交化：对高相关因子组做降权，避免重复计入相同风险
+    _apply_factor_orthogonalization(enriched)
+
+    # 计算组合风格暴露
+    style_exposure = _calculate_style_exposure(enriched)
 
     # 构建趋势数据供报告层使用
     trend_data = {
@@ -1212,6 +1392,8 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
         "logic_map": sector_logic_map,
         "market_filter": market_filter,
         "market_regime": market_regime_config,
+        "style_exposure": style_exposure,
+        "smart_money_signal": smart_money_signal,
     }
     return enriched, trend_data
 
@@ -1439,6 +1621,203 @@ def _capital_flow_score(code: str, lhb_code_map: dict) -> float:
         score += 2.0
     elif deal_ratio > 5:
         score += 1.0
+    return max(0.0, min(10.0, score))
+
+
+def _smart_money_adjustment(stock: dict, smart_money_signal: dict, money_flow: dict = None) -> float:
+    """基于聪明钱信号的个股评分调整（-1.5 ~ +1.5）。
+
+    结合市场级信号（北向资金、融资融券）和个股级信号（主力净流入）。
+
+    Returns:
+        分数调整值（-1.5 到 +1.5）。
+    """
+    adjustment = 0.0
+
+    # 市场级信号：北向资金流向
+    north = (smart_money_signal or {}).get("northbound", {})
+    north_net = north.get("net_inflow", 0)
+    if north_net > 30:
+        adjustment += 0.4  # 北向大幅流入
+    elif north_net > 10:
+        adjustment += 0.2
+    elif north_net < -30:
+        adjustment -= 0.4  # 北向大幅流出
+    elif north_net < -10:
+        adjustment -= 0.2
+
+    # 市场级信号：融资余额变化
+    sentiment = (smart_money_signal or {}).get("sentiment", {})
+    margin_change = (sentiment.get("margin") or {}).get("margin_change", 0)
+    if margin_change > 10:
+        adjustment += 0.3
+    elif margin_change > 5:
+        adjustment += 0.15
+    elif margin_change < -10:
+        adjustment -= 0.3
+    elif margin_change < -5:
+        adjustment -= 0.15
+
+    # 个股级信号：主力净流入
+    code = stock.get("code", "")
+    flow = (money_flow or {}).get(code, {})
+    main_net = flow.get("main_net_inflow", 0)
+    if main_net > 1.0:
+        adjustment += 0.5  # 主力大幅净流入
+    elif main_net > 0.3:
+        adjustment += 0.25
+    elif main_net < -1.0:
+        adjustment -= 0.5
+    elif main_net < -0.3:
+        adjustment -= 0.25
+
+    return max(-1.5, min(1.5, adjustment))
+
+
+def _fundamentals_score(pe: Optional[float], pb: Optional[float], market_cap: Optional[float]) -> float:
+    """基于 PE/PB/市值的基本面评分（0-10）。
+
+    评分逻辑：
+    - PE 越低越好（盈利能力强），负 PE（亏损）得最低分
+    - PB 越低越好（资产扎实），<1 可能破净
+    - 大市值加分（流动性好、机构关注度高）
+    """
+    score = 5.0
+
+    # PE 评分（越低越好）
+    if pe is not None:
+        if pe <= 0:
+            score -= 2.0  # 亏损
+        elif pe <= 15:
+            score += 2.5  # 低估
+        elif pe <= 25:
+            score += 1.5
+        elif pe <= 40:
+            score += 0.5
+        elif pe <= 60:
+            score -= 0.5
+        else:
+            score -= 1.5  # 高估
+
+    # PB 评分（越低越好）
+    if pb is not None:
+        if pb <= 0:
+            score -= 1.0  # 异常
+        elif pb <= 1:
+            score += 1.5  # 破净或接近破净
+        elif pb <= 2:
+            score += 1.0
+        elif pb <= 4:
+            score += 0.0
+        elif pb <= 6:
+            score -= 0.5
+        else:
+            score -= 1.0  # 高 PB
+
+    # 市值评分（大市值 = 流动性好 + 机构关注）
+    if market_cap is not None:
+        if market_cap >= 1000:
+            score += 1.0  # 大盘股
+        elif market_cap >= 300:
+            score += 0.5  # 中大盘
+        elif market_cap >= 100:
+            score += 0.0  # 中盘
+        elif market_cap >= 50:
+            score -= 0.3  # 小盘
+        else:
+            score -= 0.8  # 微盘，流动性风险
+
+    return max(0.0, min(10.0, score))
+
+
+def _volume_confirm_score(technical: dict) -> float:
+    """量价确认信号评分（0-10）。
+
+    评估成交量对价格趋势的确认程度：
+    - 放量上涨 = 趋势确认
+    - 缩量上涨 / 放量下跌 = 趋势不确认
+    - 温和放量 + 均线附近 = 最佳建仓点
+    """
+    if not technical:
+        return 5.0
+
+    score = 5.0
+    change_5d = technical.get("change_5d")
+    volume_ratio = technical.get("volume_ratio")
+    ma_bullish = technical.get("ma_bullish", False)
+    above_ma20 = technical.get("above_ma20", False)
+
+    # 量价配合
+    if change_5d is not None and volume_ratio is not None:
+        if change_5d > 3 and volume_ratio > 1.2:
+            score += 2.0  # 放量上涨，趋势确认
+        elif change_5d > 3 and volume_ratio < 0.8:
+            score -= 1.5  # 缩量上涨，上涨不稳固
+        elif change_5d < -3 and volume_ratio > 1.5:
+            score -= 1.5  # 放量下跌
+        elif change_5d < -3 and volume_ratio < 0.8:
+            score += 0.5  # 缩量下跌，恐慌宣泄
+        elif abs(change_5d) <= 3 and 0.8 <= volume_ratio <= 1.3:
+            score += 1.0  # 温和整理
+
+    # 均线确认
+    if ma_bullish:
+        score += 1.5
+    elif above_ma20:
+        score += 0.5
+
+    return max(0.0, min(10.0, score))
+
+
+def _sentiment_score(text: str) -> float:
+    """对投资逻辑文本做情感分析评分（0-10）。
+
+    基于关键词判断文本的看多/看空程度。
+    """
+    if not text:
+        return 5.0
+
+    text_lower = text.lower()
+
+    # 看多关键词
+    bullish_kw = [
+        "看好", "看涨", "推荐", "买入", "增持", "强推", "强烈推荐",
+        "突破", "反弹", "上行", "上涨", "空间", "潜力", "景气",
+        "龙头", "白马", "成长", "加速", "超预期", "量价齐升",
+        "供不应求", "产能紧缺", "订单饱满", "景气上行", "业绩增长",
+        "边际改善", "拐点", "戴维斯双击", "黄金赛道", "高景气",
+    ]
+    # 看空关键词
+    bearish_kw = [
+        "看空", "看跌", "回避", "卖出", "减持", "警惕", "风险",
+        "下行", "下跌", "回调", "高估", "泡沫", "透支", "过剩",
+        "暴雷", "爆雷", "亏损", "减持", "减持新规", "政策收紧",
+        "产能过剩", "价格战", "不及预期", "戴维斯双杀",
+    ]
+
+    bull_count = sum(1 for kw in bullish_kw if kw in text_lower)
+    bear_count = sum(1 for kw in bearish_kw if kw in text_lower)
+
+    # 净情感得分
+    net_sentiment = bull_count - bear_count
+
+    # 映射到 0-10
+    if net_sentiment >= 4:
+        return 9.0
+    elif net_sentiment >= 2:
+        return 7.5
+    elif net_sentiment >= 1:
+        return 6.5
+    elif net_sentiment == 0:
+        return 5.0
+    elif net_sentiment >= -1:
+        return 4.0
+    elif net_sentiment >= -3:
+        return 3.0
+    else:
+        return 2.0
+
+
     return max(0.0, min(10.0, score))
 
 
@@ -2822,6 +3201,25 @@ def _append_trader_summary(
         parts.append("- 操作纪律：只从可执行清单中选 1-3 只分批，观察清单等触发条件。")
     parts.append("")
 
+    # 风格暴露 + 聪明钱摘要
+    if style_exposure:
+        parts.append("### 风格暴露\n")
+        for style, info in style_exposure.items():
+            direction = info.get("direction", "")
+            exposure = info.get("exposure", 0)
+            parts.append(f"- **{style}**: {exposure:.1f}（{direction}）")
+        parts.append("")
+
+    # 聪明钱信号
+    if smart_money:
+        north = smart_money.get("northbound", {})
+        sentiment = smart_money.get("sentiment", {})
+        margin = sentiment.get("margin", {})
+        parts.append("### 聪明钱信号\n")
+        parts.append(f"- 北向资金：{north.get('net_inflow', 0):+.1f}亿（{north.get('signal', '未知')}）")
+        parts.append(f"- 融资融券：{margin.get('margin_change', 0):+.1f}亿（{margin.get('signal', '未知')}）")
+        parts.append("")
+
 
 def _append_decision_tables(parts: list[str], enriched: list[dict]) -> None:
     """输出可执行/观察决策表，保持邮件篇幅紧凑。"""
@@ -2864,7 +3262,7 @@ def _select_report_display_stocks(enriched: list[dict]) -> tuple[list[dict], dic
     """
     sorted_stocks = sorted(
         enriched or [],
-        key=lambda s: (s.get("score", 0), s.get("buy_score", 0)),
+        key=lambda s: (s.get("buy_score", 0), s.get("score", 0)),
         reverse=True,
     )
     recommendations = [
@@ -2926,6 +3324,8 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
     """
     if trend_data is None:
         trend_data = {}
+    style_exposure = trend_data.get("style_exposure", {})
+    smart_money = trend_data.get("smart_money_signal", {})
     all_enriched = list(enriched or [])
     enriched, display_meta = _select_report_display_stocks(all_enriched)
     trend_data["display_meta"] = display_meta

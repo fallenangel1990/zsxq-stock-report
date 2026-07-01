@@ -123,87 +123,103 @@ def _get_forward_returns(
         return {}
 
 
+def _compute_forward_return(records: list[dict], horizon: int = 5) -> list[tuple]:
+    """计算固定持有期的前向收益率。
+
+    使用记录中的 forward_return_{horizon}d 字段（如果存在），
+    否则回退到基于当前价格的简单计算（带 look-ahead bias 警告）。
+
+    Returns:
+        [(record, forward_return_pct), ...]
+    """
+    result = []
+    for rec in records:
+        code = rec.get("code")
+        entry_price = rec.get("current_price")
+        if not code or not entry_price or entry_price <= 0:
+            continue
+
+        # 优先使用预先计算好的前向收益（无 look-ahead bias）
+        fwd_ret = rec.get(f"forward_return_{horizon}d")
+        if fwd_ret is not None:
+            result.append((rec, fwd_ret))
+            continue
+
+        # 回退：用当前价格（存在 look-ahead bias，但至少可用）
+        # 仅在数据中没有 T+N 收益字段时使用
+        price_info = None
+        try:
+            from price_fetcher import fetch_prices
+            prices = fetch_prices([code])
+            price_info = prices.get(code)
+        except Exception:
+            pass
+
+        if price_info and price_info.get("price"):
+            ret = round((price_info["price"] / entry_price - 1) * 100, 2)
+            result.append((rec, ret))
+
+    return result
+
+
 def calculate_factor_ic(records: list[dict], return_days: int = 5) -> dict:
     """计算各评分因子与未来收益的 Rank IC。
 
     IC（Information Coefficient）= 因子值与收益率的秩相关系数。
     |IC| > 0.03 表示因子有一定预测力，> 0.05 表示较强预测力。
 
+    修复 look-ahead bias：优先使用固定持有期前向收益，
+    而非当前价格。
+
     Args:
         records: 推荐历史记录。
-        return_days: 用于计算收益率的天数。
+        return_days: 持有期天数（5/20/60）。
 
     Returns:
         {
             "factor_name": {
-                "ic": float,       # 平均 IC
-                "ic_ir": float,    # IC 信息比率（IC / std(IC)）
-                "positive_rate": float,  # IC 为正的比例
-                "count": int,      # 有效样本数
+                "ic": float,
+                "count": int,
             }
         }
     """
     if not records:
         return {}
 
-    # 按推荐日期分组
-    date_groups = defaultdict(list)
-    for rec in records:
-        date_str = (rec.get("generated_at") or "")[:10]
-        if date_str:
-            date_groups[date_str].append(rec)
-
     # 评分因子列表
     factor_keys = [
         "score", "buy_score", "technical_score",
     ]
-    # score_detail 中的子因子
     detail_keys = [
         "upside", "quality", "consensus", "sector", "trend",
         "fundamentals", "capital_flow", "volume_confirm", "logic", "target",
     ]
 
-    # 收集每期的 (因子值, 收益率) 对
-    factor_returns = defaultdict(list)  # factor_name -> [(factor_value, return_pct)]
+    # 收集 (因子值, 前向收益率) 对
+    factor_returns = defaultdict(list)
 
-    for date_str, recs in date_groups.items():
-        # 获取该期所有推荐股票的当前价格
-        codes = [r.get("code") for r in recs if r.get("code")]
-        if not codes:
-            continue
-        current_prices = fetch_prices(codes)
+    # 前向收益计算（避免 look-ahead bias）
+    fwd_data = _compute_forward_return(records, horizon=return_days)
 
-        for rec in recs:
-            code = rec.get("code")
-            entry_price = rec.get("current_price")
-            if not code or not entry_price or entry_price <= 0:
-                continue
+    for rec, fwd_ret in fwd_data:
+        # 顶层因子
+        for key in factor_keys:
+            val = rec.get(key)
+            if val is not None:
+                factor_returns[key].append((val, fwd_ret))
 
-            price_info = current_prices.get(code)
-            if not price_info or not price_info.get("price"):
-                continue
-
-            ret = round((price_info["price"] / entry_price - 1) * 100, 2)
-
-            # 顶层因子
-            for key in factor_keys:
-                val = rec.get(key)
-                if val is not None:
-                    factor_returns[key].append((val, ret))
-
-            # score_detail 子因子
-            detail = rec.get("score_detail") or {}
-            for key in detail_keys:
-                val = detail.get(key)
-                if val is not None:
-                    factor_returns[f"detail.{key}"].append((val, ret))
+        # score_detail 子因子
+        detail = rec.get("score_detail") or {}
+        for key in detail_keys:
+            val = detail.get(key)
+            if val is not None:
+                factor_returns[f"detail.{key}"].append((val, fwd_ret))
 
     # 计算每个因子的 Rank IC
     results = {}
     for factor_name, pairs in factor_returns.items():
         if len(pairs) < 5:
             continue
-        # 计算秩相关
         n = len(pairs)
         factor_ranks = _rank_values([p[0] for p in pairs])
         return_ranks = _rank_values([p[1] for p in pairs])
@@ -793,3 +809,118 @@ def compute_adaptive_weights(records: list[dict]) -> dict:
         "ic_values": {k: v for k, v in ic_data.items()},
         "method": "ic_inverse_variance",
     }
+
+
+# ═══════════════════════════════════════════════════════════════
+# 换手率控制
+# ═══════════════════════════════════════════════════════════════
+
+def calculate_turnover(
+    current_holdings: dict[str, dict],
+    target_recommendations: list[dict],
+    max_daily_turnover: float = 0.3,
+    min_holding_days: int = 3,
+) -> dict:
+    """计算换手率控制后的调仓建议。
+
+    规则：
+    - 最小持仓周期：持仓不足 min_holding_days 天的不卖
+    - 最大日换手率：单日调仓不超过 max_daily_turnover
+    - 优先卖出持仓时间最长的
+
+    Args:
+        current_holdings: {code: {"name", "shares", "buy_date", ...}}
+        target_recommendations: 目标推荐列表（含 code, score）。
+        max_daily_turnover: 最大日换手率（占总持仓的比例）。
+        min_holding_days: 最小持仓天数。
+
+    Returns:
+        {
+            "buys": [code, ...],
+            "sells": [code, ...],
+            "holds": [code, ...],
+            "turnover_pct": float,
+            "deferred": [code, ...],  # 因最小持仓期推迟卖出的
+        }
+    """
+    now = _now_shanghai()
+    target_codes = set(s.get("code", "") for s in target_recommendations if s.get("code"))
+    current_codes = set(current_holdings.keys())
+
+    # 需要卖出的（不在目标中）
+    to_sell = []
+    deferred = []
+    for code in current_codes:
+        pos = current_holdings[code]
+        buy_date_str = pos.get("buy_date", "")
+        if buy_date_str:
+            try:
+                buy_dt = datetime.fromisoformat(buy_date_str)
+                hold_days = (now - buy_dt).days
+            except Exception:
+                hold_days = 999
+        else:
+            hold_days = 999
+
+        if hold_days < min_holding_days:
+            deferred.append(code)
+        else:
+            to_sell.append(code)
+
+    # 按持仓时间排序（最久的优先卖）
+    def hold_duration(code):
+        buy_date_str = current_holdings.get(code, {}).get("buy_date", "")
+        if buy_date_str:
+            try:
+                buy_dt = datetime.fromisoformat(buy_date_str)
+                return (now - buy_dt).days
+            except Exception:
+                return 0
+        return 0
+
+    to_sell.sort(key=hold_duration, reverse=True)
+
+    # 需要买入的（在目标中但不在持仓中）
+    to_buy = [s.get("code", "") for s in target_recommendations
+              if s.get("code") and s["code"] not in current_codes]
+
+    # 换手率限制
+    total_positions = len(current_codes)
+    if total_positions == 0:
+        max_sells = len(to_sell)
+    else:
+        max_sells = max(1, int(total_positions * max_daily_turnover))
+
+    actual_sells = to_sell[:max_sells]
+    overflow_sells = to_sell[max_sells:]
+
+    # 换手率
+    turnover = (len(actual_sells) + min(len(to_buy), len(actual_sells))) / max(total_positions, 1)
+
+    return {
+        "buys": to_buy,
+        "sells": actual_sells,
+        "holds": [c for c in current_codes if c not in actual_sells],
+        "turnover_pct": round(turnover * 100, 1),
+        "deferred": deferred,
+        "overflow": overflow_sells,
+    }
+
+
+def check_minimum_holding(
+    holdings: dict[str, dict],
+    min_days: int = 3,
+) -> list[str]:
+    """检查哪些持仓不满足最小持仓期。"""
+    now = _now_shanghai()
+    too_new = []
+    for code, pos in holdings.items():
+        buy_date_str = pos.get("buy_date", "")
+        if buy_date_str:
+            try:
+                buy_dt = datetime.fromisoformat(buy_date_str)
+                if (now - buy_dt).days < min_days:
+                    too_new.append(code)
+            except Exception:
+                pass
+    return too_new

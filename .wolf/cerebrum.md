@@ -146,3 +146,20 @@
 ## Decision Log (2026-07-01)
 
 - [2026-07-01] **选股策略六项增强**：按优先级依次实现——共识度独立作者计数、upside_weight 下调+拥挤度惩罚、量价背离检测、行业敞口上限、政策事件+流动性状态、因子 IC 稳定性检验。所有改动涉及 stock_extractor.py、config.yaml、market_regime.py、adaptive_weights.py、portfolio_builder.py。
+
+## Key Learnings (2026-07-01 续：量化基金视角增强)
+
+- **缺失函数 Bug**：发现 `_sentiment_score`、`_fundamentals_score`、`_volume_confirm_score` 三个函数被调用但从未定义，导致运行时崩溃。已补全。
+- **IC Look-ahead Bias**：`calculate_factor_ic` 原来用当前价格计算推荐以来收益，改为优先使用固定持有期（T+5/T+20）前向收益。新增 `_compute_forward_return()` 函数。
+- **聪明钱信号接入**：新增 `_smart_money_adjustment()` 综合北向资金、融资融券、个股主力净流入三个数据源。`fetch_northbound_flow` 和 `fetch_money_flow` 数据已在 `price_fetcher` 中实现但未接入评分。
+- **风控熔断机制**：`paper_trader.py` 新增 `check_circuit_breakers()`：单日亏损>2%暂停开仓、个股亏损>8%止损、组合回撤>10%减半、>15%清仓。
+- **交易成本模型**：`calculate_transaction_cost` 新增市场冲击成本（平方根模型），考虑参与率和市值对冲击的影响。
+- **因子正交化**：`_apply_factor_orthogonalization()` 检测高相关因子对（sector-trend, volume-capital, upside-logic），对后排因子降权。
+- **风格暴露监控**：`_calculate_style_exposure()` 计算候选池在动量/价值/成长/波动/规模维度的暴露，输出到报告。
+
+## Decision Log (2026-07-01 续)
+
+- [2026-07-01] **量化基金视角九项增强**：P0补全缺失函数+修复IC bias → P1接入聪明钱信号+排序改buy_score → P2截面归一化+交易成本+风控熔断 → P3因子正交化+风格暴露。
+  涉及文件：stock_extractor.py, backtester.py, paper_trader.py, market_regime.py, portfolio_builder.py, adaptive_weights.py, config.yaml。
+- [2026-07-01] **排序逻辑变更**：报告主排序从 `score` 改为 `(buy_score, score)` 降序，确保逻辑好但买点差的票排后。
+- [2026-07-01] **交易成本模型升级**：买入成本 = max(5, 金额 × 0.025%) + 滑点(0.1%) + 市场冲击(σ × √参与率 × 0.5)。

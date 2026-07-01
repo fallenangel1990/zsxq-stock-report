@@ -5,6 +5,28 @@
 
 | 16:26 | 同花顺分组同步：ugc API + score>=3 + 知识星球分组 | ths_sync.py, main.py, config.yaml | ✅ 已验证 | ~8000 |
 
+## Session: 2026-06-25 量化全面升级
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 14:00 | 新建自适应权重模块（IC衰减检测+权重平滑+历史） | adaptive_weights.py (new) | ✅ 创建 | ~3500 |
+| 14:05 | 新建基准对比与归因模块（Alpha/Beta/IR/行业/因子归因） | benchmark.py (new) | ✅ 创建 | ~4500 |
+| 14:10 | 新建因子研究框架（分组回测/相关矩阵/换手率） | factor_research.py (new) | ✅ 创建 | ~3000 |
+| 14:15 | 新建Paper Trading模拟交易框架 | paper_trader.py (new) | ✅ 创建 | ~4000 |
+| 14:20 | 趋势精选改为打分制（替代刚性门槛） | stock_extractor.py | ✅ 更新 | ~200 |
+| 14:25 | 共识得分时间加权 + 作者可信度画像 | stock_extractor.py | ✅ 更新 | ~300 |
+| 14:30 | AI提取置信度评分（1-5分）集成到评分 | stock_extractor.py | ✅ 更新 | ~200 |
+| 14:35 | 止盈策略5层逻辑（风险/RSI+MACD/目标价/过热/均线） | stock_extractor.py | ✅ 更新 | ~200 |
+| 14:40 | 自适应权重集成到评分系统（三级优先级） | stock_extractor.py | ✅ 更新 | ~150 |
+| 14:45 | 波动率regime + 信用利差信号 | market_regime.py | ✅ 更新 | ~300 |
+| 14:50 | Kelly公式仓位 + 风险平价 + 自动选择 | portfolio_builder.py | ✅ 更新 | ~400 |
+| 14:55 | 盘中预警智能降噪 + 组合级预警 | intraday_monitor.py | ✅ 更新 | ~300 |
+| 15:00 | 换手率控制 + 最小持仓周期 | backtester.py | ✅ 更新 | ~200 |
+| 15:05 | 另类数据源（资金流向/融资/北向） | price_fetcher.py | ✅ 更新 | ~400 |
+| 15:10 | 分行业相对估值评分 | stock_extractor.py | ✅ 更新 | ~100 |
+| 15:15 | CLI新增命令（benchmark/factor-research/paper-*） | main.py | ✅ 更新 | ~200 |
+| 15:20 | 更新anatomy.md和cerebrum.md | .wolf/anatomy.md, .wolf/cerebrum.md | ✅ 更新 | ~500 |
+
 ## Session: 2026-05-19 20:00
 
 | Time | Action | File(s) | Outcome | ~Tokens |
@@ -274,3 +296,127 @@
 | 07:35 | Switched MP3 transcription to Xiaomi Mimo ASR | attachment_processor.py, config.example.yaml, daily-report.yml, .wolf/* | audio provider now defaults to mimo-v2.5-asr with OpenAI fallback; validations passed | ~3600 |
 | 06:46 | Updated scheduled THS sync threshold and group naming | daily-report.yml, config.example.yaml, ths_sync.py | scheduled sync now uses score >=5 and date-only group names; validations passed | ~2200 |
 | 06:52 | Made THS daily group date use Beijing time | ths_sync.py, .wolf/* | group names now use Asia/Shanghai even on UTC runners; validation passed | ~1800 |
+
+## Session: 2026-06-16 07:16
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+
+## Session: 2026-06-18 17:30
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+
+## Session: 2026-06-18 18:20
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+
+## Session: 2026-06-18 18:21
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+
+## Session: 2026-06-18 18:22
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+
+## Session: 2026-06-18 18:22
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+
+## Session: 2026-06-24 23:06
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+
+## Session: 2026-06-24 23:06
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 07:08 | Edited price_fetcher.py | 5→6 lines | ~122 |
+| 07:08 | Edited price_fetcher.py | 15→16 lines | ~178 |
+| 07:08 | Edited stock_extractor.py | modified _is_overheated() | ~713 |
+| 07:08 | Edited stock_extractor.py | expanded (+27 lines) | ~465 |
+| 07:09 | Session end: 4 writes across 2 files (price_fetcher.py, stock_extractor.py) | 3 reads | ~9575 tok |
+| 07:11 | Edited stock_extractor.py | modified enumerate() | ~1448 |
+| 07:11 | Edited stock_extractor.py | modified enumerate() | ~567 |
+| 07:11 | Edited stock_extractor.py | modified _filter_trending_near_ma5() | ~484 |
+| 07:11 | Edited stock_extractor.py | inline fix | ~20 |
+| 07:12 | Session end: 8 writes across 2 files (price_fetcher.py, stock_extractor.py) | 3 reads | ~12094 tok |
+| 07:14 | Session end: 8 writes across 2 files (price_fetcher.py, stock_extractor.py) | 3 reads | ~12094 tok |
+| 07:16 | Created ../../.claude/plans/warm-dancing-wave.md | — | ~1141 |
+| 07:16 | Edited price_fetcher.py | modified _ma() | ~216 |
+| 07:16 | Edited price_fetcher.py | 5→6 lines | ~91 |
+| 07:16 | Edited price_fetcher.py | expanded (+6 lines) | ~101 |
+| 07:16 | Edited price_fetcher.py | 4→6 lines | ~67 |
+| 07:17 | Edited stock_extractor.py | modified _is_near_ma5() | ~398 |
+| 07:17 | Edited stock_extractor.py | 3→6 lines | ~90 |
+| 07:17 | Edited stock_extractor.py | modified _filter_trending_near_ma5() | ~450 |
+| 07:17 | Edited stock_extractor.py | modified get() | ~313 |
+| 07:17 | Edited stock_extractor.py | modified _capital_flow_score() | ~422 |
+| 07:17 | Edited stock_extractor.py | expanded (+8 lines) | ~227 |
+| 07:17 | Edited stock_extractor.py | 13→15 lines | ~186 |
+| 07:17 | Edited stock_extractor.py | modified _score_breakdown() | ~196 |
+| 07:17 | Created backtester.py | — | ~2990 |
+| 07:17 | Created performance_tracker.py | — | ~2478 |
+| 07:17 | Edited main.py | expanded (+7 lines) | ~408 |
+| 07:18 | Edited main.py | modified cmd_backtest() | ~208 |
+| 07:20 | Session end: 25 writes across 6 files (price_fetcher.py, stock_extractor.py, warm-dancing-wave.md, backtester.py, performance_tracker.py) | 7 reads | ~31878 tok |
+| 07:22 | Edited stock_extractor.py | 8→8 lines | ~111 |
+| 07:27 | Edited price_fetcher.py | modified _atr() | ~770 |
+| 07:27 | Edited price_fetcher.py | expanded (+6 lines) | ~106 |
+| 07:27 | Edited price_fetcher.py | 3→7 lines | ~75 |
+| 07:27 | Edited stock_extractor.py | expanded (+34 lines) | ~338 |
+| 07:32 | Edited backtester.py | modified _get_forward_returns() | ~710 |
+| 07:33 | Edited backtester.py | modified calculate_performance_metrics() | ~889 |
+| 07:38 | Edited backtester.py | expanded (+15 lines) | ~356 |
+| 07:38 | Session end: 33 writes across 6 files (price_fetcher.py, stock_extractor.py, warm-dancing-wave.md, backtester.py, performance_tracker.py) | 7 reads | ~36954 tok |
+| 07:42 | Session end: 33 writes across 6 files (price_fetcher.py, stock_extractor.py, warm-dancing-wave.md, backtester.py, performance_tracker.py) | 7 reads | ~36954 tok |
+| 07:43 | Created market_regime.py | — | ~1661 |
+| 07:43 | Edited stock_extractor.py | expanded (+17 lines) | ~430 |
+| 07:43 | Edited stock_extractor.py | 3→6 lines | ~83 |
+| 07:43 | Edited stock_extractor.py | 8→9 lines | ~76 |
+| 07:43 | Edited stock_extractor.py | expanded (+10 lines) | ~175 |
+| 07:43 | Edited stock_extractor.py | modified get() | ~108 |
+| 07:43 | Created portfolio_builder.py | — | ~1981 |
+| 07:43 | Edited stock_extractor.py | expanded (+10 lines) | ~147 |
+| 07:43 | Edited stock_extractor.py | modified get() | ~136 |
+| 07:43 | Edited stock_extractor.py | modified _detect_negative_signals() | ~655 |
+| 07:44 | Edited stock_extractor.py | expanded (+19 lines) | ~294 |
+| 07:44 | Edited stock_extractor.py | 3→7 lines | ~74 |
+| 07:44 | Edited storage.py | modified mark_expired_recommendations() | ~498 |
+| 07:44 | Edited stock_extractor.py | 7→7 lines | ~109 |
+| 07:44 | Edited stock_extractor.py | 20→21 lines | ~302 |
+| 07:46 | Session end: 48 writes across 9 files (price_fetcher.py, stock_extractor.py, warm-dancing-wave.md, backtester.py, performance_tracker.py) | 7 reads | ~43683 tok |
+| 08:47 | Session end: 48 writes across 9 files (price_fetcher.py, stock_extractor.py, warm-dancing-wave.md, backtester.py, performance_tracker.py) | 7 reads | ~43683 tok |
+| 08:48 | Created intraday_monitor.py | — | ~3594 |
+| 08:48 | Edited main.py | 2→7 lines | ~135 |
+| 08:48 | Edited main.py | 5→7 lines | ~63 |
+| 08:48 | Edited main.py | modified cmd_performance() | ~174 |
+| 08:48 | Created .github/workflows/intraday-monitor.yml | — | ~927 |
+| 08:49 | Session end: 53 writes across 11 files (price_fetcher.py, stock_extractor.py, warm-dancing-wave.md, backtester.py, performance_tracker.py) | 8 reads | ~50364 tok |
+| 10:21 | Session end: 53 writes across 11 files (price_fetcher.py, stock_extractor.py, warm-dancing-wave.md, backtester.py, performance_tracker.py) | 8 reads | ~50364 tok |
+| 10:22 | Edited stock_extractor.py | modified _apply_portfolio_constraints() | ~932 |
+| 10:22 | Edited stock_extractor.py | expanded (+7 lines) | ~81 |
+| 10:23 | Edited stock_extractor.py | modified _technical_buy_reference() | ~318 |
+| 10:23 | Edited backtester.py | modified walk_forward_backtest() | ~2265 |
+| 10:23 | Edited backtester.py | modified calculate_var() | ~1532 |
+| 10:23 | Edited main.py | 2→4 lines | ~72 |
+| 10:23 | Edited main.py | 6→10 lines | ~95 |
+| 10:23 | Edited main.py | modified cmd_monitor() | ~376 |
+| 10:24 | Session end: 61 writes across 11 files (price_fetcher.py, stock_extractor.py, warm-dancing-wave.md, backtester.py, performance_tracker.py) | 8 reads | ~56035 tok |
+| 10:28 | Edited stock_extractor.py | expanded (+10 lines) | ~140 |
+| 10:28 | Edited stock_extractor.py | 3→3 lines | ~49 |
+| 10:28 | Edited stock_extractor.py | expanded (+8 lines) | ~73 |
+| 10:28 | Edited stock_extractor.py | modified _repeat_strength() | ~94 |
+| 10:30 | Session end: 65 writes across 11 files (price_fetcher.py, stock_extractor.py, warm-dancing-wave.md, backtester.py, performance_tracker.py) | 8 reads | ~56391 tok |
+
+## Session: 2026-06-25 15:10
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 14:30 | 选股策略六项增强实现 | stock_extractor.py, config.yaml, market_regime.py, adaptive_weights.py, portfolio_builder.py | 全部6项改进完成并推送到GitHub | ~15000 |
+| 15:00 | 量化基金视角九项增强 | stock_extractor.py, backtester.py, paper_trader.py | 补全3个bug+IC修复+聪明钱+熔断+正交化 | ~25000 |
