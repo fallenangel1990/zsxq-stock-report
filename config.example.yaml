@@ -11,7 +11,7 @@ zsxq:
   base_url: "https://wx.zsxq.com"
 
 # AI 总结配置
-# provider 可选: deepseek | claude
+# provider 可选: deepseek | longcat | deepseek-v4-flash | claude
 ai:
   provider: "deepseek"
 
@@ -25,6 +25,13 @@ ai:
     api_key_encrypted: ""
     model: "mimo-v2.5"
     base_url: "https://api.xiaomimimo.com/v1"
+
+  # DeepSeek V4 Flash 配置（provider=deepseek-v4-flash 时生效）
+  # API Key 也可通过环境变量 DEEPSEEK_V4_FLASH_API_KEY 设置
+  deepseek_v4_flash:
+    api_key: ""
+    model: "deepseek-v4-flash"
+    base_url: "https://api.deepseek.com"
 
   # Claude API 配置（provider=claude 时生效）
   # API Key 也可通过环境变量 ANTHROPIC_API_KEY 设置

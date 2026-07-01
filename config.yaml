@@ -8,6 +8,11 @@ ai:
     model: mimo-v2.5
     base_url: https://api.xiaomimimo.com/v1
     api_key_encrypted: ''
+  deepseek_v4_flash:
+    api_key: ''
+    model: deepseek-v4-flash
+    base_url: https://api.deepseek.com
+    api_key_encrypted: ''
   claude:
     api_key: ''
     model: claude-sonnet-4-6

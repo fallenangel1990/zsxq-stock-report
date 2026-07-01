@@ -106,10 +106,12 @@ def get_client():
         return _init_deepseek(ai_config.get("deepseek", {}))
     elif provider == "longcat":
         return _init_longcat(ai_config.get("longcat", {}))
+    elif provider == "deepseek-v4-flash":
+        return _init_deepseek_v4_flash(ai_config.get("deepseek_v4_flash", {}))
     elif provider == "claude":
         return _init_claude(ai_config.get("claude", {}))
     else:
-        raise ValueError(f"不支持的 AI provider: {provider}，可选: deepseek, longcat, claude")
+        raise ValueError(f"不支持的 AI provider: {provider}，可选: deepseek, longcat, deepseek-v4-flash, claude")
 
 
 def _init_deepseek(ds_config: dict):
@@ -180,6 +182,38 @@ def _init_longcat(lc_config: dict):
             return response.choices[0].message.content
 
     return LongCatWrapper(), model, "longcat"
+
+
+def _init_deepseek_v4_flash(ds_config: dict):
+    """初始化 DeepSeek-V4-Flash client（OpenAI 兼容接口）。"""
+    from openai import OpenAI
+
+    base_url = ds_config.get("base_url", "https://api.deepseek.com")
+    model = ds_config.get("model", "deepseek-v4-flash")
+    env_names = ["DEEPSEEK_V4_FLASH_API_KEY"]
+    api_key = _resolve_api_key("deepseek_v4_flash", ds_config, env_names)
+    if not api_key:
+        env_hint = " 或 ".join(env_names)
+        raise ValueError(
+            f"请设置 {env_hint} 环境变量，或在 config.yaml 中配置 "
+            "ai.deepseek_v4_flash.api_key"
+        )
+
+    client = OpenAI(api_key=api_key, base_url=base_url)
+
+    class DeepSeekV4FlashWrapper:
+        def create(self, system: str, prompt: str, max_tokens: int = 4096) -> str:
+            response = client.chat.completions.create(
+                model=model,
+                max_tokens=max_tokens,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": prompt},
+                ],
+            )
+            return response.choices[0].message.content
+
+    return DeepSeekV4FlashWrapper(), model, "deepseek-v4-flash"
 
 
 def _init_claude(claude_config: dict):
