@@ -93,7 +93,7 @@ def _fetch_eastmoney_quotes(codes: list[str], timeout: int = 10) -> dict:
     try:
         resp = requests.get(url, params=params, timeout=timeout)
         resp.raise_for_status()
-        data = resp.json()
+        data = resp.json() or {}
     except requests.RequestException as e:
         print(f"[价格兜底] 东方财富请求失败: {e}", flush=True)
         return {}
@@ -285,7 +285,7 @@ def _fetch_one_5day_change(tc: str, code: str, timeout: int) -> Optional[float]:
         resp.raise_for_status()
 
         try:
-            data = resp.json()
+            data = resp.json() or {}
         except ValueError:
             print(f"[5日涨跌] {code} JSON 解析失败", flush=True)
             return None
@@ -492,7 +492,7 @@ def _fetch_one_technical(tc: str, code: str, timeout: int) -> Optional[dict]:
         )
         resp = requests.get(url, timeout=timeout)
         resp.raise_for_status()
-        data = resp.json()
+        data = resp.json() or {}
         if data.get("code") != 0:
             print(f"[技术指标] {code} API 返回异常 code={data.get('code')}", flush=True)
             return None
@@ -734,7 +734,7 @@ def fetch_money_flow(codes: list[str], timeout: int = 10) -> dict:
         }
         resp = requests.get(url, params=params, timeout=timeout)
         resp.raise_for_status()
-        data = resp.json()
+        data = resp.json() or {}
 
         for item in (data.get("data") or {}).get("diff") or []:
             code = str(item.get("f12") or "")
@@ -767,15 +767,16 @@ def fetch_margin_data(timeout: int = 10) -> dict:
         params = {"fields1": "f1,f2,f3,f4", "fields2": "f51,f52,f53,f54,f55,f56"}
         resp = requests.get(url, timeout=timeout)
         resp.raise_for_status()
-        data = resp.json()
+        data = resp.json() or {}
 
         # 融资余额（亿元）
-        margin_balance = data.get("data", {}).get("s2n", {}).get("rzye", 0)
+        margin_data = data.get("data") or {}
+        margin_balance = (margin_data.get("s2n") or {}).get("rzye", 0)
         if isinstance(margin_balance, str):
             margin_balance = float(margin_balance) / 1e8 if margin_balance else 0
 
         # 融资净买入
-        margin_change = data.get("data", {}).get("s2n", {}).get("rzmre", 0)
+        margin_change = (margin_data.get("s2n") or {}).get("rzmre", 0)
         if isinstance(margin_change, str):
             margin_change = float(margin_change) / 1e8 if margin_change else 0
 
@@ -807,12 +808,12 @@ def fetch_northbound_flow(timeout: int = 10) -> dict:
         params = {"fields1": "f1,f2,f3,f4", "fields2": "f51,f52,f53,f54,f55,f56"}
         resp = requests.get(url, timeout=timeout)
         resp.raise_for_status()
-        data = resp.json()
+        data = resp.json() or {}
 
         # 北向净买入（亿元）
         north_net = 0
         for key in ("hk2sh", "hk2sz"):
-            part = data.get("data", {}).get(key, {})
+            part = (data.get("data") or {}).get(key, {})
             hgt = float(part.get("hgt", 0) or 0) / 1e4  # 万→亿
             sgt = float(part.get("sgt", 0) or 0) / 1e4
             north_net += hgt + sgt

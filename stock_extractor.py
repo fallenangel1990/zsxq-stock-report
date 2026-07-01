@@ -3305,6 +3305,8 @@ def _append_trader_summary(
     enriched: list[dict],
     trend_scores: dict,
     market_filter: dict,
+    style_exposure: dict = None,
+    smart_money: dict = None,
 ) -> None:
     """报告顶部的交易员视角摘要。"""
     executable = [s for s in enriched if s.get("decision_tier") == "可执行清单"]
@@ -3326,6 +3328,8 @@ def _append_trader_summary(
     parts.append("")
 
     # 风格暴露 + 聪明钱摘要
+    style_exposure = style_exposure or {}
+    smart_money = smart_money or {}
     if style_exposure:
         parts.append("### 风格暴露\n")
         for style, info in style_exposure.items():
@@ -3606,7 +3610,7 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
         parts.append(portfolio_summary)
         parts.append("")
 
-    _append_trader_summary(parts, passed, trend_scores, market_filter)
+    _append_trader_summary(parts, passed, trend_scores, market_filter, style_exposure, smart_money)
     _append_decision_tables(parts, passed)
     _append_mirror_test(parts, passed)
 
