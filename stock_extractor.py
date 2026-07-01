@@ -359,8 +359,16 @@ def _extract_stocks_batch(
 
 | 序号 | 风险类型 | 涉及标的/板块 | 风险描述 | 来源帖子 |
 
+投资分析要求（借鉴巴菲特-芒格-段永平框架）：
+- 每只股票的"投资逻辑"应包含：①生意本质（客户是谁、为什么付钱）②护城河类型及强度
+- "量化参考"应给出三情景目标价：激进（最乐观）/ 稳健（基准）/ 保守（悲观）
+- "护城河"字段从以下类型选择：品牌定价权/转换成本/网络效应/规模效应/技术壁垒/渠道壁垒/无明显护城河
+- "管理层"字段判断：创始人在任/职业经理人/有诚信污点/减持中/持股增加
+- 风险字段需包含："反过来想——这家公司可能失败的最大路径是什么？"
+
 注意事项：
 - "来源帖子"列填写"帖子 X"格式的引用（X为帖子编号）
+- 每只股票的 sector 字段必须填写！author 字段填写帖子作者名（与帖子头"作者:"一致），未知则填空字符串。
 - 如果某个类别没有符合条件的标的，写"**本批次暂无符合条件的标的**"
 - 非 A 股推荐不要放入任何表格或 JSON
 - 不要输出表格以外的解释性文字
@@ -371,10 +379,10 @@ def _extract_stocks_batch(
 ```json
 {{
   "quantitative": [
-    {{"name": "股票名称", "code": "股票代码或空字符串", "sector": "所属赛道/行业（必填）", "logic": "投资逻辑简述", "target": "量化参考原文", "risk": "风险点/潜在利空或空字符串", "source": "帖子X", "author": "作者名", "confidence": 4}}
+    {{"name": "股票名称", "code": "股票代码或空字符串", "sector": "所属赛道/行业（必填）", "logic": "投资逻辑简述（含生意本质：客户是谁/为什么付钱）", "target": "量化参考原文", "target_aggressive": "激进情景目标价/目标市值（最乐观）", "target_moderate": "稳健情景目标价/目标市值（基准）", "target_conservative": "保守情景目标价/目标市值（悲观）", "risk": "风险点/潜在利空或空字符串", "moat": "护城河类型：品牌定价权/转换成本/网络效应/规模效应/技术壁垒/无明显护城河", "moat_score": "护城河强度1-5分", "management": "管理层评估关键词：诚信/能力/股东利益一致/有疑虑", "source": "帖子X", "author": "作者名", "confidence": 4}}
   ],
   "elastic": [
-    {{"name": "股票名称", "code": "股票代码或空字符串", "sector": "所属赛道/行业（必填）", "logic": "核心逻辑简述", "risk": "风险点/潜在利空或空字符串", "source": "帖子X", "author": "作者名", "confidence": 3}}
+    {{"name": "股票名称", "code": "股票代码或空字符串", "sector": "所属赛道/行业（必填）", "logic": "核心逻辑简述（含生意本质）", "target": "量化参考原文", "target_aggressive": "激进情景目标/空字符串", "target_moderate": "基准情景目标/空字符串", "target_conservative": "保守情景目标/空字符串", "risk": "风险点/潜在利空或空字符串", "moat": "护城河类型", "moat_score": "护城河1-5分", "management": "管理层评估/空字符串", "source": "帖子X", "author": "作者名", "confidence": 3}}
   ],
   "sectors": [
     {{"sector": "板块名称", "stocks": "核心标的名称列表", "logic": "板块逻辑", "source": "帖子X"}}
@@ -670,6 +678,13 @@ def _split_sector_stock_entries(sector_entry: dict) -> list[dict]:
     return entries
 
 
+def _parse_moat_score(value) -> float:
+    """解析护城河评分（1-5 分映射到 0-10）。"""
+    if isinstance(value, (int, float)) and 1 <= value <= 5:
+        return round(value * 2, 1)
+    return 5.0  # 默认中等
+
+
 def _parse_target_value(target_str: str) -> Optional[float]:
     """从量化参考文本中提取数值（目标价/目标市值等）。
 
@@ -861,7 +876,13 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
                     "logic": entry.get("logic", ""),
                     "target_str": entry.get("target", ""),
                     "target_value": _parse_target_value(entry.get("target", "")),
+                    "target_aggressive": entry.get("target_aggressive", ""),
+                    "target_moderate": entry.get("target_moderate", ""),
+                    "target_conservative": entry.get("target_conservative", ""),
                     "risk_str": entry.get("risk", ""),
+                    "moat_type": entry.get("moat", ""),
+                    "moat_score": _parse_moat_score(entry.get("moat_score")),
+                    "management": entry.get("management", ""),
                     "source": entry.get("source", ""),
                     "category": "quantitative",
                     "sector": entry.get("sector", ""),
@@ -908,7 +929,13 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
                     "name": name, "code": code,
                     "logic": entry.get("logic", ""),
                     "target_str": "", "target_value": None,
+                    "target_aggressive": entry.get("target_aggressive", ""),
+                    "target_moderate": entry.get("target_moderate", ""),
+                    "target_conservative": entry.get("target_conservative", ""),
                     "risk_str": entry.get("risk", ""),
+                    "moat_type": entry.get("moat", ""),
+                    "moat_score": _parse_moat_score(entry.get("moat_score")),
+                    "management": entry.get("management", ""),
                     "source": entry.get("source", ""),
                     "category": "elastic",
                     "sector": sector,
@@ -1268,6 +1295,13 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
             unique_authors=unique_authors,
         )
 
+        # P2 调整：护城河评分加成（宽护城河 = 更强确定性\n")
+        moat_score = stock.get("moat_score", 5.0)
+        if moat_score >= 8.0:
+            total_score = round(min(10.0, total_score + 0.5), 1)
+        elif moat_score >= 6.0:
+            total_score = round(min(10.0, total_score + 0.2), 1)
+
         # P2 调整：长期趋势/涨价预期加分
         lt_trend = _long_term_trend_score(
             stock.get("logic", ""),
@@ -1330,6 +1364,12 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
             "trend_score": round(trend_score, 1),
             "trending_sector": norm_sec if trend_score >= 5.0 else "",
             "fundamentals_score": round(fundamentals_score, 1),
+            "moat_type": stock.get("moat_type", ""),
+            "moat_score": stock.get("moat_score", 5.0),
+            "management": stock.get("management", ""),
+            "target_aggressive": stock.get("target_aggressive", ""),
+            "target_moderate": stock.get("target_moderate", ""),
+            "target_conservative": stock.get("target_conservative", ""),
             "technical": technical,
         }
         technical_score, technical_view = _technical_buy_score(stock_view)
@@ -3112,6 +3152,27 @@ def _emphasize_cell(text: str, fallback: str = "-") -> str:
     return f"**{cleaned}**"
 
 
+def _format_three_scenario_targets(stock: dict) -> str:
+    """格式化三情景目标价为紧凑展示。"""
+    agg = (stock.get("target_aggressive") or "").strip()
+    mod = (stock.get("target_moderate") or "").strip()
+    con = (stock.get("target_conservative") or "").strip()
+
+    if not (agg or mod or con):
+        target_str = (stock.get("target_str") or "").strip()
+        return f"**{target_str}**" if target_str else "-"
+
+    parts = []
+    if con:
+        parts.append(f"🔴{con}")
+    if mod:
+        parts.append(f"🟡{mod}")
+    if agg:
+        parts.append(f"🟢{agg}")
+
+    return " / ".join(parts) if parts else "-"
+
+
 def _score_to_stars(score: float) -> str:
     """将 1-10 分数映射为星级。"""
     if score >= 9:
@@ -3254,6 +3315,97 @@ def _append_decision_tables(parts: list[str], enriched: list[dict]) -> None:
         parts.append("")
 
 
+def _append_mirror_test(parts: list[str], enriched: list[dict]) -> None:
+    """镜子测试 + 反向思考板块（借鉴 AI Berkshire 框架）。
+
+    parts.append("> **镜子测试**：如果你不能用 5 句话完整说清楚\"为什么要买这只股票\"，说明理解还不够深。")
+    parts.append("> **反向思考**（芒格）：反过来想——这家公司可能失败的最大路径是什么？\n")
+    """
+    # 取 top 5 股票做镜子测试
+    top_stocks = sorted(
+        [s for s in enriched if s.get("score", 0) >= 5.0],
+        key=lambda s: s.get("buy_score", 0),
+        reverse=True,
+    )[:5]
+
+    if not top_stocks:
+        return
+
+    parts.append("## 镜子测试 & 反向思考\n")
+    parts.append("> **镜子测试**：如果你不能用 5 句话完整说清楚\"为什么要买这只股票\"，说明理解还不够深。")
+    parts.append("> **反向思考**（芒格）：反过来想——这家公司可能失败的最大路径是什么？\n")
+
+    for stock in top_stocks:
+        name = _display_stock_name(stock)
+        logic = (stock.get("logic") or "").strip()
+        risk = (stock.get("risk_display") or "").strip()
+        moat = (stock.get("moat_type") or "").strip()
+        score = stock.get("score", 0)
+
+        # Mirror test: can we summarize in 5 sentences?
+        logic_quality = "✅ 逻辑清晰" if len(logic) > 50 else "⚠️ 逻辑阐述不足"
+
+        parts.append(f"### {name}（{score:.1f}分）\n")
+        parts.append(f"**镜子测试：** {logic_quality}\n")
+        if logic:
+            # Show first 200 chars as the "5-sentence test"
+            summary = logic[:200] + ("..." if len(logic) > 200 else "")
+            parts.append(f"> {summary}\n")
+        if moat:
+            parts.append(f"**护城河：** {moat}\n")
+        # Reverse thinking
+        if risk:
+            parts.append(f"**最大失败路径：** {risk[:200]}\n")
+        else:
+            parts.append(f"**最大失败路径：** 未明确记录，需补充反面分析\n")
+        parts.append("")
+
+    parts.append("---\n")
+    parts.append("> ⚠️ **AI研究声明**：以上分析基于知识星球帖子内容，信息丰富度受限于帖子覆盖度。")
+    parts.append("> 护城河评分和管理层评估由 AI 从文本中提取，可能存在偏差。")
+    parts.append("> 投资确定性取决于生意本质，而非资料数量\n")
+
+
+def _append_quick_reject(parts: list[str], enriched: list[dict]) -> None:
+    """快速否决清单（借鉴 AI Berkshire 8 条红线）。
+
+    在报告末尾列出需要特别警惕的高分但存在重大瑕疵的标的。
+    """
+    # 找出有明确负面信号的股票
+    flagged = []
+    for s in enriched:
+        score = s.get("score", 0)
+        risk = (s.get("risk_display") or "").lower()
+        if score < 5.0:
+            continue
+        flags = []
+        if any(kw in risk for kw in ("立案", "处罚", "退市", "st", "造假")):
+            flags.append("诚信瑕疵")
+        if any(kw in risk for kw in ("减持", "清仓减持", "大股东减持")):
+            flags.append("大股东减持")
+        if "护城河" in (s.get("moat_type") or "") and "无" in (s.get("moat_type") or ""):
+            if score >= 7.0:
+                flags.append("护城河薄弱但评分高（高估？）")
+        if s.get("pe") and s.get("pe", 0) > 80 and s.get("score", 0) >= 7:
+            flags.append("高估值需深度验证")
+        if flags:
+            flagged.append((s, flags))
+
+    if not flagged:
+        return
+
+    parts.append("## ⚠️ 快速否决清单（高分但存在瑕疵）\n")
+    parts.append("| 股票 | 评分 | 瑕疵标签 | 建议 |")
+    parts.append("|------|------|---------|------|")
+    for s, flags in flagged:
+        name = _display_stock_name(s)
+        score = s.get("score", 0)
+        flag_str = "、".join(flags)
+        action = "回避" if "诚信" in flag_str else "降权观察"
+        parts.append(f"| {name} | {score:.1f} | {flag_str} | {action} |")
+    parts.append("")
+
+
 def _select_report_display_stocks(enriched: list[dict]) -> tuple[list[dict], dict]:
     """选择最终报告展示池，避免高分候选过少时报告失真。
 
@@ -3393,6 +3545,7 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
 
     _append_trader_summary(parts, passed, trend_scores, market_filter)
     _append_decision_tables(parts, passed)
+    _append_mirror_test(parts, passed)
 
     # 过滤统计
     parts.append("## 过滤概览\n")
@@ -3532,18 +3685,19 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
     if q_stocks:
         parts.append("## 一、有明确量化目标的股票（增强）\n")
         parts.append(
-            "| 序号 | 股票名称 | 当前市值 | 买入参考 | 核心逻辑 | 目标参考 | 风险点/潜在利空 | 推荐指数 | 趋势 | 来源 |"
+            "| 序号 | 股票名称 | 当前市值 | 买入参考 | 核心逻辑 | 护城河 | 目标参考(保守/稳健/激进) | 风险点/潜在利空 | 推荐指数 | 趋势 | 来源 |"
         )
         parts.append(
-            "|------|----------|----------|----------|----------|----------|----------------|----------|------|------|"
+            "|------|----------|----------|----------|----------|----------|------------------------|----------------|----------|------|------|"
         )
         for i, s in enumerate(q_stocks, 1):
             trend_badge = _trend_badge(s)
             parts.append(
                 f"| {i} | {_display_stock_name(s)} | {_fmt_market_cap(s.get('market_cap_yi'))} | "
                 f"{s.get('entry_ref', '-')} | "
-                f"{_emphasize_cell(s['logic'][:80] if s['logic'] else '')} | "
-                f"{_emphasize_cell(s['target_str'])} | {s.get('risk_display', '-')[:90]} | {_format_score_display(s)} | "
+                f"{_emphasize_cell(s['logic'][:60] if s['logic'] else '')} | "
+                f"{s.get('moat_type', '-')} | "
+                f"{_format_three_scenario_targets(s)} | {s.get('risk_display', '-')[:80]} | {_format_score_display(s)} | "
                 f"{trend_badge} | {s['source']} |"
             )
         parts.append("")
@@ -3553,17 +3707,17 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
     if e_stocks:
         parts.append("## 二、产业趋势中弹性最大的标的（增强）\n")
         parts.append(
-            "| 序号 | 股票名称 | 当前市值 | 买入参考 | 所属赛道 | 核心逻辑 | 目标参考 | 风险点/潜在利空 | 推荐指数 | 趋势 | 来源 |"
+            "| 序号 | 股票名称 | 当前市值 | 买入参考 | 所属赛道 | 核心逻辑 | 护城河 | 目标情景 | 风险点 | 推荐指数 | 趋势 | 来源 |"
         )
         parts.append(
-            "|------|----------|----------|----------|----------|----------|----------|----------------|----------|------|------|"
+            "|------|----------|----------|----------|----------|----------|----------|----------------|----------------|----------|------|------|"
         )
         for i, s in enumerate(e_stocks, 1):
             trend_badge = _trend_badge(s)
             parts.append(
                 f"| {i} | {_display_stock_name(s)} | {_fmt_market_cap(s.get('market_cap_yi'))} | "
-                f"{s.get('entry_ref', '-')} | {s['sector'] or '-'} | {_emphasize_cell(s['logic'][:80] if s['logic'] else '')} | "
-                f"{_emphasize_cell(s['target_str'])} | {s.get('risk_display', '-')[:90]} | {_format_score_display(s)} | "
+                f"{s.get('entry_ref', '-')} | {s['sector'] or '-'} | {_emphasize_cell(s['logic'][:60] if s['logic'] else '')} | "
+                f"{s.get('moat_type', '-')} | {_format_three_scenario_targets(s)} | {s.get('risk_display', '-')[:60]} | {_format_score_display(s)} | "
                 f"{trend_badge} | {s['source']} |"
             )
         parts.append("")
@@ -3610,6 +3764,9 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
                         display_content += "..."
                     parts.append(f"**原文摘录：**\n> {display_content}\n")
                 parts.append("")
+
+    # 快速否决清单
+    _append_quick_reject(parts, passed)
 
     return "\n".join(parts)
 

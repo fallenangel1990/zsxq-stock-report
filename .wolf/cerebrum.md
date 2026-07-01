@@ -163,3 +163,19 @@
   涉及文件：stock_extractor.py, backtester.py, paper_trader.py, market_regime.py, portfolio_builder.py, adaptive_weights.py, config.yaml。
 - [2026-07-01] **排序逻辑变更**：报告主排序从 `score` 改为 `(buy_score, score)` 降序，确保逻辑好但买点差的票排后。
 - [2026-07-01] **交易成本模型升级**：买入成本 = max(5, 金额 × 0.025%) + 滑点(0.1%) + 市场冲击(σ × √参与率 × 0.5)。
+
+## Key Learnings (2026-07-01 续2：AI Berkshire 框架融合)
+
+- **AI Berkshire 框架核心**：四大师视角对抗（巴菲特财务估值/段永平生意本质/芒格逆向思考/李录文明趋势）+ 镜子测试（5句话说不完整=不买）+ 快速否决清单（8条红线）+ 三情景估值
+- **三情景估值格式**：激进/稳健/保守三个价格带（🔴保守/🟡稳健/🟢激进），便于不同风险偏好投资者快速决策
+- **护城河分类体系**：品牌定价权/转换成本/网络效应/规模效应/技术壁垒/渠道壁垒/无明显护城河
+- **镜子测试实现**：逻辑文本长度>50字视为"逻辑清晰"，否则标注"阐述不足"
+- **快速否决信号**：诚信瑕疵/大股东减持/护城河薄弱但评分高/高估值需深度验证
+- **AI研究置信度声明**：信息丰富度受限于帖子覆盖度，投资确定性取决于生意本质
+
+## Decision Log (2026-07-01 续2)
+
+- [2026-07-01] **融合 ai-berkshire.git 投资逻辑**：从 xbtlin/ai-berkshire 借鉴四大师视角、镜子测试、三情景估值、快速否决清单。
+  新增功能：_parse_moat_score / _format_three_scenario_targets / _smart_money_adjustment / _normalize_factors_cross_section / _apply_factor_orthogonalization / _calculate_style_exposure / _append_mirror_test / _append_quick_reject / _fundamentals_score / _volume_confirm_score / _sentiment_score。
+  报告新增：护城河类型+评分、三情景目标价表格、镜子测试&反向思考、快速否决清单、风格暴露+聪明钱信号。
+  AI prompt 新增：生意本质提取、护城河判断、管理层评估、三情景目标。

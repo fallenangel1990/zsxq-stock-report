@@ -420,3 +420,4 @@
 |------|--------|---------|---------|--------|
 | 14:30 | 选股策略六项增强实现 | stock_extractor.py, config.yaml, market_regime.py, adaptive_weights.py, portfolio_builder.py | 全部6项改进完成并推送到GitHub | ~15000 |
 | 15:00 | 量化基金视角九项增强 | stock_extractor.py, backtester.py, paper_trader.py | 补全3个bug+IC修复+聪明钱+熔断+正交化 | ~25000 |
+| 15:30 | AI Berkshire 框架融合 | stock_extractor.py, backtester.py, paper_trader.py | 四大师视角+镜子测试+三情景估值+否决清单 | ~35000 |
