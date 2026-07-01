@@ -503,7 +503,13 @@
       "file": ".github/workflows/daily-report.yml",
       "root_cause": "config.yaml 在 .gitignore 中，不会提交到仓库。CI 从 config.example.yaml 创建配置，其中 ths.enabled: false。_try_thssync_auto() 检查到 enabled=false 时静默返回。",
       "fix": "1) daily-report.yml 创建 config.yaml 后添加 Python 脚本强制设置 ths.enabled=True 和 also_add_to_watchlist=True；2) main.py _try_thssync_auto() 禁用时加日志提示；3) ths_sync.py _parse_group_codes() 修复分组内容解析 bug（按 | 分割而非按 , 分割）。",
-      "tags": ["github-actions", "config", "ths-sync", "silent-skip", "gitignore"],
+      "tags": [
+        "github-actions",
+        "config",
+        "ths-sync",
+        "silent-skip",
+        "gitignore"
+      ],
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-05-21T09:14:00+08:00"
@@ -1314,6 +1320,118 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-17T06:52:00+08:00"
+    },
+    {
+      "id": "bug-073",
+      "timestamp": "2026-06-24T23:11:50.254Z",
+      "error_message": "Incorrect value in code",
+      "file": "stock_extractor.py",
+      "root_cause": "Had \"- 若 AI 只在\"",
+      "fix": "Changed to '- 若 AI 只在\"",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-24T23:11:50.254Z"
+    },
+    {
+      "id": "bug-074",
+      "timestamp": "2026-06-24T23:17:09.748Z",
+      "error_message": "Significant refactor of ",
+      "file": "stock_extractor.py",
+      "root_cause": "5 lines replaced/restructured",
+      "fix": "Rewrote 12→45 lines (5 removed) | Also: if not _is_near_ma5(stock, ma5_tolerance):; d = tech.get(\"distance_ma5_pct\") | Also: w_upside = scoring.get(\"upside_weight\", 0.30); w_quality = scoring.get(\"quality_weight\", 0.20)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 3,
+      "last_seen": "2026-06-24T23:17:25.708Z"
+    },
+    {
+      "id": "bug-075",
+      "timestamp": "2026-06-24T23:32:57.050Z",
+      "error_message": "Significant refactor of ",
+      "file": "backtester.py",
+      "root_cause": "14 lines replaced/restructured",
+      "fix": "Rewrote 48→80 lines (14 removed) | Also: # 按评分分组的收益; current_prices = fetch_prices(list(codes))",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 2,
+      "last_seen": "2026-06-24T23:33:00.661Z"
+    },
+    {
+      "id": "bug-076",
+      "timestamp": "2026-06-24T23:43:24.140Z",
+      "error_message": "Significant refactor of ",
+      "file": "stock_extractor.py",
+      "root_cause": "10 lines replaced/restructured",
+      "fix": "Rewrote 13→30 lines (10 removed) | Also: # ── 统一过滤：仅保留得分≥5、上升趋势、板块上涨、5日均线附近的股票 ──; passed, filtered_out = _filter_trending_near_ma5(e",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 2,
+      "last_seen": "2026-06-24T23:43:38.170Z"
+    },
+    {
+      "id": "bug-077",
+      "timestamp": "2026-06-25T02:23:36.417Z",
+      "error_message": "Significant refactor of ",
+      "file": "backtester.py",
+      "root_cause": "7 lines replaced/restructured",
+      "fix": "Rewrote 53→182 lines (7 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-25T02:23:36.417Z"
+    },
+    {
+      "id": "bug-011",
+      "timestamp": "2026-07-01T15:30:00+08:00",
+      "error_message": "stock_extractor.py: _sentiment_score、_fundamentals_score、_volume_confirm_score 被调用但未定义",
+      "file": "stock_extractor.py",
+      "root_cause": "函数定义缺失（重构遗漏）",
+      "fix": "新增三个函数，含空值安全处理",
+      "tags": [
+        "missing-function",
+        "runtime-error",
+        "critical"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-01"
+    },
+    {
+      "id": "bug-012",
+      "timestamp": "2026-07-01T15:35:00+08:00",
+      "error_message": "calculate_factor_ic 存在 look-ahead bias",
+      "file": "backtester.py",
+      "root_cause": "使用当前价格而非固定持有期收益",
+      "fix": "新增 _compute_forward_return()，IC 计算改用固定持有期前向收益",
+      "tags": [
+        "look-ahead-bias",
+        "backtest",
+        "methodology"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-01"
     }
   ]
 }
