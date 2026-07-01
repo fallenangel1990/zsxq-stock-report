@@ -186,3 +186,13 @@
   cron 从原来的 `0 23 * * 0-4` / `30 2 * * 1-5`（目标 11:00/14:30）统一改为 `50 0 * * 1-5`（目标 08:50）。
   GitHub Actions 时间 = UTC 00:50（周一到周五），对应北京时间 08:50。
   法定节假日由 workflow 内部的 chinese_calendar 检查跳过。
+
+## Decision Log (2026-07-01 续4)
+
+- [2026-07-01] **大模型切换到 LongCat 2.0**：用户要求将所有 workflow 中的大模型换成 LongCat 2.0。
+  - API: https://api.longcat.chat/openai (OpenAI 兼容格式)
+  - Model: LongCat-2.0
+  - API Key: ak_2ze1Hg2LZ3KP0yx6gN5ah4Ew2eI94
+  - 认证方式: Bearer <REDACTED> (标准 OpenAI Authorization header)
+  - GitHub Actions Secret: LONGCAT_API_KEY（需手动添加到仓库 Secrets）
+  - 变更文件: config.yaml, summarizer.py, daily-report.yml, consecutive-limit-up.yml
