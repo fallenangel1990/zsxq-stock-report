@@ -179,3 +179,10 @@
   新增功能：_parse_moat_score / _format_three_scenario_targets / _smart_money_adjustment / _normalize_factors_cross_section / _apply_factor_orthogonalization / _calculate_style_exposure / _append_mirror_test / _append_quick_reject / _fundamentals_score / _volume_confirm_score / _sentiment_score。
   报告新增：护城河类型+评分、三情景目标价表格、镜子测试&反向思考、快速否决清单、风格暴露+聪明钱信号。
   AI prompt 新增：生意本质提取、护城河判断、管理层评估、三情景目标。
+
+## Decision Log (2026-07-01 续3)
+
+- [2026-07-01] **日报定时任务时间调整**：用户要求将定时任务改为 A 股交易日北京时间 08:50。
+  cron 从原来的 `0 23 * * 0-4` / `30 2 * * 1-5`（目标 11:00/14:30）统一改为 `50 0 * * 1-5`（目标 08:50）。
+  GitHub Actions 时间 = UTC 00:50（周一到周五），对应北京时间 08:50。
+  法定节假日由 workflow 内部的 chinese_calendar 检查跳过。
