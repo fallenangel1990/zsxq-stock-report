@@ -226,6 +226,9 @@ def extract_stock_opportunities(
             batch_num = future_to_idx[future]
             try:
                 report = future.result()
+                if not report:
+                    print(f"  [股票 {batch_num}/{total_batches}] 失败: AI 返回空响应", flush=True)
+                    continue
                 results[batch_num] = report
                 batch_json = _parse_stock_json(report)
                 _annotate_foreign_research_sources(batch_json, foreign_post_numbers)
@@ -237,8 +240,8 @@ def extract_stock_opportunities(
             except Exception as exc:
                 print(f"  [股票 {batch_num}/{total_batches}] 失败: {exc}", flush=True)
 
-    # 按批次号排序结果
-    batch_reports = [results[k] for k in sorted(results.keys())]
+    # 按批次号排序结果，过滤空字符串
+    batch_reports = [results[k] for k in sorted(results.keys()) if results[k]]
     if not batch_reports:
         raise RuntimeError(
             "股票提取全部批次失败，请检查 AI API Key、模型和 base_url 配置。"
@@ -400,13 +403,19 @@ def _extract_stocks_batch(
 
 {posts_text}"""
 
-    return client.create(system=system, prompt=prompt, max_tokens=8192)
+    result = client.create(system=system, prompt=prompt, max_tokens=8192)
+    if result is None:
+        return ""
+    return result
 
 
 def _merge_stock_reports(client, batch_reports: list[str]) -> str:
     """合并多批次股票报告，去重并统一编号。"""
+    valid_reports = [r for r in batch_reports if r]
+    if not valid_reports:
+        return ""
     combined = "\n\n---\n\n".join(
-        f"## 第 {i + 1} 批次\n{r}" for i, r in enumerate(batch_reports)
+        f"## 第 {i + 1} 批次\n{r}" for i, r in enumerate(valid_reports)
     )
 
     system = (
@@ -430,7 +439,10 @@ def _merge_stock_reports(client, batch_reports: list[str]) -> str:
 
 请输出合并后的完整报告（四部分 Markdown 表格 + JSON 代码块）。"""
 
-    return client.create(system=system, prompt=prompt, max_tokens=6144)
+    result = client.create(system=system, prompt=prompt, max_tokens=6144)
+    if result is None:
+        return ""
+    return result
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -442,6 +454,8 @@ def _parse_stock_json(markdown: str) -> dict:
 
     优先查找 ```json 代码块，若不存在则回退到正则解析 Markdown 表格。
     """
+    if not markdown:
+        return {"quantitative": [], "elastic": [], "sectors": [], "risks": []}
     # 方法1：提取 JSON 代码块
     json_match = re.search(r"```json\s*\n(.*?)\n```", markdown, re.DOTALL)
     if json_match:
@@ -528,6 +542,8 @@ def _merge_json(target: dict, source: dict) -> None:
 def _fallback_parse_tables(markdown: str) -> dict:
     """从 Markdown 表格中回退解析股票数据（JSON 解析失败时使用）。"""
     result = {"quantitative": [], "elastic": [], "sectors": [], "risks": []}
+    if not markdown:
+        return result
 
     sections = {
         "quantitative": "有明确量化目标的股票",
@@ -3241,6 +3257,8 @@ def _strip_json_block(markdown: str) -> str:
     - ```json{...}```（同一行无换行）
     - 裸 json\n{...}（AI 有时不输出代码围栏标记）
     """
+    if not markdown:
+        return ""
     # 移除 ```json ... ``` 多行代码块
     cleaned = re.sub(r"```[a-zA-Z]*\s*\n.*?```", "", markdown, flags=re.DOTALL)
     # 移除 ```json{...}``` 同一行无换行的代码块
