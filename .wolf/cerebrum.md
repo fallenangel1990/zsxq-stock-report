@@ -38,6 +38,12 @@
   出现在 `server.login()` 时，优先怀疑 SMTP 端口/安全模式或服务商对 CI 出口的限制；
   email_sender.py 支持 `SMTP_SECURITY=auto|ssl|starttls|plain`，默认 465 SSL 失败后回退 587 STARTTLS。
 - **项目:** practise
+- **自适应权重**：stock_extractor.py 的评分权重已支持三级优先级：自适应权重（IC驱动）> 市场状态权重 > 静态配置。自适应权重通过 adaptive_weights.py 的 IC 历史自动更新。
+- **趋势精选打分制**：_filter_trending_near_ma5() 已从刚性四条件门槛改为打分制（满分100），总分≥55即可通过。各条件权重：得分40+趋势25+板块20+均线15+附加分10。避免了"四条件同时满足"导致的无票问题。
+- **AI 置信度**：股票提取 prompt 现在要求 AI 对每只股票输出 1-5 的置信度分数，映射到 0.2-1.0 的权重，低置信度股票得分打折。
+- **止盈策略**：_exit_trigger() 现在包含5层止盈逻辑：风险触发→RSI+MACD联动止盈→目标价止盈→过热止盈→均线止损。
+- **波动率regime**：market_regime.py 新增 detect_volatility_regime()（基于ATR%）和 detect_credit_spread_signal()（基于国债/信用债ETF相对强弱），信号已整合到市场状态评分。
+- **Kelly公式仓位**：portfolio_builder.py 新增 allocate_kelly() 和 allocate_risk_parity()，select_allocation_method() 自动选择最优分配方法。
 
 ## Do-Not-Repeat
 
@@ -126,3 +132,17 @@
   `price_fetcher.py` 新增 `distance_ma5_pct` 字段；`stock_extractor.py` 新增 `_filter_trending_near_ma5()` 过滤函数。
 
 <!-- Significant technical decisions with rationale. Why X was chosen over Y. -->
+
+## Key Learnings (2026-07-01)
+
+- **共识度独立作者计数**：`stock_extractor.py` 的共识评分改为按独立作者数计分（`authors` set），而非帖子数。AI prompt 新增 `author` 字段输出，`_enrich_and_score` 中维护 `authors` 集合，`_calibrate_recommendation_score` 中 `unique_authors` 权重高于 `post_count`。
+- **拥挤度惩罚**：新增 `_apply_crowding_penalty()` 函数，同板块内排名第 3 及以后的标的按位置递减扣分（-0.3, -0.6, -0.9...），避免报告被同一板块堆叠。
+- **量价背离检测**：`_technical_buy_score` 新增量价背离逻辑：缩量上涨（change_5d>5 且 volume_ratio<0.8）扣 1.0 分，放量下跌扣 0.5 分，放量确认加 0.4 分。
+- **行业敞口双限制**：`_apply_portfolio_constraints` 增强为两步——数量限制（max_per_sector）+ 仓位占比限制（portfolio_builder.apply_sector_cap, max_sector_pct=0.25）。
+- **政策事件+流动性状态**：`market_regime.py` 新增 `detect_policy_event()` 和 `detect_liquidity_regime()`，基于成交额判断增量/存量/缩量环境，动态调整趋势和基本面因子权重。
+- **因子 IC 稳定性检验**：`adaptive_weights.py` 新增 `check_ic_stability()` 和 `check_all_factors_stability()`，计算 IC 自相关性和标准差，对不稳定因子按可靠性打折。`format_weights_report` 输出稳定性评估表。
+- **权重配置调整**：`config.yaml` 中 `upside_weight` 从 0.30 降至 0.20，`quality_weight` 从 0.20 升至 0.22，`consensus_weight` 从 0.16 升至 0.18，`trend_weight` 从 0.10 升至 0.12，`fundamentals_weight` 从 0.10 升至 0.14。
+
+## Decision Log (2026-07-01)
+
+- [2026-07-01] **选股策略六项增强**：按优先级依次实现——共识度独立作者计数、upside_weight 下调+拥挤度惩罚、量价背离检测、行业敞口上限、政策事件+流动性状态、因子 IC 稳定性检验。所有改动涉及 stock_extractor.py、config.yaml、market_regime.py、adaptive_weights.py、portfolio_builder.py。

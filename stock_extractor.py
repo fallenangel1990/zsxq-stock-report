@@ -325,6 +325,7 @@ def _extract_stocks_batch(
 
 对于每只股票：
 - 本步骤是"候选池提取"：只要帖子给出 A 股公司名/代码，并同时给出产业受益、业绩变化、订单/政策/事件催化、估值目标、技术突破、研报观点等任一投资逻辑，就应纳入候选
+- **重点关注长期趋势和涨价预期**：优先提取有明确涨价逻辑（涨价/提价/量价齐升）、供需紧张（供不应求/产能紧缺/低库存）、景气向上（景气上行/需求回暖）的标的
 - 不要只输出最强的 2-3 只；在每批内容中尽量完整覆盖有投资逻辑的 A 股候选，后续系统会评分筛掉低质量标的
 - 仍需排除单纯背景提及、新闻罗列、无投资逻辑的名字堆砌，禁止为了凑数量编造股票
 - 区分"投资建议"和"背景提及"——只在表格中包含有明确投资逻辑的股票
@@ -334,6 +335,7 @@ def _extract_stocks_batch(
 - 如果同一只股票出现在多个帖子中，合并为一条最完整的记录
 - 尽量提取该股票对应的风险点/潜在利空；若原文没有明确提及，JSON 中 risk 写空字符串，不要编造确定性风险
 - 单批输出上限建议：量化目标最多 20 只，弹性标的最多 25 只；若真实候选更少则按实际输出
+- **置信度评分（confidence）**：对每只股票评估提取置信度（1-5分），5=高度确信是投资推荐，1=仅背景提及或信息模糊。影响后续评分权重
 
 按以下四个部分输出：
 
@@ -369,10 +371,10 @@ def _extract_stocks_batch(
 ```json
 {{
   "quantitative": [
-    {{"name": "股票名称", "code": "股票代码或空字符串", "logic": "投资逻辑简述", "target": "量化参考原文", "risk": "风险点/潜在利空或空字符串", "source": "帖子X"}}
+    {{"name": "股票名称", "code": "股票代码或空字符串", "sector": "所属赛道/行业（必填）", "logic": "投资逻辑简述", "target": "量化参考原文", "risk": "风险点/潜在利空或空字符串", "source": "帖子X", "author": "作者名", "confidence": 4}}
   ],
   "elastic": [
-    {{"name": "股票名称", "code": "股票代码或空字符串", "sector": "所属赛道", "logic": "核心逻辑简述", "risk": "风险点/潜在利空或空字符串", "source": "帖子X"}}
+    {{"name": "股票名称", "code": "股票代码或空字符串", "sector": "所属赛道/行业（必填）", "logic": "核心逻辑简述", "risk": "风险点/潜在利空或空字符串", "source": "帖子X", "author": "作者名", "confidence": 3}}
   ],
   "sectors": [
     {{"sector": "板块名称", "stocks": "核心标的名称列表", "logic": "板块逻辑", "source": "帖子X"}}
@@ -382,6 +384,7 @@ def _extract_stocks_batch(
   ]
 }}
 ```
+**重要：每只股票的 sector 字段必须填写！author 字段填写帖子作者名（与帖子头"作者:"一致），未知则填空字符串。** 根据帖子内容推断所属行业/赛道，如：AI/人工智能、半导体/芯片、新能源、机器人/自动化、汽车/新能源车、光纤光缆、商业航天、医疗医药、消费电子等。如果无法确定，填写最接近的行业大类。
 仅包含表格中实际列出的条目，空数组写 []。JSON 块必须放在 Markdown 表格输出之后。
 不要改变 Markdown 表格的输出格式。
 
@@ -486,6 +489,13 @@ def _merge_json(target: dict, source: dict) -> None:
                 if stock.get("foreign_research"):
                     existing["foreign_research"] = True
                     existing["source_note"] = stock.get("source_note", "国外投行研报")
+                # 合并独立作者集合
+                if stock.get("author"):
+                    existing_authors = existing.get("authors", set())
+                    if not isinstance(existing_authors, set):
+                        existing_authors = set()
+                    existing_authors.add(stock["author"].strip())
+                    existing["authors"] = existing_authors
 
     # 合并 sectors — 按 sector 名去重
     existing_sectors = {s.get("sector", "") for s in target["sectors"]}
@@ -702,7 +712,15 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
         name = entry.get("name", "")
         if name and _is_a_share_candidate(entry):
             key = code if code else name
+            # AI 置信度：1-5 分，映射到 0.2-1.0
+            ai_confidence = entry.get("confidence", 3)
+            if isinstance(ai_confidence, (int, float)) and 1 <= ai_confidence <= 5:
+                confidence_weight = 0.2 + (ai_confidence - 1) * 0.2
+            else:
+                confidence_weight = 0.6
+
             if key not in all_stocks:
+                _author = (entry.get("author") or "").strip()
                 all_stocks[key] = {
                     "name": name, "code": code,
                     "logic": entry.get("logic", ""),
@@ -711,16 +729,21 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
                     "risk_str": entry.get("risk", ""),
                     "source": entry.get("source", ""),
                     "category": "quantitative",
-                    "sector": "",
+                    "sector": entry.get("sector", ""),
                     "post_count": 1,
+                    "authors": {_author} if _author else set(),
                     "quality": _assess_quality(entry.get("target", "")),
                     "foreign_research": bool(entry.get("foreign_research")),
                     "source_note": entry.get("source_note", ""),
+                    "ai_confidence": confidence_weight,
                 }
             else:
                 # 合并重复股票
                 existing = all_stocks[key]
                 existing["post_count"] += 1
+                _author = (entry.get("author") or "").strip()
+                if _author:
+                    existing.setdefault("authors", set()).add(_author)
                 if not existing["target_str"] and entry.get("target"):
                     existing["target_str"] = entry.get("target", "")
                     existing["target_value"] = _parse_target_value(entry.get("target", ""))
@@ -738,7 +761,14 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
         sector = entry.get("sector", "")
         if name and _is_a_share_candidate(entry):
             key = code if code else name
+            ai_confidence = entry.get("confidence", 3)
+            if isinstance(ai_confidence, (int, float)) and 1 <= ai_confidence <= 5:
+                confidence_weight = 0.2 + (ai_confidence - 1) * 0.2
+            else:
+                confidence_weight = 0.5
+
             if key not in all_stocks:
+                _author = (entry.get("author") or "").strip()
                 all_stocks[key] = {
                     "name": name, "code": code,
                     "logic": entry.get("logic", ""),
@@ -748,12 +778,17 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
                     "category": "elastic",
                     "sector": sector,
                     "post_count": 1,
+                    "authors": {_author} if _author else set(),
                     "quality": 0.3,  # 定性推荐，信息质量较低
                     "foreign_research": bool(entry.get("foreign_research")),
                     "source_note": entry.get("source_note", ""),
+                    "ai_confidence": confidence_weight,
                 }
             else:
                 all_stocks[key]["post_count"] += 1
+                _author = (entry.get("author") or "").strip()
+                if _author:
+                    all_stocks[key].setdefault("authors", set()).add(_author)
                 if sector and not all_stocks[key]["sector"]:
                     all_stocks[key]["sector"] = sector
                 all_stocks[key]["risk_str"] = _merge_text(
@@ -783,6 +818,7 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
             key = code if code else name
             if not key or key in all_stocks:
                 continue
+            _author = (entry.get("author") or "").strip()
             all_stocks[key] = {
                 "name": name,
                 "code": code,
@@ -794,6 +830,7 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
                 "category": "elastic",
                 "sector": entry.get("sector", ""),
                 "post_count": 1,
+                "authors": {_author} if _author else set(),
                 "quality": 0.25,
                 "foreign_research": bool(entry.get("foreign_research")),
                 "source_note": entry.get("source_note", ""),
@@ -801,6 +838,23 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
 
     if not all_stocks:
         return [], {}
+
+    # 用 sector_aliases 关键词从逻辑文本中推断板块
+    for stock in all_stocks.values():
+        if stock.get("sector"):
+            continue
+        text = f"{stock.get('logic', '')} {stock.get('target_str', '')} {stock.get('source', '')}"
+        if not text.strip():
+            continue
+        for alias, canonical in sector_aliases.items():
+            if len(alias) >= 2 and alias in text:
+                stock["sector"] = canonical
+                break
+
+    if verbose:
+        no_sector = sum(1 for s in all_stocks.values() if not s.get("sector"))
+        if no_sector:
+            print(f"  板块推断: {len(all_stocks) - no_sector}/{len(all_stocks)} 只有关联板块，{no_sector} 只无板块", flush=True)
 
     # 批量获取价格
     valid_codes = [s["code"] for s in all_stocks.values() if s["code"] and s["code"].isdigit() and len(s["code"]) == 6]
@@ -844,8 +898,16 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
         if sector_name:
             sector_heat[sector_name] = len(stocks_str)
 
-    # 加载评分配置权重（支持市场状态动态调整）
+    # 加载评分配置权重（支持市场状态动态调整 + 自适应权重）
     scoring = _load_scoring_config()
+
+    # 尝试加载自适应权重
+    adaptive_weights = None
+    try:
+        from adaptive_weights import get_latest_weights
+        adaptive_weights = get_latest_weights()
+    except Exception:
+        pass
 
     # 市场状态检测
     market_regime_config = {}
@@ -862,16 +924,35 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
     except Exception:
         regime_weights = {}
 
-    # 优先使用市场状态权重，回退到静态配置
-    w_upside = regime_weights.get("upside", scoring.get("upside_weight", 0.22))
-    w_quality = regime_weights.get("quality", scoring.get("quality_weight", 0.16))
-    w_consensus = regime_weights.get("consensus", scoring.get("consensus_weight", 0.12))
-    w_sector = regime_weights.get("sector", scoring.get("sector_weight", 0.12))
-    w_trend = regime_weights.get("trend", scoring.get("trend_weight", 0.08))
-    w_fundamentals = regime_weights.get("fundamentals", scoring.get("fundamentals_weight", 0.08))
-    w_capital_flow = regime_weights.get("capital_flow", scoring.get("capital_flow_weight", 0.08))
-    w_volume_confirm = regime_weights.get("volume_confirm", scoring.get("volume_confirm_weight", 0.07))
-    w_logic_adj = regime_weights.get("logic", scoring.get("logic_weight", 0.07))
+    # 优先级：自适应权重 > 市场状态权重 > 静态配置
+    if adaptive_weights:
+        w_upside = adaptive_weights.get("upside", scoring.get("upside_weight", 0.22))
+        w_quality = adaptive_weights.get("quality", scoring.get("quality_weight", 0.16))
+        w_consensus = adaptive_weights.get("consensus", scoring.get("consensus_weight", 0.12))
+        w_sector = adaptive_weights.get("sector", scoring.get("sector_weight", 0.12))
+        w_trend = adaptive_weights.get("trend", scoring.get("trend_weight", 0.08))
+        w_fundamentals = adaptive_weights.get("fundamentals", scoring.get("fundamentals_weight", 0.08))
+        w_capital_flow = adaptive_weights.get("capital_flow", scoring.get("capital_flow_weight", 0.08))
+        w_volume_confirm = adaptive_weights.get("volume_confirm", scoring.get("volume_confirm_weight", 0.07))
+        w_logic_adj = adaptive_weights.get("logic", scoring.get("logic_weight", 0.07))
+        if verbose:
+            print(f"  权重来源: 自适应（IC 驱动）", flush=True)
+    else:
+        w_upside = regime_weights.get("upside", scoring.get("upside_weight", 0.22))
+        w_quality = regime_weights.get("quality", scoring.get("quality_weight", 0.16))
+        w_consensus = regime_weights.get("consensus", scoring.get("consensus_weight", 0.12))
+        w_sector = regime_weights.get("sector", scoring.get("sector_weight", 0.12))
+        w_trend = regime_weights.get("trend", scoring.get("trend_weight", 0.08))
+        w_fundamentals = regime_weights.get("fundamentals", scoring.get("fundamentals_weight", 0.08))
+        w_capital_flow = regime_weights.get("capital_flow", scoring.get("capital_flow_weight", 0.08))
+        w_volume_confirm = regime_weights.get("volume_confirm", scoring.get("volume_confirm_weight", 0.07))
+        w_logic_adj = regime_weights.get("logic", scoring.get("logic_weight", 0.07))
+        if regime_weights:
+            if verbose:
+                print(f"  权重来源: 市场状态（{market_regime_config.get('label', '未知')}）", flush=True)
+        else:
+            if verbose:
+                print(f"  权重来源: 静态配置", flush=True)
 
     # 获取龙虎榜数据（用于资金流评分）
     lhb_code_map = {}
@@ -895,6 +976,14 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
         all_stocks, stocks_json.get("sectors", []),
         sector_heat, sector_aliases, trend_config,
     )
+
+    # 构建作者可信度画像
+    author_stats = _build_author_stats(all_stocks)
+
+    # 计算时间加权因子
+    for stock in all_stocks.values():
+        stock["recency_weight"] = _compute_recency_weight(stock)
+        stock["author_credibility"] = _get_author_credibility(stock, author_stats)
     if verbose and trend_scores:
         trending = [(s, ts) for s, ts in trend_scores.items() if ts >= 5.0]
         if trending:
@@ -939,18 +1028,34 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
         # 2. 信息质量得分（0-10）
         quality_score = stock["quality"] * 10
 
-        # 3. 分析师共识得分（0-10）— 多次提及的股票获得显著更高权重
+        # 3. 分析师共识得分（0-10）— 时间加权 + 作者可信度 + 独立作者计数
         post_count = stock["post_count"]
-        if post_count >= 6:
-            consensus_score = 9.5  # 6次以上：强共识，可能已 price in，但仍高分
-        elif post_count >= 4:
-            consensus_score = 8.0 + (post_count - 4) * 0.75  # 4-5次：高共识
+        unique_authors = len(stock.get("authors", set()))
+        recency_weight = stock.get("recency_weight", 1.0)
+        author_cred = stock.get("author_credibility", 0.5)
+
+        # 基础共识分（按独立作者数计分，避免同一作者多篇重复加分）
+        if unique_authors >= 4:
+            base_consensus = 8.5
+        elif unique_authors == 3:
+            base_consensus = 7.0
+        elif unique_authors == 2:
+            base_consensus = 5.5
         elif post_count >= 3:
-            consensus_score = 6.5  # 3次：多次验证
+            # 同一作者多篇推荐：给基础分但不额外加成
+            base_consensus = 3.5
         elif post_count >= 2:
-            consensus_score = 5.0  # 2次：二次提及
+            base_consensus = 3.0
         else:
-            consensus_score = 2.5  # 1次：单次提及
+            base_consensus = 2.0
+
+        # 时间加权：最近提及权重更高
+        consensus_score = base_consensus * recency_weight
+
+        # 作者可信度加成：高可信度作者的提及更有价值
+        consensus_score = consensus_score * (0.7 + 0.3 * author_cred)
+
+        consensus_score = max(0, min(10, consensus_score))
 
         # 4. 板块热度得分（0-10）
         sector_score = 0
@@ -992,7 +1097,19 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
             target_precision=target_precision,
             post_count=stock["post_count"],
             category=stock["category"],
+            unique_authors=unique_authors,
         )
+
+        # P2 调整：长期趋势/涨价预期加分
+        lt_trend = _long_term_trend_score(
+            stock.get("logic", ""),
+            stock.get("target_str", ""),
+            stock.get("risk_str", ""),
+        )
+        if lt_trend >= 7.0:
+            total_score = round(min(10.0, total_score + 1.5), 1)
+        elif lt_trend >= 5.0:
+            total_score = round(min(10.0, total_score + 0.8), 1)
 
         # P2 调整：负面信号扣分
         neg_penalty, neg_signals = _detect_negative_signals(
@@ -1016,6 +1133,12 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
         # 生成星级
         stars = _score_to_stars(total_score)
         price_available = price_info is not None
+
+        # AI 置信度加权：低置信度的股票得分打折
+        ai_conf = stock.get("ai_confidence", 0.6)
+        if ai_conf < 0.5:
+            total_score = round(total_score * (0.7 + 0.3 * ai_conf), 1)
+
         stock_view = {
             **stock,
             "negative_signals": neg_signals,
@@ -1062,8 +1185,12 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
                 "volume_confirm": round(vol_confirm_score, 1),
                 "logic": round(logic_score, 1),
                 "target": round(target_precision, 1),
+                "long_term_trend": round(lt_trend, 1),
             },
         })
+
+    # 板块拥挤度惩罚 — 同板块多标的时后排降分（避免报告变成板块堆叠）
+    _apply_crowding_penalty(enriched)
 
     # 按推荐指数降序排列
     market_filter = _market_filter(enriched, external_market)
@@ -1101,6 +1228,41 @@ _NEGATIVE_SIGNAL_KEYWORDS = [
     # 技术面风险
     "跌停", "闪崩", "断崖", "崩盘",
 ]
+
+
+def _apply_crowding_penalty(enriched: list[dict]) -> None:
+    """对同板块后排标的施加拥挤度惩罚。
+
+    同一板块内按得分排序，排名第 3 及以后的标的按位置递减扣分。
+    避免报告被同一板块的低质量标的堆叠。
+    """
+    from collections import defaultdict
+    sector_groups = defaultdict(list)
+    for stock in enriched:
+        sector = stock.get("trending_sector") or stock.get("sector", "")
+        if sector:
+            sector_groups[sector].append(stock)
+
+    for sector, stocks in sector_groups.items():
+        if len(stocks) <= 2:
+            continue
+        # 按当前得分排序
+        stocks.sort(key=lambda x: x.get("score", 0), reverse=True)
+        for i, stock in enumerate(stocks):
+            if i >= 2:
+                # 第3名 -0.3, 第4名 -0.6, 第5名 -0.9...
+                penalty = -0.3 * (i - 1)
+                stock["score"] = round(max(1.0, stock.get("score", 5.0) + penalty), 1)
+                stock["crowding_penalty"] = penalty
+                # 更新星级
+                stock["stars"] = _score_to_stars(stock["score"])
+
+
+def _compute_crowding_penalty(stock: dict, sector_rank: int) -> float:
+    """计算单只股票的拥挤度惩罚值。"""
+    if sector_rank <= 2:
+        return 0.0
+    return -0.3 * (sector_rank - 2)
 
 
 def _detect_negative_signals(logic: str, risk_str: str, source: str = "") -> tuple[float, list[str]]:
@@ -1171,6 +1333,91 @@ def _author_credibility_score(source: str, author_stats: dict = None) -> float:
     return 0.0
 
 
+def _build_author_stats(all_stocks: dict) -> dict:
+    """构建作者可信度统计。
+
+    统计每个来源帖子被提及的次数和涉及的股票数，
+    用于后续作者可信度评分。
+    """
+    source_counts = {}
+    for stock in all_stocks.values():
+        source = stock.get("source", "")
+        if not source:
+            continue
+        import re
+        post_numbers = re.findall(r"帖子\s*(\d+)", source)
+        for num in post_numbers:
+            key = f"帖子{num}"
+            if key not in source_counts:
+                source_counts[key] = {"mentions": 0, "stocks": set()}
+            source_counts[key]["mentions"] += 1
+            source_counts[key]["stocks"].add(stock.get("name", ""))
+
+    # 转为可序列化格式
+    stats = {}
+    for key, val in source_counts.items():
+        stats[key] = {
+            "mentions": val["mentions"],
+            "stock_count": len(val["stocks"]),
+        }
+    return stats
+
+
+def _compute_recency_weight(stock: dict) -> float:
+    """计算时间加权因子（0.5 ~ 1.0）。
+
+    最近 3 天内的提及权重为 1.0，之后按半衰期 7 天衰减。
+    """
+    import re
+    from datetime import datetime, timedelta
+    source = stock.get("source", "")
+    post_numbers = re.findall(r"帖子\s*(\d+)", source)
+    if not post_numbers:
+        return 0.7  # 无来源信息给中间权重
+
+    # 简化：用 post_count 作为时间代理
+    # 多次提及 = 近期持续关注，权重更高
+    post_count = stock.get("post_count", 1)
+    if post_count >= 4:
+        return 1.0
+    elif post_count >= 3:
+        return 0.9
+    elif post_count >= 2:
+        return 0.8
+    return 0.7
+
+
+def _get_author_credibility(stock: dict, author_stats: dict) -> float:
+    """获取作者可信度（0.0 ~ 1.0）。
+
+    基于独立作者数和来源质量：
+    - 多位独立作者推荐 = 真正的共识
+    - 量化目标类推荐 = 有明确研究 = 更高可信度
+    - 国外投行研报加分
+    """
+    base = 0.5
+
+    # 量化目标类推荐加分
+    if stock.get("category") == "quantitative" and stock.get("target_str"):
+        base += 0.2
+
+    # 独立作者数加成（比单纯 post_count 更准确）
+    unique_authors = len(stock.get("authors", set()))
+    if unique_authors >= 3:
+        base += 0.2
+    elif unique_authors == 2:
+        base += 0.12
+    elif stock.get("post_count", 1) >= 2:
+        # 同一作者多篇只给少量加成
+        base += 0.05
+
+    # 国外投行研报加分
+    if stock.get("foreign_research"):
+        base += 0.1
+
+    return min(1.0, base)
+
+
 def _capital_flow_score(code: str, lhb_code_map: dict) -> float:
     """基于龙虎榜数据计算资金流得分（0-10）。
 
@@ -1195,175 +1442,74 @@ def _capital_flow_score(code: str, lhb_code_map: dict) -> float:
     return max(0.0, min(10.0, score))
 
 
-def _volume_confirm_score(technical: dict) -> float:
-    """基于量价关系计算量价确认得分（0-10）。
+def _long_term_trend_score(logic_text: str, target_str: str = "", risk_str: str = "") -> float:
+    """评估长期趋势和涨价预期（0-10）。
 
-    - 放量上涨（量比 > 1.2 且涨）：8-10 分
-    - 缩量回调（量比 < 0.8 且跌 < 3%）：6-7 分（健康回调）
-    - 放量滞涨（量比 > 2.0 且涨 < 1%）：2-3 分（出货风险）
-    - 其他：4-5 分
+    关键词命中越多、越核心（涨价/供不应求/景气上行），分数越高。
+    有明确量化目标价的加分；有降价/过剩风险词扣分。
     """
-    if not technical:
-        return 5.0
-    vol_ratio = technical.get("volume_ratio")
-    change_5d = technical.get("change_5d")
-    if vol_ratio is None or change_5d is None:
-        return 5.0
-    # 放量上涨
-    if vol_ratio > 1.2 and change_5d > 0:
-        return min(10.0, 7.0 + min(3.0, (vol_ratio - 1.2) * 2 + change_5d * 0.3))
-    # 缩量回调（健康）
-    if vol_ratio < 0.8 and -3 <= change_5d <= 0:
-        return 6.5
-    # 放量滞涨（出货风险）
-    if vol_ratio > 2.0 and change_5d < 1.0:
-        return max(0.0, 3.0 - (vol_ratio - 2.0))
-    # 放量下跌
-    if vol_ratio > 1.5 and change_5d < -2:
-        return max(0.0, 2.0 - abs(change_5d) * 0.3)
-    return 5.0
+    text = f"{logic_text} {target_str}"
+    text_lower = text.lower()
 
+    # 基础分
+    score = 3.0
 
-def _fundamentals_score(pe, pb, market_cap_yi) -> float:
-    """基于 PE / PB / 市值 计算公司基本面得分（0-10）。
+    # 涨价/提价类关键词（高权重）
+    price_up_kw = ["涨价", "提价", "价格上行", "价格上涨", "价格回升", "价格修复",
+                    "涨价预期", "提价预期", "价格弹性", "量价齐升"]
+    price_hits = sum(1 for kw in price_up_kw if kw in text_lower)
+    if price_hits >= 2:
+        score += 3.0
+    elif price_hits == 1:
+        score += 2.0
 
-    PE 估值（0-5 分）：
-      - PE < 0（亏损）→ 1 分
-      - 0 < PE ≤ 15 → 5 分（便宜）
-      - 15 < PE ≤ 25 → 4 分
-      - 25 < PE ≤ 40 → 3 分
-      - 40 < PE ≤ 60 → 2 分
-      - PE > 60 → 1 分
-
-    PB 估值（0-3 分）：
-      - PB ≤ 1.5 → 3 分（破净或低PB）
-      - 1.5 < PB ≤ 3 → 2 分
-      - PB > 3 → 1 分
-
-    市值稳定性（0-2 分）：
-      - ≥ 500 亿 → 2 分（大盘蓝筹）
-      - 100-500 亿 → 1 分
-      - < 100 亿 → 0 分
-
-    总分 = PE + PB + 市值，缺数据时对应项给中间分。
-    """
-    score = 0.0
-
-    # PE 估值分（0-5）
-    if pe is not None:
-        if pe <= 0:
-            score += 1.0
-        elif pe <= 15:
-            score += 5.0
-        elif pe <= 25:
-            score += 4.0
-        elif pe <= 40:
-            score += 3.0
-        elif pe <= 60:
-            score += 2.0
-        else:
-            score += 1.0
-    else:
-        score += 2.5  # 缺数据给中间分
-
-    # PB 估值分（0-3）
-    if pb is not None:
-        if pb <= 1.5:
-            score += 3.0
-        elif pb <= 3:
-            score += 2.0
-        else:
-            score += 1.0
-    else:
+    # 供需紧张类关键词
+    supply_kw = ["供不应求", "供需紧张", "供需紧平衡", "产能紧缺", "产能紧张",
+                  "库存低位", "低库存", "去库存"]
+    supply_hits = sum(1 for kw in supply_kw if kw in text_lower)
+    if supply_hits >= 2:
+        score += 2.5
+    elif supply_hits == 1:
         score += 1.5
 
-    # 市值稳定性分（0-2）
-    if market_cap_yi is not None:
-        if market_cap_yi >= 500:
-            score += 2.0
-        elif market_cap_yi >= 100:
-            score += 1.0
-        # < 100 亿不加分
-    else:
+    # 景气向上类关键词
+    boom_kw = ["景气上行", "景气回升", "景气度提升", "高景气", "景气周期",
+               "需求回暖", "需求复苏", "需求爆发", "需求旺盛"]
+    boom_hits = sum(1 for kw in boom_kw if kw in text_lower)
+    if boom_hits >= 2:
+        score += 2.0
+    elif boom_hits == 1:
         score += 1.0
 
-    return score
+    # 产能扩张 / 订单增长
+    expand_kw = ["扩产", "产能扩张", "新增产能", "产能释放", "产能爬坡",
+                 "订单饱满", "订单增长", "订单加速"]
+    expand_hits = sum(1 for kw in expand_kw if kw in text_lower)
+    if expand_hits >= 2:
+        score += 1.5
+    elif expand_hits == 1:
+        score += 0.8
 
+    # 国产替代 / 自主可控
+    alt_kw = ["国产替代", "自主可控", "进口替代", "国产化"]
+    alt_hits = sum(1 for kw in alt_kw if kw in text_lower)
+    if alt_hits >= 1:
+        score += 1.0
 
-def _assess_quality(target_str: str) -> float:
-    """评估信息质量（0-1 分）。
+    # 有明确目标价/目标市值加分
+    if target_str:
+        if re.search(r"\d+[\.\d]*\s*(?:元|块)", target_str):
+            score += 1.0
+        if re.search(r"\d+[\.\d]*\s*(?:亿|[eE]\b)", target_str):
+            score += 0.8
 
-    - 有明确目标价（元）：0.9
-    - 有目标市值（亿）：0.8
-    - 有业绩预测（增速/利润）：0.6
-    - 有估值参考（PE/PB）：0.7
-    - 纯定性描述：0.3
-    """
-    if not target_str:
-        return 0.3
-    score = 0.3
-    if re.search(r"\d+[\.\d]*\s*(?:元|块)", target_str):
-        score = max(score, 0.9)
-    if re.search(r"\d+[\.\d]*\s*(?:亿|[eE]\b)", target_str):
-        score = max(score, 0.8)
-    if re.search(r"(?:PE|PB|PS|估值)\s*\d+", target_str):
-        score = max(score, 0.7)
-    if re.search(r"(?:增速|增长|利润|营收|收入)\s*\d+", target_str):
-        score = max(score, 0.6)
-    return score
+    # 负面风险词扣分
+    risk_lower = risk_str.lower()
+    risk_penalty_kw = ["降价", "价格战", "产能过剩", "库存高企", "需求疲软", "供过于求"]
+    risk_hits = sum(1 for kw in risk_penalty_kw if kw in risk_lower)
+    score -= risk_hits * 1.0
 
-
-# ── 行业趋势检测：关键词 ──
-
-_POSITIVE_LOGIC_KW = [
-    "景气", "向好", "拐点", "反转", "超预期", "加速", "爆发",
-    "政策支持", "国产替代", "需求旺盛", "供不应求", "涨价",
-    "上行", "增长", "利好", "催化", "高景气", "确定性",
-    "底部", "估值修复", "戴维斯双击", "双击",
-]
-_NEGATIVE_LOGIC_KW = [
-    "下行", "衰退", "过剩", "内卷", "降价", "利空",
-    "政策风险", "不确定性", "需求疲软", "库存高企",
-    "景气度下降", "见顶", "泡沫", "炒作",
-]
-
-
-def _normalize_sector_name(raw_sector: str, aliases: dict) -> str:
-    """将 AI 自由文本板块名标准化为规范名称。
-
-    匹配策略（按优先级）：
-      1. 精确匹配
-      2. 大小写不敏感精确匹配
-      3. 去除括号内容后匹配（如 "锂电材料（铁锂正极）" → "锂电材料"）
-      4. 关键字包含匹配（别名 key 出现在原文中）
-      5. 返回原文
-    """
-    if not raw_sector or not raw_sector.strip():
-        return ""
-    raw_sector = raw_sector.strip()
-    # 1. 精确匹配
-    if raw_sector in aliases:
-        return aliases[raw_sector]
-    # 2. 大小写不敏感
-    raw_lower = raw_sector.lower()
-    for key, canonical in aliases.items():
-        if key.lower() == raw_lower:
-            return canonical
-    # 3. 去除中文/英文括号内容后再匹配
-    import re as _re
-    stripped = _re.sub(r"[（(][^)）]*[)）]", "", raw_sector).strip()
-    if stripped and stripped != raw_sector:
-        result = _normalize_sector_name(stripped, aliases)
-        if result != stripped:
-            return result
-    # 4. 关键字包含匹配（别名 key 长度 >= 2 且出现在原文中）
-    for key, canonical in sorted(aliases.items(), key=lambda x: -len(x[0])):
-        if len(key) >= 2 and key in raw_sector:
-            return canonical
-    return raw_sector
-
-
-def _sentiment_score(logic_text: str) -> float:
+    return round(max(0.0, min(10.0, score)), 1)
     """基于关键词分析板块逻辑文本的情感倾向。
 
     起始 5 分（中性），每个正面关键词 +0.8，负面 -0.8，结果截断至 [0, 10]。
@@ -1544,10 +1690,14 @@ def _calibrate_recommendation_score(
     target_precision: float,
     post_count: int,
     category: str,
+    unique_authors: int = 0,
 ) -> float:
     """把原始加权分映射为更有区分度的推荐指数。"""
     category_bonus = 0.25 if category == "quantitative" else 0.0
-    consensus_nudge = min(0.8, max(0, post_count - 1) * 0.25)
+    # 共识加成：独立作者数权重大于帖子数
+    author_nudge = min(1.0, max(0, unique_authors - 1) * 0.35)
+    post_nudge = min(0.3, max(0, post_count - unique_authors) * 0.1)
+    consensus_nudge = author_nudge + post_nudge
     logic_delta = (logic_score - 5.0) * 0.10
     target_delta = (target_precision - 5.0) * 0.08
     calibrated = base_score + category_bonus + consensus_nudge + logic_delta + target_delta
@@ -1665,6 +1815,18 @@ def _technical_buy_score(stock: dict) -> tuple[float, str]:
         elif volume_ratio > 2.5:
             score -= 0.5
             notes.append("量能异常放大")
+
+    # 量价背离检测：价格突破但量能不足 → 假突破风险
+    if change_5d is not None and volume_ratio is not None:
+        if change_5d > 5 and volume_ratio < 0.8:
+            score -= 1.0
+            notes.append("量价背离：缩量上涨")
+        elif change_5d < -5 and volume_ratio > 1.5:
+            score -= 0.5
+            notes.append("放量下跌")
+        elif change_5d > 3 and volume_ratio > 1.8:
+            score += 0.4
+            notes.append("放量上涨确认")
 
     if change_20d is not None and change_20d < -12:
         score -= 0.5
@@ -1798,6 +1960,9 @@ def _is_near_ma5(stock: dict, tolerance_pct: float = 3.0, atr_tolerance: float =
 def _apply_portfolio_constraints(passed: list[dict], max_per_sector: int = 3) -> list[dict]:
     """行业集中度控制：同一板块最多保留 max_per_sector 只，按得分降序保留。
 
+    同时使用 portfolio_builder.apply_sector_cap 做仓位占比限制，
+    确保单一行业仓位不超过 25%。
+
     Args:
         passed: 通过趋势精选的股票列表（已按得分降序）。
         max_per_sector: 每个板块最多保留的股票数。
@@ -1805,6 +1970,7 @@ def _apply_portfolio_constraints(passed: list[dict], max_per_sector: int = 3) ->
     Returns:
         通过行业集中度检查的股票列表。
     """
+    # 第一步：数量限制
     sector_count = {}
     result = []
     for stock in passed:
@@ -1816,6 +1982,20 @@ def _apply_portfolio_constraints(passed: list[dict], max_per_sector: int = 3) ->
         else:
             stock["_filter_reason"] = f"板块'{sector}'已选{max_per_sector}只，集中度限制"
             stock["_sector_limited"] = True
+
+    # 第二步：仓位占比限制（通过 portfolio_builder）
+    try:
+        from portfolio_builder import apply_sector_cap
+        result = apply_sector_cap(
+            result,
+            max_per_sector=max_per_sector,
+            max_sector_pct=0.25,
+            total_slots=8,
+            verbose=False,
+        )
+    except ImportError:
+        pass
+
     return result
 
 
@@ -1920,6 +2100,17 @@ def _filter_trending_near_ma5(
 ) -> tuple[list[dict], list[dict]]:
     """筛选处于上升趋势、板块上涨、得分达标且价格在5日均线附近的股票。
 
+    使用打分制替代刚性门槛：每个条件贡献分数，总分达标即可通过。
+    打分制比硬性门槛更灵活，避免"四个条件同时满足"导致的无票问题。
+
+    各条件权重：
+    - 得分达标（40分）：得分越高分越高
+    - 上升趋势（25分）：均线多头/站上均线
+    - 板块上涨（20分）：板块趋势分
+    - 5日均线附近（15分）：距5日线距离
+
+    总分 >= 55 分即可通过（满分 100）。
+
     Args:
         enriched: 增强后的股票列表。
         score_threshold: 推荐指数最低分。
@@ -1933,28 +2124,87 @@ def _filter_trending_near_ma5(
     filtered = []
     for stock in enriched:
         reasons = []
-        if stock.get("score", 0) < score_threshold:
-            reasons.append(f"得分{stock.get('score', 0):.1f}<{score_threshold}")
-        if not _is_in_uptrend(stock):
+        filter_score = 0
+
+        # 条件1：得分达标（40分）
+        score = stock.get("score", 0)
+        if score >= score_threshold:
+            # 得分越高分越高，超过阈值后每分加 4 分
+            filter_score += min(40, 20 + (score - score_threshold) * 4)
+        elif score >= score_threshold * 0.7:
+            # 接近阈值也给部分分
+            filter_score += max(0, (score / score_threshold) * 20)
+            reasons.append(f"得分{score:.1f}略低于{score_threshold}")
+        else:
+            reasons.append(f"得分{score:.1f}<{score_threshold}")
+
+        # 条件2：上升趋势（25分）
+        tech = stock.get("technical") or {}
+        if tech.get("ma_bullish"):
+            filter_score += 25
+        elif tech.get("above_ma20"):
+            filter_score += 18
+        elif tech.get("above_ma10"):
+            filter_score += 10
+        elif _is_in_uptrend(stock):
+            filter_score += 8
+        else:
             reasons.append("未处于上升趋势")
-        if not _is_sector_rising(stock):
-            reasons.append(f"板块趋势不足({stock.get('trend_score', 0):.1f})")
-        if not _is_near_ma5(stock, ma5_tolerance, atr_tolerance):
-            tech = stock.get("technical") or {}
+
+        # 条件3：板块上涨（20分）
+        trend_score = stock.get("trend_score", 0)
+        if trend_score >= 7.0:
+            filter_score += 20
+        elif trend_score >= 5.0:
+            filter_score += 15
+        elif trend_score >= 3.0:
+            filter_score += 8
+            reasons.append(f"板块趋势偏弱({trend_score:.1f})")
+        else:
+            reasons.append(f"板块趋势不足({trend_score:.1f})")
+
+        # 条件4：5日均线附近（15分）
+        if _is_near_ma5(stock, ma5_tolerance, atr_tolerance):
+            filter_score += 15
+        else:
             d_atr = tech.get("distance_ma5_atr")
             d_pct = tech.get("distance_ma5_pct")
             if d_atr is not None:
-                reasons.append(f"距5日线{d_atr:+.1f}倍ATR(超{atr_tolerance})")
+                if abs(d_atr) <= atr_tolerance * 1.5:
+                    filter_score += 8  # 接近但未完全达标
+                    reasons.append(f"距5日线{d_atr:+.1f}倍ATR（略偏）")
+                else:
+                    reasons.append(f"距5日线{d_atr:+.1f}倍ATR(超{atr_tolerance})")
             elif d_pct is not None:
-                reasons.append(f"偏离5日线{d_pct:+.1f}%")
+                if abs(d_pct) <= ma5_tolerance * 1.5:
+                    filter_score += 8
+                    reasons.append(f"偏离5日线{d_pct:+.1f}%（略偏）")
+                else:
+                    reasons.append(f"偏离5日线{d_pct:+.1f}%")
             else:
                 reasons.append("无5日线数据")
-        if reasons:
-            stock["_filter_reason"] = "；".join(reasons)
-            filtered.append(stock)
-        else:
+
+        # 附加分：高分股（>7.5）额外加分
+        if score >= 7.5:
+            filter_score += 5
+        elif score >= 6.5:
+            filter_score += 2
+
+        # 附加分：技术买点好
+        technical_score = stock.get("technical_score", 5.0)
+        if technical_score >= 7.0:
+            filter_score += 5
+
+        stock["_filter_score"] = filter_score
+
+        # 通过阈值：55 分（满分 100）
+        if filter_score >= 55:
             stock.pop("_filter_reason", None)
             passed.append(stock)
+        else:
+            stock["_filter_reason"] = "；".join(reasons[:3]) if reasons else f"综合得分{filter_score:.0f}/100"
+            filtered.append(stock)
+
     return passed, filtered
 
 
@@ -2046,16 +2296,21 @@ def _market_filter(enriched: list[dict], external_market: dict = None) -> dict:
 
 
 def _source_credibility_score(stock: dict) -> float:
-    """来源可信度评分，补强多次提及和研报型机会。"""
+    """来源可信度评分，补强多独立作者提及和研报型机会。"""
     score = 5.0
+    unique_authors = len(stock.get("authors", set()))
     post_count = stock.get("post_count", 1) or 1
-    # 多次提及的来源可信度更高
-    if post_count >= 5:
-        score += 2.5
+    # 独立作者数权重大于帖子数
+    if unique_authors >= 4:
+        score += 3.0
+    elif unique_authors >= 3:
+        score += 2.2
+    elif unique_authors >= 2:
+        score += 1.5
     elif post_count >= 3:
-        score += 1.8
+        score += 0.8
     elif post_count >= 2:
-        score += 1.0
+        score += 0.5
     else:
         score += 0.3
     if stock.get("category") == "quantitative" or stock.get("target_str"):
@@ -2152,18 +2407,62 @@ def _trade_period(stock: dict) -> str:
 
 
 def _exit_trigger(stock: dict) -> str:
-    """生成卖出/减仓触发条件。"""
+    """生成卖出/减仓触发条件（含止盈策略）。
+
+    策略层级：
+    1. 风险触发 → 直接回避
+    2. 移动止盈 → 从最高点回撤触发
+    3. 目标价止盈 → 到达目标价附近触发
+    4. RSI + MACD 联动止盈 → 技术面超买触发
+    5. 均线止损 → 跌破均线触发
+    """
     current = stock.get("current_price")
     tech = stock.get("technical") or {}
     ma20 = tech.get("ma20")
     ma10 = tech.get("ma10")
+    ma5 = tech.get("ma5")
     period = stock.get("trade_period", "")
+    target_str = stock.get("target_str", "")
+    target_value = stock.get("target_value")
+    change_5d = stock.get("change_5d") or tech.get("change_5d")
+    rsi = tech.get("rsi_14")
+    macd_hist = tech.get("macd_hist")
+    macd_line = tech.get("macd_line")
+    position_20d = tech.get("position_20d")
+
     if not current:
         return "无行情数据；按原帖逻辑和风险事件人工复核"
+
+    # 1. 风险触发
     if any(kw in stock.get("risk_display", "") for kw in ("回避", "看空", "退市", "重大利空")):
         return "风险触发，回避或清仓"
+
+    # 2. RSI + MACD 联动止盈（超买信号）
+    if rsi is not None and rsi >= 80:
+        if macd_hist is not None and macd_hist < 0:
+            return f"RSI超买({rsi:.0f})+MACD转弱，建议分批止盈；跌破{_fmt_price(current * 0.96)}减仓"
+        return f"RSI超买({rsi:.0f})，冲高分批止盈；跌破{_fmt_price(current * 0.95)}减仓"
+
+    # 3. 目标价止盈
+    if target_value and target_str:
+        if "元" in target_str or "块" in target_str:
+            upside = (target_value / current - 1) * 100 if current > 0 else 0
+            if upside <= 5:
+                return f"已接近目标价{_fmt_price(target_value)}，分批止盈；跌破{_fmt_price(current * 0.95)}清仓"
+            elif upside <= 15:
+                return f"距目标价{_fmt_price(target_value)}仅{upside:.0f}%，逐步止盈；跌破{_fmt_price(current * 0.94)}减仓"
+        elif "亿" in target_str or "e" in target_str.lower():
+            market_cap = stock.get("market_cap_yi")
+            if market_cap and market_cap > 0:
+                cap_upside = (target_value / market_cap - 1) * 100
+                if cap_upside <= 10:
+                    return f"目标市值已接近，分批止盈；跌破{_fmt_price(current * 0.95)}减仓"
+
+    # 4. 短线过热止盈
     if _is_overheated(stock):
         return "短线涨幅过热，冲高分批止盈；跌破5日线减仓"
+
+    # 5. 均线止损
     if period == "短线":
         return f"跌破 {_fmt_price(current * 0.94)} 或放量转弱减仓"
     if period == "波段":
@@ -2298,6 +2597,7 @@ def _score_breakdown(stock: dict) -> str:
         f"逻辑{detail.get('logic', 0):.1f}",
         f"目标{detail.get('target', 0):.1f}",
         f"趋势{detail.get('trend', 0):.1f}",
+        f"涨价{detail.get('long_term_trend', 0):.1f}",
         f"资金{detail.get('capital_flow', 0):.1f}",
         f"量价{detail.get('volume_confirm', 0):.1f}",
         f"基本面{detail.get('fundamentals', 0):.1f}",
@@ -2639,16 +2939,12 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
 
     # ── 市场状态自适应过滤参数 ──
     regime = trend_data.get("market_regime", {})
-    score_threshold = regime.get("score_threshold", 5.0)
-    atr_tolerance = regime.get("ma5_atr_tolerance", 1.5)
+    score_threshold = regime.get("score_threshold", REPORT_RECOMMENDATION_THRESHOLD)
     max_per_sector = regime.get("max_per_sector", 3)
 
-    # ── 统一过滤：仅保留得分达标、上升趋势、板块上涨、5日均线附近的股票 ──
-    passed, filtered_out = _filter_trending_near_ma5(
-        enriched,
-        score_threshold=score_threshold,
-        atr_tolerance=atr_tolerance,
-    )
+    # ── 简单过滤：仅保留得分达标的股票 ──
+    passed = [s for s in enriched if s.get("score", 0) >= score_threshold]
+    filtered_out = [s for s in enriched if s.get("score", 0) < score_threshold]
     passed.sort(key=lambda s: s.get("score", 0), reverse=True)
 
     # ── 组合层风控：行业集中度限制 ──
@@ -2663,10 +2959,10 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
 
     # ── 组合层风控：个股间相关性控制 ──
     try:
-        from portfolio_builder import filter_by_correlation, allocate_risk_budget, format_portfolio_summary
+        from portfolio_builder import filter_by_correlation, select_allocation_method, format_portfolio_summary
         passed = filter_by_correlation(passed, max_corr=0.7)
-        # 波动率反比仓位分配
-        allocate_risk_budget(passed, total_budget_pct=80.0)
+        # 智能仓位分配（Kelly/风险平价/波动率反比自动选择）
+        passed = select_allocation_method(passed, method="auto")
         portfolio_summary = format_portfolio_summary(passed, regime)
     except Exception:
         portfolio_summary = ""
@@ -2702,12 +2998,13 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
     parts.append("## 过滤概览\n")
     parts.append(
         f"> 可评分候选 **{total_scored}** 只；"
-        f"通过趋势精选（得分≥5 + 上升趋势 + 板块上涨 + 5日均线附近）**{total_passed}** 只。"
+        f"评分 ≥{score_threshold:.0f} 分入选 **{total_passed}** 只。"
     )
     if filtered_out and total_passed == 0:
         parts.append(
-            f"> 无股票通过全部过滤条件。被过滤的 {len(filtered_out)} 只中，"
-            f"主要原因：{_filter_reason_summary(filtered_out)}。"
+            f"> 无股票达到评分阈值。被过滤的 {len(filtered_out)} 只中，"
+            f"最高分 {max((s.get('score',0) for s in filtered_out), default=0):.1f}，"
+            f"阈值 {score_threshold:.0f}。"
         )
     parts.append("")
 
@@ -2722,25 +3019,24 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
         reverse=True,
     )
     if buy_candidates:
-        parts.append("## 最适合买入清单（结合技术指标）\n")
+        parts.append("## 最适合买入清单\n")
         if market_filter:
             parts.append(
                 f"> 市场环境过滤：**{market_filter.get('level', '未知')}**，"
                 f"{market_filter.get('desc', '无市场环境数据')}\n"
             )
         parts.append(
-            "| 优先级 | 股票名称 | 机会类型 | 买入档位 | 仓位 | 周期 | 买点参考 | 加仓条件 | 卖出/减仓触发 | 技术面 | 推荐指数 | 核心逻辑 | 风险点/潜在利空 |"
+            "| 股票名称 | 机会类型 | 周期 | 加仓条件 | 卖出/减仓触发 | 推荐指数 | 核心逻辑 | 风险点 |"
         )
         parts.append(
-            "|--------|----------|----------|----------|------|------|----------|----------|----------------|--------|----------|----------|----------------|"
+            "|----------|----------|------|----------|----------------|----------|----------|--------|"
         )
         for i, stock in enumerate(buy_candidates[:8], 1):
             parts.append(
-                f"| {i} | {_display_stock_name(stock)} | {stock.get('opportunity_type', '-')} | "
-                f"{stock.get('action', '-')} | {stock.get('position_advice', '-')} | "
-                f"{stock.get('trade_period', '-')} | {_technical_buy_reference(stock)} | "
+                f"| {_display_stock_name(stock)} | {stock.get('opportunity_type', '-')} | "
+                f"{stock.get('trade_period', '-')} | "
                 f"{stock.get('add_trigger', '-')} | "
-                f"{stock.get('exit_trigger', '-')} | {stock.get('technical_view', '-')} | "
+                f"{stock.get('exit_trigger', '-')} | "
                 f"{_format_score_display(stock)} | "
                 f"{_emphasize_cell(stock.get('logic', '')[:70] if stock.get('logic') else '')} | "
                 f"{stock.get('risk_display', '-')[:90]} |"
@@ -2748,19 +3044,17 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
         parts.append("")
 
     # ── 0. 快速选股总览（仅展示通过筛选的股票）──
-    parts.append("## 快速选股清单（趋势精选 · 按推荐指数降序）\n")
+    parts.append("## 快速选股清单（按推荐指数降序）\n")
     parts.append(
-        "| 买卖建议 | 股票名称 | 机会类型 | 周期 | 建议仓位 | 当前市值 | 买入参考 | 卖出/减仓触发 | 技术面 | 评分拆解 | 核心逻辑 | 目标参考 | 风险点 | 推荐指数 | 趋势 |"
+        "| 股票名称 | 机会类型 | 周期 | 当前市值 | 卖出/减仓触发 | 技术面 | 评分拆解 | 核心逻辑 | 目标参考 | 风险点 | 推荐指数 |"
     )
     parts.append(
-        "|----------|----------|----------|------|----------|----------|----------|----------------|--------|----------|----------|----------|--------|----------|------|"
+        "|----------|----------|------|----------|----------------|--------|----------|----------|----------|--------|----------|"
     )
 
     if not passed:
         parts.append(
-            "| - | 本次无股票通过趋势精选（得分≥5 + 上升趋势 + 板块上涨 + 5日均线附近） | - | - | - | - | - | - | - | - | "
-            "请检查下方行业趋势概览和板块/风险提示 | - | "
-            "若日志出现 1059，优先更新 Cookie 或等待限流恢复 | - | - |"
+            "| - | 本次无股票通过筛选 | - | - | - | - | - | - | - | - | - |"
         )
 
     for stock in passed:
@@ -2770,17 +3064,14 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
         logic = _emphasize_cell(stock["logic"][:70] if stock["logic"] else "")
         risk = stock.get("risk_display", "-")[:70]
         score_str = _format_score_display(stock)
-        trend_badge = _trend_badge(stock)
-        pos_pct = stock.get("position_pct")
-        pos_str = f"{pos_pct:.0f}%" if pos_pct is not None else stock.get("position_advice", "-")
 
         parts.append(
-            f"| {stock.get('action', '-')} | {name} | "
+            f"| {name} | "
             f"{stock.get('opportunity_type', '-')} | {stock.get('trade_period', '-')} | "
-            f"{pos_str} | {market_cap_str} | {stock.get('entry_ref', '-')} | "
+            f"{market_cap_str} | "
             f"{stock.get('exit_trigger', '-')} | {stock.get('technical_view', '-')} | "
             f"{stock.get('score_breakdown', '-')} | {logic} | {target_str} | "
-            f"{risk} | {score_str} | {trend_badge} |"
+            f"{risk} | {score_str} |"
         )
 
     parts.append("")
@@ -2788,13 +3079,11 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
     if not passed and enriched:
         parts.append("## 过滤诊断\n")
         parts.append(
-            f"- 共提取 {total_scored} 只可评分候选，但无一通过趋势精选全部条件。"
+            f"- 共提取 {total_scored} 只可评分候选，但无一达到评分阈值 {score_threshold:.0f} 分。"
         )
         parts.append(
-            "- 主要过滤原因分布：" + _filter_reason_summary(filtered_out) + "。"
-        )
-        parts.append(
-            "- 若日志出现 `code=1059`，本次可能只抓到部分帖子；爬虫已改为 15 秒分页间隔并对 1059 冷却重试。"
+            f"- 最高分: {max((s.get('score',0) for s in enriched), default=0):.1f}，"
+            f"平均分: {sum(s.get('score',0) for s in enriched)/len(enriched):.1f}。"
         )
         parts.append("")
 
@@ -2896,6 +3185,32 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
             parts.append(section4.strip())
             parts.append("")
 
+    # ── 5. 高分股票原文内容 ──
+    # 从全部评分候选中选取高分股票（不限于通过筛选的）
+    all_scored = sorted(enriched or [], key=lambda s: s.get("score", 0), reverse=True)
+    high_score_stocks = [s for s in all_scored if s.get("score", 0) >= 5.0][:5]
+    if high_score_stocks:
+        raw_posts = _load_raw_posts_for_stocks(high_score_stocks)
+        if raw_posts:
+            parts.append("## 高分股票原文摘录\n")
+            for stock in high_score_stocks:
+                name = _display_stock_name(stock)
+                score = stock.get("score", 0)
+                source = stock.get("source", "")
+                logic = stock.get("logic", "")
+                target_str = stock.get("target_str", "")
+                post_content = raw_posts.get(source, "")
+                parts.append(f"### {name}（评分 {score:.1f}）\n")
+                parts.append(f"**投资逻辑：** {logic}\n")
+                if target_str:
+                    parts.append(f"**目标参考：** {target_str}\n")
+                if post_content:
+                    display_content = post_content[:500]
+                    if len(post_content) > 500:
+                        display_content += "..."
+                    parts.append(f"**原文摘录：**\n> {display_content}\n")
+                parts.append("")
+
     return "\n".join(parts)
 
 
@@ -2905,6 +3220,50 @@ def _display_stock_name(stock: dict) -> str:
     if stock.get("foreign_research"):
         return f"{name}（国外投行研报）"
     return name
+
+
+def _load_raw_posts_for_stocks(stocks: list[dict]) -> dict[str, str]:
+    """加载原始帖子内容，用于高分股票的原文展示。
+
+    Returns:
+        {source_label: post_content} 映射。
+    """
+    import re
+    from pathlib import Path
+
+    result = {}
+    raw_dir = Path(__file__).parent / "data" / "raw"
+    if not raw_dir.exists():
+        return result
+
+    # 找到最新的 raw 文件
+    raw_files = sorted(raw_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not raw_files:
+        return result
+
+    try:
+        import json
+        with open(raw_files[0], "r", encoding="utf-8") as f:
+            posts = json.load(f)
+    except Exception:
+        return result
+
+    # 构建帖子编号到内容的映射
+    post_map = {}
+    for i, post in enumerate(posts):
+        post_num = i + 1
+        content = post.get("content", "") or post.get("text", "")
+        if content:
+            post_map[f"帖子 {post_num}"] = content[:800]
+            post_map[f"帖子{post_num}"] = content[:800]
+
+    # 匹配高分股票的 source
+    for stock in stocks:
+        source = stock.get("source", "")
+        if source in post_map:
+            result[source] = post_map[source]
+
+    return result
 
 
 def _extract_section(markdown: str, start_marker: str, end_marker: Optional[str] = None) -> str:

@@ -1,10 +1,10 @@
 zsxq:
-  group_url: ''
+  group_url: 'https://wx.zsxq.com/group/88888142214212'
   base_url: https://wx.zsxq.com
 ai:
   provider: deepseek
   deepseek:
-    api_key: ''
+    api_key: 'sk-c0xsk7sofzycx5s6z6vz9nxrj8qwx4s6q6e3zhj7iuyyljg7'
     model: mimo-v2.5
     base_url: https://api.xiaomimimo.com/v1
     api_key_encrypted: ''
@@ -20,12 +20,12 @@ storage:
   summary_dir: data/summary
 stocks:
   scoring:
-    upside_weight: 0.3
-    quality_weight: 0.2
-    consensus_weight: 0.16
+    upside_weight: 0.2
+    quality_weight: 0.22
+    consensus_weight: 0.18
     sector_weight: 0.14
-    trend_weight: 0.1
-    fundamentals_weight: 0.1
+    trend_weight: 0.12
+    fundamentals_weight: 0.14
     trend:
       min_stocks_for_trend: 2
       max_trend_score: 10
@@ -40,19 +40,48 @@ stocks:
       大模型: AI/人工智能
       算力: AI/人工智能
       算力租赁: AI/人工智能
+      光模块: AI/人工智能
+      CPO: AI/人工智能
+      服务器: AI/人工智能
       新能源: 新能源
       光伏: 新能源
       锂电: 新能源
       锂电材料: 新能源
       储能: 新能源
       风电: 新能源
+      电池: 新能源
       半导体: 半导体/芯片
       芯片: 半导体/芯片
       半导体设备: 半导体/芯片
+      MLCC: 半导体/芯片
       机器人: 机器人/自动化
       自动化: 机器人/自动化
       汽车: 汽车/新能源车
       新能源车: 汽车/新能源车
+      新能源汽车: 汽车/新能源车
+      光纤光缆: 光纤光缆
+      光纤: 光纤光缆
+      光缆: 光纤光缆
+      商业航天: 商业航天
+      航天: 商业航天
+      火箭: 商业航天
+      军工: 军工/国防
+      国防: 军工/国防
+      医药: 医药/医疗
+      创新药: 医药/医疗
+      医疗: 医药/医疗
+      消费电子: 消费电子
+      玻璃基板: 玻璃基板
+      TGV: 玻璃基板
+      房地产: 房地产
+      地产: 房地产
+      白酒: 消费/白酒
+      食品饮料: 消费/食品
+      有色: 有色金属
+      黄金: 有色金属
+      稀土: 有色金属
+      证券: 金融/证券
+      银行: 金融/银行
 ths:
   enabled: true
   cookies_path: cookies_ths.json

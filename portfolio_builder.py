@@ -177,6 +177,50 @@ def allocate_risk_budget(
     return stocks
 
 
+def apply_sector_cap(
+    stocks: list[dict],
+    max_per_sector: int = 3,
+    max_sector_pct: float = 0.25,
+    total_slots: int = 8,
+    verbose: bool = False,
+) -> list[dict]:
+    """行业敞口控制：限制单一行业在组合中的占比。
+
+    Args:
+        stocks: 候选股票列表（已按得分降序）。
+        max_per_sector: 单行业最多保留只数。
+        max_sector_pct: 单行业最大仓位占比。
+        total_slots: 组合总槽位数。
+        verbose: 是否输出日志。
+
+    Returns:
+        通过行业上限检查的股票列表。
+    """
+    if not stocks:
+        return []
+
+    selected = []
+    sector_count = defaultdict(int)
+    removed = []
+
+    for stock in stocks:
+        if len(selected) >= total_slots:
+            break
+
+        sector = stock.get("sector") or stock.get("trending_sector") or "未分类"
+        if sector_count[sector] >= max_per_sector:
+            stock["_filter_reason"] = f"行业{sector}已达上限({max_per_sector}只)"
+            removed.append(stock)
+            if verbose:
+                print(f"  [行业上限] {stock.get('name', '')}({sector}) 已达上限，跳过", flush=True)
+            continue
+
+        selected.append(stock)
+        sector_count[sector] += 1
+
+    return selected
+
+
 def build_optimal_portfolio(
     stocks: list[dict],
     profile: str = "balanced",
@@ -239,3 +283,199 @@ def format_portfolio_summary(
         lines.append(f"市场状态: {regime.get('label', '未知')}，仓位上限 {regime.get('position_ceiling', '未知')}")
 
     return "\n".join(lines)
+
+
+# ═══════════════════════════════════════════════════════════════
+# Kelly 公式仓位分配
+# ═══════════════════════════════════════════════════════════════
+
+def kelly_criterion(win_rate: float, avg_win: float, avg_loss: float) -> float:
+    """计算 Kelly 比例。
+
+    Kelly% = (p * b - q) / b
+    其中 p = 胜率, q = 1-p, b = 平均盈利/平均亏损
+
+    Returns:
+        Kelly 比例（0-1），已做半 Kelly 安全处理。
+    """
+    if avg_loss == 0 or win_rate <= 0 or win_rate >= 1:
+        return 0.0
+
+    b = abs(avg_win / avg_loss)  # 赔率
+    p = win_rate
+    q = 1 - p
+
+    kelly = (p * b - q) / b
+
+    # 半 Kelly（更保守）
+    half_kelly = kelly / 2
+
+    # 限制在合理范围
+    return max(0.0, min(0.4, half_kelly))
+
+
+def allocate_kelly(
+    stocks: list[dict],
+    total_budget_pct: float = 100.0,
+    default_win_rate: float = 0.55,
+    default_avg_win: float = 8.0,
+    default_avg_loss: float = 5.0,
+) -> list[dict]:
+    """基于 Kelly 公式的仓位分配。
+
+    使用每只股票的推荐评分和历史胜率估算 Kelly 比例，
+    然后按 Kelly 比例分配仓位。
+
+    Args:
+        stocks: 股票列表（含 score, technical_score 等）。
+        total_budget_pct: 总仓位百分比上限。
+        default_win_rate: 默认胜率（无历史数据时）。
+        default_avg_win: 默认平均盈利%。
+        default_avg_loss: 默认平均亏损%。
+
+    Returns:
+        股票列表，每只增加 position_pct 字段。
+    """
+    if not stocks:
+        return stocks
+
+    kelly_values = []
+    for s in stocks:
+        # 用评分估算胜率和赔率
+        score = s.get("score", 5.0)
+        technical_score = s.get("technical_score", 5.0)
+
+        # 评分越高胜率越高
+        est_win_rate = default_win_rate + (score - 5.0) * 0.03
+        est_win_rate = max(0.35, min(0.75, est_win_rate))
+
+        # 技术面好赔率更高
+        target_str = s.get("target_str", "")
+        if target_str:
+            est_avg_win = default_avg_win * (1 + (score - 5.0) * 0.05)
+        else:
+            est_avg_win = default_avg_win
+
+        kelly = kelly_criterion(est_win_rate, est_avg_win, default_avg_loss)
+        kelly_values.append(max(0.01, kelly))
+
+    # 归一化
+    total_kelly = sum(kelly_values)
+    if total_kelly == 0:
+        pct_each = round(total_budget_pct / len(stocks), 1)
+        for s in stocks:
+            s["position_pct"] = pct_each
+        return stocks
+
+    for i, s in enumerate(stocks):
+        raw_pct = (kelly_values[i] / total_kelly) * total_budget_pct
+        s["position_pct"] = round(min(raw_pct, 35.0), 1)  # 单只上限 35%
+
+    # 归一化确保总和不超过 total_budget_pct
+    total_allocated = sum(s["position_pct"] for s in stocks)
+    if total_allocated > total_budget_pct:
+        scale = total_budget_pct / total_allocated
+        for s in stocks:
+            s["position_pct"] = round(s["position_pct"] * scale, 1)
+
+    return stocks
+
+
+# ═══════════════════════════════════════════════════════════════
+# 风险平价（Risk Parity）
+# ═══════════════════════════════════════════════════════════════
+
+def allocate_risk_parity(
+    stocks: list[dict],
+    total_budget_pct: float = 100.0,
+) -> list[dict]:
+    """风险平价仓位分配：让每只股票对组合风险贡献相等。
+
+    风险贡献 = 权重 × 波动率
+    目标：所有股票的 风险贡献 相等
+
+    Args:
+        stocks: 股票列表（需含 technical.atr_14）。
+        total_budget_pct: 总仓位百分比上限。
+
+    Returns:
+        股票列表，每只增加 position_pct 字段。
+    """
+    if not stocks:
+        return stocks
+
+    # 计算每只股票的波动率
+    vols = []
+    for s in stocks:
+        tech = s.get("technical") or {}
+        atr = tech.get("atr_14")
+        price = s.get("current_price")
+        if atr and price and price > 0:
+            vol = atr / price
+        else:
+            vol = 0.025  # 默认 2.5% 日波动
+        vols.append(max(vol, 0.005))
+
+    # 风险平价：权重 = 1/波动率
+    inv_vols = [1.0 / v for v in vols]
+    total_inv = sum(inv_vols)
+
+    for i, s in enumerate(stocks):
+        raw_pct = (inv_vols[i] / total_inv) * total_budget_pct
+        s["position_pct"] = round(min(raw_pct, 40.0), 1)
+
+    # 归一化
+    total_allocated = sum(s["position_pct"] for s in stocks)
+    if total_allocated > total_budget_pct:
+        scale = total_budget_pct / total_allocated
+        for s in stocks:
+            s["position_pct"] = round(s["position_pct"] * scale, 1)
+
+    return stocks
+
+
+def select_allocation_method(
+    stocks: list[dict],
+    method: str = "auto",
+) -> list[dict]:
+    """自动选择最优仓位分配方法。
+
+    方法选择逻辑：
+    - 有推荐历史且样本充足 → Kelly 公式
+    - 有 ATR 数据 → 风险平价
+    - 默认 → 波动率反比
+
+    Args:
+        stocks: 股票列表。
+        method: "auto" | "kelly" | "risk_parity" | "inverse_vol" | "equal"
+
+    Returns:
+        股票列表，每只增加 position_pct 字段。
+    """
+    if method == "kelly":
+        return allocate_kelly(stocks)
+    if method == "risk_parity":
+        return allocate_risk_parity(stocks)
+    if method == "equal":
+        return allocate_risk_budget(stocks, method="equal")
+    if method == "inverse_vol":
+        return allocate_risk_budget(stocks, method="inverse_vol")
+
+    # auto: 根据数据可用性选择
+    has_atr = any(
+        (s.get("technical") or {}).get("atr_14") for s in stocks
+    )
+    has_history = False
+    try:
+        from backtester import _load_history
+        history = _load_history()
+        has_history = len(history) > 20
+    except Exception:
+        pass
+
+    if has_history:
+        return allocate_kelly(stocks)
+    elif has_atr:
+        return allocate_risk_parity(stocks)
+    else:
+        return allocate_risk_budget(stocks, method="inverse_vol")
