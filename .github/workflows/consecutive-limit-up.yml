@@ -73,6 +73,7 @@ jobs:
           env_file = os.environ["GITHUB_ENV"]
           values = {
               "LONGCAT_API_KEY": os.environ.get("LONGCAT_API_KEY", ""),
+              "DEEPSEEK_V4_FLASH_API_KEY": os.environ.get("DEEPSEEK_V4_FLASH_API_KEY", ""),
               "SMTP_USER": os.environ.get("SMTP_USER", ""),
               "SMTP_PASS": os.environ.get("SMTP_PASS", ""),
               "SMTP_HOST": os.environ.get("SMTP_HOST", ""),
@@ -112,6 +113,9 @@ jobs:
       - name: 运行连板扫描
         id: scan
         env:
+          LONGCAT_API_KEY: ${{ secrets.LONGCAT_API_KEY }}
+          DEEPSEEK_V4_FLASH_API_KEY: ${{ secrets.DEEPSEEK_V4_FLASH_API_KEY }}
+          AUDIO_TRANSCRIPTION_API_KEY: ${{ secrets.AUDIO_TRANSCRIPTION_API_KEY }}
           NO_AI: ${{ inputs.no_ai }}
         run: |
           AI_FLAG=""

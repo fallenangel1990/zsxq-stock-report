@@ -185,6 +185,7 @@ jobs:
           env_file = os.environ["GITHUB_ENV"]
           values = {
               "LONGCAT_API_KEY": os.environ.get("LONGCAT_API_KEY", ""),
+              "DEEPSEEK_V4_FLASH_API_KEY": os.environ.get("DEEPSEEK_V4_FLASH_API_KEY", ""),
               "SMTP_USER": os.environ.get("SMTP_USER", ""),
               "SMTP_PASS": os.environ.get("SMTP_PASS", ""),
               "SMTP_HOST": os.environ.get("SMTP_HOST", ""),
@@ -210,6 +211,7 @@ jobs:
           ZSXQ_GROUP_URL: ${{ secrets.ZSXQ_GROUP_URL }}
           MAX_POSTS: ${{ inputs.max_posts }}
           LONGCAT_API_KEY: ${{ secrets.LONGCAT_API_KEY }}
+          DEEPSEEK_V4_FLASH_API_KEY: ${{ secrets.DEEPSEEK_V4_FLASH_API_KEY }}
           AUDIO_TRANSCRIPTION_API_KEY: ${{ secrets.AUDIO_TRANSCRIPTION_API_KEY }}
         run: |
           GROUP_URL="${ZSXQ_GROUP_URL}"
