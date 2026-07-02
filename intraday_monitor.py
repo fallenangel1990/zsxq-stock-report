@@ -356,6 +356,97 @@ def send_alert_email(alerts: list[dict]) -> bool:
         return False
 
 
+
+
+# ── 板块轮动监控 ──
+
+SECTOR_ROTATION_COOLDOWN = 3600  # 板块轮动预警冷却时间（秒）
+
+
+def _check_sector_rotation(state: dict) -> list[dict]:
+    """检测板块轮动，生成风险/机会预警。
+
+    当检测到极端分化：科技/半导体大跌 vs 消费/医药/红利大涨时，
+    触发板块轮动预警，提示用户关注风格切换。
+
+    Returns:
+        轮动预警列表。
+    """
+    from sector_monitor import capture_market_signals
+
+    alerts = []
+    try:
+        report, market, boards = capture_market_signals(
+            mode="intraday", top_n=20, with_ai=False,
+        )
+    except Exception as exc:
+        print(f"[板块轮动] 获取信号失败: {exc}", flush=True)
+        return alerts
+
+    if not boards:
+        return alerts
+
+    # 分离大涨板块和大跌板块
+    rising = [b for b in boards if b.get("change_pct", 0) >= 2.0]
+    falling = [b for b in boards if b.get("change_pct", 0) <= -2.0]
+
+    if not rising or not falling:
+        return alerts
+
+    # 检测是否有高动量大涨（有资金推动）
+    strong_rising = [b for b in rising if b.get("main_net_yi", 0) >= 2.0]
+    strong_falling = [b for b in falling if b.get("main_net_yi", 0) <= -1.0]
+
+    # 板块轮动预警
+    if strong_rising and strong_falling:
+        if _is_in_cooldown("SECTOR_ROTATION", "rotation", state):
+            return alerts
+
+        now = _now_shanghai()
+        now_str = now.strftime("%H:%M:%S")
+
+        rising_names = "、".join(
+            f"{b['name']}({b['change_pct']:+.1f}%)" for b in strong_rising[:3]
+        )
+        falling_names = "、".join(
+            f"{b['name']}({b['change_pct']:+.1f}%)" for b in strong_falling[:3]
+        )
+
+        alerts.append({
+            "code": "SECTOR",
+            "name": "板块轮动",
+            "type": "sector_rotation",
+            "level": "🔴 严重",
+            "priority": 0,
+            "msg": (
+                f"风格极端切换 — 机会方: {rising_names}；"
+                f"风险方: {falling_names}。建议检查持仓行业集中度。"
+            ),
+            "ts": time.time(),
+            "time": now_str,
+        })
+
+        # 对 strong_falling 中的机会板块单独发机会信号
+        for b in strong_rising[:2]:
+            action = b.get("action", "")
+            if action in ("加仓信号", "建仓信号", "观察试仓"):
+                alerts.append({
+                    "code": "SECTOR_OP",
+                    "name": b["name"],
+                    "type": "sector_opportunity",
+                    "level": "🟢 机会",
+                    "priority": 1,
+                    "msg": (
+                        f"{b['name']}板块 {b['change_pct']:+.1f}%，"
+                        f"主力净流入 {b.get('main_net_yi', 0):.1f}亿，"
+                        f"建议: {action}。{b.get('action_reason', '')}"
+                    ),
+                    "ts": time.time(),
+                    "time": now_str,
+                })
+
+    return alerts
+
 def run_monitor(
     poll_interval: int = DEFAULT_POLL_INTERVAL,
     max_rounds: int = 0,
@@ -398,6 +489,14 @@ def run_monitor(
         codes = [s["code"] for s in stocks]
         if verbose:
             print(f"[盘中预警] 第 {round_count + 1} 轮，监控 {len(codes)} 只股票...", flush=True, end="")
+        # 初始化预警列表
+        alerts = []
+
+        # 板块轮动检测（每 3 轮执行一次）
+        if round_count % 3 == 0:
+            sector_alerts = _check_sector_rotation(state)
+            if sector_alerts:
+                alerts.extend(sector_alerts)
 
         # 获取行情和技术指标
         try:
@@ -412,8 +511,13 @@ def run_monitor(
         if verbose:
             print(f" 获取 {len(prices)} 只行情", flush=True)
 
-        # 检查预警
-        alerts = check_alerts(stocks, prices, technicals, changes_5d, state)
+        # 检查预警（个股级 + 板块级）
+        if not alerts:
+            alerts = check_alerts(stocks, prices, technicals, changes_5d, state)
+        else:
+            # 已有板块轮动预警，叠加个股预警
+            stock_alerts = check_alerts(stocks, prices, technicals, changes_5d, state)
+            alerts.extend(stock_alerts)
 
         if alerts:
             # 记录预警到状态
