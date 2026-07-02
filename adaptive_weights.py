@@ -53,6 +53,19 @@ IC_WEIGHT_FLOOR = 0.02  # 单因子最低权重（防止完全归零）
 IC_WEIGHT_CEILING = 0.35  # 单因子最高权重（防止过度集中）
 SMOOTHING_ALPHA = 0.3  # 权重平滑系数（0=不更新, 1=完全替换）
 
+# 因子半衰期（天）：快因子信号衰减快，慢因子更持久
+FACTOR_HALF_LIFE = {
+    "upside": 10,       # 目标价因子：中速衰减
+    "quality": 30,      # 质量因子：慢衰减
+    "consensus": 5,     # 共识因子：快衰减（热度来得快去得快）
+    "sector": 7,        # 板块因子：中速
+    "trend": 5,         # 趋势因子：快衰减
+    "fundamentals": 60, # 基本面：极慢衰减
+    "capital_flow": 3,  # 资金流：极快衰减
+    "volume_confirm": 3, # 量价确认：极快衰减
+    "logic": 14,        # 逻辑因子：中速
+}
+
 
 def _now_shanghai() -> datetime:
     return datetime.now(ZoneInfo("Asia/Shanghai"))

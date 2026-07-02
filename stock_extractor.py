@@ -1339,6 +1339,17 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
             unique_authors=unique_authors,
         )
 
+        # P2 调整：拥挤度惩罚（同一板块/赛道被过多推荐 = 信号拥挤）
+        # 计算该股票板块在当次推荐中的排名密度
+        norm_sec_cs = _normalize_sector_name(stock.get("sector", ""), sector_aliases)
+        sector_count_cs = sum(
+            1 for s in all_stocks.values()
+            if _normalize_sector_name(s.get("sector", ""), sector_aliases) == norm_sec_cs
+        )
+        # 排名 = 同板块数量（越多越拥挤）
+        crowding_penalty = _compute_crowding_penalty(stock, sector_count_cs)
+        total_score = round(max(1.0, total_score + crowding_penalty), 1)
+
         # P2 调整：护城河评分加成（宽护城河 = 更强确定性\n")
         moat_score = stock.get("moat_score", 5.0)
         if moat_score >= 8.0:
@@ -2974,6 +2985,25 @@ def _exclusion_reason(stock: dict) -> str:
         reasons.append("当前买点质量不足")
 
     return "；".join(reasons[:3])
+
+
+def _atr_based_stop_loss(stock: dict) -> Optional[float]:
+    """基于 ATR 的量化止损位。
+
+    止损价 = max(当前价 * 0.94, 当前价 - 2 * ATR)
+    比文本解析更可靠，覆盖所有有行情数据的标的。
+
+    Returns:
+        止损价格，数据不足返回 None。
+    """
+    tech = stock.get("technical") or {}
+    atr = tech.get("atr_14")
+    price = stock.get("current_price")
+    if not atr or not price or price <= 0:
+        return None
+    atr_stop = price - 2.0 * atr
+    pct_stop = price * 0.94
+    return round(max(atr_stop, pct_stop), 2)
 
 
 def _position_advice(stock: dict) -> str:
