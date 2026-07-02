@@ -252,6 +252,174 @@ def _rank_values(values: list[float]) -> list[float]:
     return ranks
 
 
+
+def validate_score_monotonicity(records: list[dict]) -> dict:
+    """验证评分体系的有效性：高分组是否真的获得更高收益。
+
+    将推荐按评分分为 5 档，检查每档的平均前向收益是否单调递增。
+    这是验证评分体系是否有效的核心测试。
+
+    Returns:
+        {
+            "is_monotonic": bool,
+            "groups": {group_name: {avg_return, win_rate, count}},
+            "monotonicity_score": float,  # 0-1, 1=完全单调
+            "recommendation": str,
+        }
+    """
+    if not records:
+        return {"is_monotonic": False, "recommendation": "无数据"}
+
+    # 按评分分 5 档
+    groups = {
+        "1-3分(低)": [],
+        "3-5分(中低)": [],
+        "5-7分(中)": [],
+        "7-8分(中高)": [],
+        "8-10分(高)": [],
+    }
+
+    for rec in records:
+        code = rec.get("code")
+        entry_price = rec.get("current_price")
+        entry_date = (rec.get("generated_at") or "")[:10]
+        score = rec.get("score", 0)
+        if not code or not entry_price or entry_price <= 0:
+            continue
+
+        fwd = _get_forward_returns(code, entry_price, entry_date, days=[5])
+        ret_5d = fwd.get(5) if fwd else None
+        if ret_5d is None:
+            continue
+
+        if score < 3:
+            groups["1-3分(低)"].append(ret_5d)
+        elif score < 5:
+            groups["3-5分(中低)"].append(ret_5d)
+        elif score < 7:
+            groups["5-7分(中)"].append(ret_5d)
+        elif score < 8:
+            groups["7-8分(中高)"].append(ret_5d)
+        else:
+            groups["8-10分(高)"].append(ret_5d)
+
+    # 计算每档的统计
+    group_stats = {}
+    for name, rets in groups.items():
+        if rets:
+            group_stats[name] = {
+                "avg_return": round(sum(rets) / len(rets), 2),
+                "win_rate": round(sum(1 for r in rets if r > 0) / len(rets) * 100, 1),
+                "median_return": round(sorted(rets)[len(rets) // 2], 2),
+                "count": len(rets),
+            }
+
+    # 检查单调性
+    group_names = ["1-3分(低)", "3-5分(中低)", "5-7分(中)", "7-8分(中高)", "8-10分(高)"]
+    returns_list = [group_stats[g]["avg_return"] for g in group_names if g in group_stats]
+
+    if len(returns_list) < 3:
+        return {
+            "is_monotonic": False,
+            "groups": group_stats,
+            "monotonicity_score": 0.0,
+            "recommendation": "数据不足，无法验证单调性",
+        }
+
+    # 计算单调性得分：相邻两组中，后组>前组的比例
+    increasing_count = sum(1 for i in range(len(returns_list) - 1) if returns_list[i + 1] > returns_list[i])
+    monotonicity_score = increasing_count / (len(returns_list) - 1) if len(returns_list) > 1 else 0.0
+
+    is_monotonic = monotonicity_score >= 0.75  # 至少 75% 的相邻对比是递增的
+
+    if is_monotonic:
+        recommendation = "评分体系有效：高分组收益显著优于低分组"
+    elif monotonicity_score >= 0.5:
+        recommendation = "评分体系部分有效：建议优化因子权重"
+    else:
+        recommendation = "评分体系失效：建议重新设计评分因子"
+
+    return {
+        "is_monotonic": is_monotonic,
+        "groups": group_stats,
+        "monotonicity_score": round(monotonicity_score, 2),
+        "recommendation": recommendation,
+    }
+
+
+def walk_forward_ic(
+    records: list[dict],
+    window: int = 60,
+    step: int = 10,
+    return_days: int = 5,
+) -> list[dict]:
+    """滚动窗口 IC 计算（Walk-Forward Optimization）。
+
+    用过去 window 天的数据计算因子权重，在下一个 step 天验证。
+    避免过拟合，更接近实盘表现。
+
+    Args:
+        records: 推荐历史（需按日期排序）
+        window: 滚动窗口大小（天）
+        step: 步长（天）
+        return_days: 前向收益天数
+
+    Returns:
+        [{period_start, period_end, factor_ics: {factor: ic}}]
+    """
+    if not records or len(records) < 10:
+        return []
+
+    # 按日期排序
+    sorted_records = sorted(records, key=lambda r: r.get("generated_at", ""))
+
+    # 获取日期范围
+    dates = sorted(set((r.get("generated_at") or "")[:10] for r in sorted_records))
+    if len(dates) < 2:
+        return []
+
+    results = []
+    i = 0
+    while i < len(dates) - 1:
+        train_end_date = dates[i]
+        # 找到 window 天前的起始位置
+        start_idx = max(0, i - window)
+        train_start_date = dates[start_idx]
+
+        # 训练集
+        train_records = [
+            r for r in sorted_records
+            if train_start_date <= (r.get("generated_at") or "")[:10] <= train_end_date
+        ]
+
+        # 验证集（接下来的 step 天）
+        val_end_idx = min(i + step, len(dates) - 1)
+        val_end_date = dates[val_end_idx]
+        val_records = [
+            r for r in sorted_records
+            if train_end_date < (r.get("generated_at") or "")[:10] <= val_end_date
+        ]
+
+        if len(train_records) >= 5 and len(val_records) >= 3:
+            # 在训练集上计算 IC
+            train_ics = calculate_factor_ic(train_records, return_days=return_days)
+            # 在验证集上验证
+            val_ics = calculate_factor_ic(val_records, return_days=return_days)
+
+            results.append({
+                "train_period": f"{train_start_date} to {train_end_date}",
+                "val_period": f"{train_end_date} to {val_end_date}",
+                "train_count": len(train_records),
+                "val_count": len(val_records),
+                "train_ics": {k: v["ic"] for k, v in train_ics.items()},
+                "val_ics": {k: v["ic"] for k, v in val_ics.items()},
+            })
+
+        i += step
+
+    return results
+
+
 def calculate_performance_metrics(records: list[dict]) -> dict:
     """计算推荐绩效指标。
 

@@ -506,6 +506,83 @@ def update_ic_history(ic_data: dict) -> None:
     _save_ic_history(history)
 
 
+
+
+def orthogonalize_factor_weights(factor_corr_matrix: dict, base_weights: dict) -> dict:
+    """因子正交化：去除因子间相关性导致的重复计分。
+
+    当两个因子相关系数 > 0.7 时，对 IC 更低的因子做降权。
+    避免同一风险被重复计入。
+
+    Args:
+        factor_corr_matrix: {factor_a: {factor_b: corr}} 相关系数矩阵
+        base_weights: 基础权重
+
+    Returns:
+        正交化后的权重
+    """
+    adjusted = dict(base_weights)
+    CORR_THRESHOLD = 0.7
+
+    for fa in adjusted:
+        for fb in adjusted:
+            if fa >= fb:
+                continue
+            corr = factor_corr_matrix.get(fa, {}).get(fb, 0)
+            if abs(corr) > CORR_THRESHOLD:
+                # 对 IC 绝对值更低的因子降权
+                ic_a = abs(_latest_ic_cache.get(fa, 0)) if "_latest_ic_cache" in globals() else 0.1
+                ic_b = abs(_latest_ic_cache.get(fb, 0)) if "_latest_ic_cache" in globals() else 0.1
+                weaker = fb if ic_a >= ic_b else fa
+                adjusted[weaker] = adjusted.get(weaker, 0) * 0.5
+                print(f"[正交化] {fa}-{fb} 相关={corr:.2f}, {weaker} 权重减半", flush=True)
+
+    # 归一化
+    total = sum(adjusted.values())
+    if total > 0:
+        adjusted = {k: round(v / total, 4) for k, v in adjusted.items()}
+    return adjusted
+
+
+def get_market_regime_weights(market_regime: str) -> dict:
+    """根据市场状态返回因子权重模板。
+
+    不同市场状态下，有效因子不同：
+    - 牛市进攻: 重趋势、重动量、重资金流
+    - 熊市防守: 重质量、重估值、重基本面
+    - 震荡观察: 均衡配置，加重护城河
+    - 修复可试仓: 重资金流、重超跌反弹
+
+    Args:
+        market_regime: 市场状态标签
+
+    Returns:
+        该状态下的因子权重模板
+    """
+    regime_templates = {
+        "强势进攻": {
+            "upside": 0.25, "quality": 0.12, "consensus": 0.15,
+            "sector": 0.15, "trend": 0.12, "fundamentals": 0.05,
+            "capital_flow": 0.08, "volume_confirm": 0.05, "logic": 0.03,
+        },
+        "修复可试仓": {
+            "upside": 0.20, "quality": 0.15, "consensus": 0.10,
+            "sector": 0.12, "trend": 0.08, "fundamentals": 0.10,
+            "capital_flow": 0.12, "volume_confirm": 0.08, "logic": 0.05,
+        },
+        "震荡观察": {
+            "upside": 0.18, "quality": 0.18, "consensus": 0.10,
+            "sector": 0.10, "trend": 0.08, "fundamentals": 0.15,
+            "capital_flow": 0.08, "volume_confirm": 0.06, "logic": 0.07,
+        },
+        "防守降仓": {
+            "upside": 0.10, "quality": 0.22, "consensus": 0.08,
+            "sector": 0.08, "trend": 0.05, "fundamentals": 0.20,
+            "capital_flow": 0.10, "volume_confirm": 0.05, "logic": 0.12,
+        },
+    }
+    return regime_templates.get(market_regime, {})
+
 def get_latest_weights() -> Optional[dict]:
     """获取最近一次更新的权重。"""
     history = _load_weights_history()
