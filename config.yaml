@@ -11,7 +11,7 @@ ai:
   deepseek_v4_flash:
     api_key: ''
     model: deepseek-v4-flash
-    base_url: https://token.sensenova.cn
+    base_url: https://token.sensenova.cn/v1
     api_key_encrypted: ''
   claude:
     api_key: ''
