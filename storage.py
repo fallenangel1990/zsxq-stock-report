@@ -154,6 +154,21 @@ def save_market_review_report(report: str) -> str:
     return str(filepath)
 
 
+def save_premarket_briefing(report: str) -> str:
+    """保存盘前财经快讯为 Markdown 文件。"""
+    _, summary_dir = _get_dirs()
+    briefing_dir = summary_dir / "briefings"
+    briefing_dir.mkdir(parents=True, exist_ok=True)
+
+    date_str = datetime.now().strftime("%Y%m%d")
+    filename = f"premarket_briefing_{date_str}.md"
+
+    filepath = briefing_dir / filename
+    filepath.write_text(report, encoding="utf-8")
+    _log(f"盘前快讯已保存到: {filepath}")
+    return str(filepath)
+
+
 def save_enriched_stocks(stocks: list[dict], group_name: str = "") -> str:
     """保存增强后的股票数据为 JSON 文件（供 ths_sync 使用）。
 

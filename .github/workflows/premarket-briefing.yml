@@ -1,0 +1,97 @@
+name: 盘前财经快讯
+
+"on":
+  workflow_dispatch:
+
+  schedule:
+    # 北京时间 08:50 (UTC 00:50)，A 股交易日盘前
+    - cron: "50 0 * * 1-5"
+
+env:
+  PYTHONUNBUFFERED: 1
+
+jobs:
+  premarket-briefing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TZ: Asia/Shanghai
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v6
+
+      - name: 设置 Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: 安装依赖
+        run: |
+          pip install --upgrade pip -q
+          pip install -r requirements.txt -q
+
+      - name: 检查交易日
+        shell: python3 {0}
+        run: |
+          import datetime
+          from zoneinfo import ZoneInfo
+
+          today = datetime.datetime.now(ZoneInfo("Asia/Shanghai")).date()
+          try:
+              from chinese_calendar import is_workday, is_holiday
+              if not is_workday(today) or is_holiday(today):
+                  print(f"⏭ 跳过：{today} 非 A 股开盘日")
+                  import sys
+                  sys.exit(0)
+              print(f"✅ {today} 是 A 股开盘日")
+          except ImportError:
+              if today.weekday() >= 5:
+                  print(f"⏭ 跳过：{today} 是周末")
+                  import sys
+                  sys.exit(0)
+              print("⚠️  chinese_calendar 未安装，仅检测周末")
+
+      - name: 写入邮件环境变量
+        env:
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_SECURITY: ${{ secrets.SMTP_SECURITY }}
+          TO_EMAIL: ${{ secrets.TO_EMAIL }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import uuid
+
+          env_file = os.environ["GITHUB_ENV"]
+          values = {
+              "SMTP_USER": os.environ.get("SMTP_USER", ""),
+              "SMTP_PASS": os.environ.get("SMTP_PASS", ""),
+              "SMTP_HOST": os.environ.get("SMTP_HOST", ""),
+              "SMTP_PORT": os.environ.get("SMTP_PORT", ""),
+              "SMTP_SECURITY": os.environ.get("SMTP_SECURITY", ""),
+              "TO_EMAIL": os.environ.get("TO_EMAIL") or "470337944@qq.com",
+          }
+
+          with open(env_file, "a", encoding="utf-8") as f:
+              for key, value in values.items():
+                  if not value:
+                      continue
+                  marker = f"EOF_{key}_{uuid.uuid4().hex}"
+                  f.write(f"{key}<<{marker}\n{value}\n{marker}\n")
+          PY
+
+      - name: 生成并发送盘前快讯
+        env:
+          DEEPSEEK_V4_FLASH_API_KEY: ${{ secrets.DEEPSEEK_V4_FLASH_API_KEY }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_SECURITY: ${{ secrets.SMTP_SECURITY }}
+          TO_EMAIL: ${{ secrets.TO_EMAIL }}
+        run: |
+          python3 premarket_briefing.py
