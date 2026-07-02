@@ -1192,23 +1192,6 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
         if verbose:
             print(f"  龙虎榜数据获取失败（不影响主流程）: {exc}", flush=True)
 
-    # 获取北向资金 / 融资余额（聪明钱信号，用作市场级信号）
-    smart_money_signal = {}
-    try:
-        from price_fetcher import fetch_northbound_flow, fetch_market_sentiment
-        north = fetch_northbound_flow(timeout=8)
-        sentiment = fetch_market_sentiment(timeout=8)
-        smart_money_signal = {
-            "northbound": north,
-            "sentiment": sentiment,
-            "score": sentiment.get("score", 50),  # 0-100
-        }
-        if verbose:
-            print(f"  聪明钱信号: 北向{north.get('net_inflow', 0):+.1f}亿 / 融资{sentiment.get('signal', '未知')}", flush=True)
-    except Exception as exc:
-        if verbose:
-            print(f"  聪明钱数据获取失败（不影响主流程）: {exc}", flush=True)
-
     # 行业趋势检测
     sector_aliases = scoring.get("sector_aliases", {})
     trend_config = scoring.get("trend", {})
@@ -1393,8 +1376,8 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
         if author_bonus > 0:
             total_score = round(min(10.0, total_score + author_bonus * 0.3), 1)
 
-        # P2 调整：聪明钱信号调整 — 北向/融资/主力净流入
-        smart_adj = _smart_money_adjustment(stock, smart_money_signal, stock_money_flow)
+        # P2 调整：聪明钱信号调整 — 主力净流入
+        smart_adj = _smart_money_adjustment(stock, stock_money_flow)
         if smart_adj != 0:
             total_score = round(max(1.0, min(10.0, total_score + smart_adj)), 1)
 
@@ -1494,7 +1477,6 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
         "market_filter": market_filter,
         "market_regime": market_regime_config,
         "style_exposure": style_exposure,
-        "smart_money_signal": smart_money_signal,
     }
     return enriched, trend_data
 
@@ -1725,39 +1707,15 @@ def _capital_flow_score(code: str, lhb_code_map: dict) -> float:
     return max(0.0, min(10.0, score))
 
 
-def _smart_money_adjustment(stock: dict, smart_money_signal: dict, money_flow: dict = None) -> float:
-    """基于聪明钱信号的个股评分调整（-1.5 ~ +1.5）。
+def _smart_money_adjustment(stock: dict, money_flow: dict = None) -> float:
+    """基于主力净流入的个股评分调整（-1.5 ~ +1.5）。
 
-    结合市场级信号（北向资金、融资融券）和个股级信号（主力净流入）。
+    仅使用个股级信号（主力净流入）。
 
     Returns:
         分数调整值（-1.5 到 +1.5）。
     """
     adjustment = 0.0
-
-    # 市场级信号：北向资金流向
-    north = (smart_money_signal or {}).get("northbound", {})
-    north_net = north.get("net_inflow", 0)
-    if north_net > 30:
-        adjustment += 0.4  # 北向大幅流入
-    elif north_net > 10:
-        adjustment += 0.2
-    elif north_net < -30:
-        adjustment -= 0.4  # 北向大幅流出
-    elif north_net < -10:
-        adjustment -= 0.2
-
-    # 市场级信号：融资余额变化
-    sentiment = (smart_money_signal or {}).get("sentiment", {})
-    margin_change = (sentiment.get("margin") or {}).get("margin_change", 0)
-    if margin_change > 10:
-        adjustment += 0.3
-    elif margin_change > 5:
-        adjustment += 0.15
-    elif margin_change < -10:
-        adjustment -= 0.3
-    elif margin_change < -5:
-        adjustment -= 0.15
 
     # 个股级信号：主力净流入
     code = stock.get("code", "")
@@ -3306,7 +3264,6 @@ def _append_trader_summary(
     trend_scores: dict,
     market_filter: dict,
     style_exposure: dict = None,
-    smart_money: dict = None,
 ) -> None:
     """报告顶部的交易员视角摘要。"""
     executable = [s for s in enriched if s.get("decision_tier") == "可执行清单"]
@@ -3327,25 +3284,14 @@ def _append_trader_summary(
         parts.append("- 操作纪律：只从可执行清单中选 1-3 只分批，观察清单等触发条件。")
     parts.append("")
 
-    # 风格暴露 + 聪明钱摘要
+    # 风格暴露
     style_exposure = style_exposure or {}
-    smart_money = smart_money or {}
     if style_exposure:
         parts.append("### 风格暴露\n")
         for style, info in style_exposure.items():
             direction = info.get("direction", "")
             exposure = info.get("exposure", 0)
             parts.append(f"- **{style}**: {exposure:.1f}（{direction}）")
-        parts.append("")
-
-    # 聪明钱信号
-    if smart_money:
-        north = smart_money.get("northbound", {})
-        sentiment = smart_money.get("sentiment", {})
-        margin = sentiment.get("margin", {})
-        parts.append("### 聪明钱信号\n")
-        parts.append(f"- 北向资金：{north.get('net_inflow', 0):+.1f}亿（{north.get('signal', '未知')}）")
-        parts.append(f"- 融资融券：{margin.get('margin_change', 0):+.1f}亿（{margin.get('signal', '未知')}）")
         parts.append("")
 
 
@@ -3544,7 +3490,6 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
     if trend_data is None:
         trend_data = {}
     style_exposure = trend_data.get("style_exposure", {})
-    smart_money = trend_data.get("smart_money_signal", {})
     all_enriched = list(enriched or [])
     enriched, display_meta = _select_report_display_stocks(all_enriched)
     trend_data["display_meta"] = display_meta
@@ -3610,7 +3555,7 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
         parts.append(portfolio_summary)
         parts.append("")
 
-    _append_trader_summary(parts, passed, trend_scores, market_filter, style_exposure, smart_money)
+    _append_trader_summary(parts, passed, trend_scores, market_filter, style_exposure)
     _append_decision_tables(parts, passed)
     _append_mirror_test(parts, passed)
 
