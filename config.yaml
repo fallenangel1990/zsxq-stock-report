@@ -2,7 +2,7 @@ zsxq:
   group_url: https://wx.zsxq.com/group/88888142214212
   base_url: https://wx.zsxq.com
 ai:
-  provider: longcat
+  provider: deepseek-v4-flash
   deepseek:
     api_key: ''
     model: mimo-v2.5

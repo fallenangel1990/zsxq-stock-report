@@ -13,7 +13,7 @@ zsxq:
 # AI 总结配置
 # provider 可选: deepseek | longcat | deepseek-v4-flash | claude
 ai:
-  provider: "deepseek"
+  provider: "deepseek-v4-flash"
 
   # OpenAI 兼容接口配置（provider=deepseek 时生效）。
   # 如 base_url 使用小米 Mimo，请优先通过 MIMO_API_KEY 或 XIAOMI_MIMO_API_KEY 设置。
