@@ -19,6 +19,10 @@ name: 每日股票报告
 env:
   PYTHONUNBUFFERED: 1
 
+concurrency:
+  group: daily-report
+  cancel-in-progress: true
+
 jobs:
   daily-report:
     runs-on: ubuntu-latest

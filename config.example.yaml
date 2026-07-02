@@ -1,53 +1,29 @@
-# 知识星球爬取工具配置文件
-# 复制此文件为 config.yaml 并填入真实密钥
-
-# 知识星球专栏配置
 zsxq:
-  # 专栏 ID（可选；用于 research 命令直接调用搜索接口）
-  group_id: ""
-  # 专栏 URL（也可通过命令行传入）
-  group_url: ""
-  # 知识星球网页版地址
-  base_url: "https://wx.zsxq.com"
-
-# AI 总结配置
-# provider 可选: deepseek | longcat | deepseek-v4-flash | claude
+  group_id: ''
+  group_url: ''
+  base_url: https://wx.zsxq.com
 ai:
-  provider: "deepseek-v4-flash"
-
-  # OpenAI 兼容接口配置（provider=deepseek 时生效）。
-  # 如 base_url 使用小米 Mimo，请优先通过 MIMO_API_KEY 或 XIAOMI_MIMO_API_KEY 设置。
-  # 如 base_url 使用 DeepSeek，请优先通过 DEEPSEEK_API_KEY 设置。
-  # 本地如需写入配置文件，建议使用 api_key_encrypted，并将解密密钥放在
-  # .secrets/{deepseek|mimo}.key 或对应的 *_API_KEY_ENCRYPTION_KEY 环境变量中。
+  provider: deepseek-v4-flash
   deepseek:
-    api_key: ""
-    api_key_encrypted: ""
-    model: "mimo-v2.5"
-    base_url: "https://api.xiaomimimo.com/v1"
-
-  # DeepSeek V4 Flash 配置（provider=deepseek-v4-flash 时生效）
-  # API Key 也可通过环境变量 DEEPSEEK_V4_FLASH_API_KEY 设置
+    api_key: ''
+    api_key_encrypted: ''
+    model: mimo-v2.5
+    base_url: https://api.xiaomimimo.com/v1
   deepseek_v4_flash:
-    api_key: ""
-    model: "deepseek-v4-flash"
-    base_url: "https://token.sensenova.cn/v1"
-
-  # Claude API 配置（provider=claude 时生效）
-  # API Key 也可通过环境变量 ANTHROPIC_API_KEY 设置
+    api_key: ''
+    model: deepseek-v4-flash
+    base_url: https://token.sensenova.cn/v1
   claude:
-    api_key: ""
-    model: "claude-sonnet-4-6"
-
-# 爬取配置
+    api_key: ''
+    model: claude-sonnet-4-6
+  longcat:
+    api_key: ''
+    model: LongCat-2.0
+    base_url: https://api.longcat.chat/openai
 crawler:
   scroll_delay: 2
-  max_posts: 0  # 0=增量模式默认最多300条；填N=抓最近N条
+  max_posts: 0
   fetch_comments: true
-
-# 附件解析配置
-# PDF 会直接抽取文本；MP3/M4A/WAV 等音频默认使用小米 MiMo ASR 转写。
-# 音频转写优先读取 MIMO_API_KEY / XIAOMI_MIMO_API_KEY；缺少密钥时会跳过音频但不影响日报。
 attachments:
   enabled: true
   parse_pdf: true
@@ -55,26 +31,21 @@ attachments:
   max_file_mb: 25
   max_pdf_pages: 40
   max_text_chars: 18000
-  audio_provider: "mimo"
-  audio_base_url: "https://api.xiaomimimo.com/v1"
-  audio_model: "mimo-v2.5-asr"
-  fallback_audio_provider: "openai"
-
-# 存储配置
+  audio_provider: mimo
+  audio_base_url: https://api.xiaomimimo.com/v1
+  audio_model: mimo-v2.5-asr
+  fallback_audio_provider: openai
 storage:
-  raw_dir: "data/raw"
-  summary_dir: "data/summary"
-
-# 股票机会提取配置
+  raw_dir: data/raw
+  summary_dir: data/summary
 stocks:
   scoring:
-    upside_weight: 0.30
-    quality_weight: 0.20
-    consensus_weight: 0.16
+    upside_weight: 0.2
+    quality_weight: 0.22
+    consensus_weight: 0.18
     sector_weight: 0.14
-    trend_weight: 0.10
-    fundamentals_weight: 0.10
-
+    trend_weight: 0.12
+    fundamentals_weight: 0.14
     trend:
       min_stocks_for_trend: 2
       max_trend_score: 10
@@ -82,72 +53,98 @@ stocks:
       size_weight: 0.25
       discussion_weight: 0.25
       logic_weight: 0.15
-
     sector_aliases:
-      "人工智能": "AI/人工智能"
-      "AI": "AI/人工智能"
-      "大模型": "AI/人工智能"
-      "算力": "AI/人工智能"
-      "新能源": "新能源"
-      "光伏": "新能源"
-      "锂电": "新能源"
-      "储能": "新能源"
-      "半导体": "半导体/芯片"
-      "芯片": "半导体/芯片"
-      "机器人": "机器人/自动化"
-      "汽车": "汽车/新能源车"
-      "新能源车": "汽车/新能源车"
-
-# 同花顺账户同步配置（可选）
-# 启用后，自动将评分达标的股票同步到同花顺自选分组
+      人工智能: AI/人工智能
+      AI: AI/人工智能
+      ai: AI/人工智能
+      大模型: AI/人工智能
+      算力: AI/人工智能
+      算力租赁: AI/人工智能
+      光模块: AI/人工智能
+      CPO: AI/人工智能
+      服务器: AI/人工智能
+      新能源: 新能源
+      光伏: 新能源
+      锂电: 新能源
+      锂电材料: 新能源
+      储能: 新能源
+      风电: 新能源
+      电池: 新能源
+      半导体: 半导体/芯片
+      芯片: 半导体/芯片
+      半导体设备: 半导体/芯片
+      MLCC: 半导体/芯片
+      机器人: 机器人/自动化
+      自动化: 机器人/自动化
+      汽车: 汽车/新能源车
+      新能源车: 汽车/新能源车
+      新能源汽车: 汽车/新能源车
+      光纤光缆: 光纤光缆
+      光纤: 光纤光缆
+      光缆: 光纤光缆
+      商业航天: 商业航天
+      航天: 商业航天
+      火箭: 商业航天
+      军工: 军工/国防
+      国防: 军工/国防
+      医药: 医药/医疗
+      创新药: 医药/医疗
+      医疗: 医药/医疗
+      消费电子: 消费电子
+      玻璃基板: 玻璃基板
+      TGV: 玻璃基板
+      房地产: 房地产
+      地产: 房地产
+      白酒: 消费/白酒
+      食品饮料: 消费/食品
+      有色: 有色金属
+      黄金: 有色金属
+      稀土: 有色金属
+      证券: 金融/证券
+      银行: 金融/银行
 ths:
-  enabled: false
-  cookies_path: "cookies_ths.json"
-  score_threshold: 3.0              # >= 此值的股票会同步到同花顺
-  group_name_prefix: ""             # 为空时分组名只使用当天日期，如「06-17」
-  group_name: "auto"                # auto=按当日日期建组；或写固定名称
+  enabled: true
+  cookies_path: cookies_ths.json
+  score_threshold: 3.0
+  group_name_prefix: 知识星球
+  group_name: auto
   create_group_if_missing: true
-  also_add_to_watchlist: false
+  also_add_to_watchlist: true
   request_delay: 0.3
-
-# A股主流板块盘中异动 / 盘后复盘配置
 sector_monitor:
   board_limit: 500
   stock_limit: 30
-  min_change_pct: 0.8       # 板块涨幅达到该阈值才进入候选
-  min_main_net_yi: 0.5      # 或主力净流入达到该阈值（亿元）才进入候选
-  # market 命令会先评估大盘，再给板块打「加仓/建仓/观察/规避」动作标签
+  min_change_pct: 0.8
+  min_main_net_yi: 0.5
   mainstream_keywords:
-    - "人工智能"
-    - "AI"
-    - "算力"
-    - "大模型"
-    - "机器人"
-    - "半导体"
-    - "芯片"
-    - "消费电子"
-    - "新能源"
-    - "储能"
-    - "锂电"
-    - "光伏"
-    - "风电"
-    - "电池"
-    - "汽车"
-    - "新能源车"
-    - "军工"
-    - "低空经济"
-    - "商业航天"
-    - "医药"
-    - "创新药"
-    - "白酒"
-    - "食品饮料"
-    - "证券"
-    - "银行"
-    - "有色"
-    - "黄金"
-    - "稀土"
-
-# GitHub Pages 股票信息聚合看板
+  - 人工智能
+  - AI
+  - 算力
+  - 大模型
+  - 机器人
+  - 半导体
+  - 芯片
+  - 消费电子
+  - 新能源
+  - 储能
+  - 锂电
+  - 光伏
+  - 风电
+  - 电池
+  - 汽车
+  - 新能源车
+  - 军工
+  - 低空经济
+  - 商业航天
+  - 医药
+  - 创新药
+  - 白酒
+  - 食品饮料
+  - 证券
+  - 银行
+  - 有色
+  - 黄金
+  - 稀土
 dashboard:
   top_n: 10
-  board_type: "all"   # all | industry | concept
+  board_type: all

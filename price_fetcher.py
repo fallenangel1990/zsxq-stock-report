@@ -4,6 +4,7 @@
 包括当前价格、涨跌幅、动态PE、市净率、总市值等。
 """
 
+import time
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
@@ -46,6 +47,32 @@ def _code_to_tencent(code: str) -> str:
         elif code.startswith(("0", "3")):
             return f"sz{code}"
     return ""
+
+
+def _request_with_retry(url: str, params: dict = None, max_retries: int = 3, base_delay: float = 1.0, timeout: int = 10):
+    """HTTP GET with exponential backoff retry for transient failures."""
+    last_err = None
+    for attempt in range(max_retries):
+        try:
+            resp = requests.get(url, params=params, timeout=timeout)
+            resp.raise_for_status()
+            return resp
+        except (requests.ConnectionError, requests.Timeout) as e:
+            last_err = e
+            if attempt < max_retries - 1:
+                delay = base_delay * (2  ** attempt)
+                print(f"[retry] {attempt+1}/{max_retries} {url[:60]}... ({e})", flush=True)
+                time.sleep(delay)
+        except requests.HTTPError as e:
+            if e.response is not None and e.response.status_code in (429, 500, 502, 503, 504):
+                last_err = e
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2  ** attempt)
+                    print(f"[retry] {attempt+1}/{max_retries} {url[:60]}... (HTTP {e.response.status_code})", flush=True)
+                    time.sleep(delay)
+                continue
+            raise
+    raise last_err
 
 
 def _code_to_eastmoney(code: str) -> str:
@@ -91,8 +118,7 @@ def _fetch_eastmoney_quotes(codes: list[str], timeout: int = 10) -> dict:
         "fields": "f12,f14,f2,f3,f9,f17,f18,f20,f21,f23",
     }
     try:
-        resp = requests.get(url, params=params, timeout=timeout)
-        resp.raise_for_status()
+        resp = _request_with_retry(url, params=params, timeout=timeout)
         data = resp.json() or {}
     except requests.RequestException as e:
         print(f"[价格兜底] 东方财富请求失败: {e}", flush=True)

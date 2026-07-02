@@ -16,6 +16,10 @@ name: A股盘后复盘
 env:
   PYTHONUNBUFFERED: 1
 
+concurrency:
+  group: market-review
+  cancel-in-progress: true
+
 jobs:
   market-review:
     runs-on: ubuntu-latest

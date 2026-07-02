@@ -84,11 +84,13 @@ jobs:
               yaml.safe_dump(cfg, f, allow_unicode=True, sort_keys=False)
           PY
 
-      - name: 恢复推荐历史
-        uses: actions/cache/restore@v4
+      - name: 恢复/保存推荐历史缓存
+        uses: actions/cache@v4
         with:
           path: data/summary
-          key: enriched-latest
+          key: enriched-latest-${{ github.run_id }}
+          restore-keys: |
+            enriched-latest-
 
       - name: 运行盘中预警
         env:
@@ -99,6 +101,7 @@ jobs:
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
         run: |
+          set -eo pipefail
           ROUNDS="${{ github.event.inputs.rounds || '0' }}"
           INTERVAL="${{ github.event.inputs.interval || '300' }}"
           echo "监控轮次: ${ROUNCS:-0}, 间隔: ${INTERVAL}s"
@@ -113,4 +116,4 @@ jobs:
             fi
           fi
 
-          python3 main.py monitor --interval "${INTERVAL}" --rounds "${ROUNDS:-0}"
+          python3 main.py monitor --interval "${INTERVAL}" --rounds "${ROUNDS:-0}" 2>&1

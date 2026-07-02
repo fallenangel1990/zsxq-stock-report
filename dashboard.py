@@ -35,6 +35,44 @@ def handle_500(e):
 PROJECT_DIR = Path(__file__).parent
 DATA_DIR = PROJECT_DIR / "data"
 
+# ═══════════════════════════════════════════════════════════════
+# 鉴权 — 所有写操作必须携带 DASHBOARD_TOKEN
+# ═══════════════════════════════════════════════════════════════
+import hashlib
+import hmac
+
+def _get_dashboard_token() -> str:
+    """获取仪表盘访问令牌。优先级: 环境变量 > 配置文件 > 默认值(仅开发)。"""
+    token = os.environ.get("DASHBOARD_TOKEN", "").strip()
+    if token:
+        return token
+    # 开发环境默认 token — 生产环境必须通过环境变量覆盖
+    return "dev-only-change-me"
+
+DASHBOARD_TOKEN = _get_dashboard_token()
+WRITE_METHODS = {"POST", "PUT", "DELETE", "PATCH"}
+
+def _check_auth():
+    """校验写操作的 Bearer <REDACTED>。"""
+    if request.method not in WRITE_METHODS:
+        return None  # GET 请求无需鉴权（只读）
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        provided = auth_header[7:].strip()
+        if hmac.compare_digest(provided, DASHBOARD_TOKEN):
+            return None
+    # 也支持查询参数 ?token=xxx（方便 curl 调试）
+    if request.args.get("token") and hmac.compare_digest(request.args.get("token"), DASHBOARD_TOKEN):
+        return None
+    return jsonify({"error": "未授权。请在请求头添加 Authorization: Bearer <token>"}), 401
+
+# 注册鉴权中间件
+@app.before_request
+def auth_middleware():
+    result = _check_auth()
+    if result is not None:
+        return result
+
 # 确保项目目录在 Python 路径中
 sys.path.insert(0, str(PROJECT_DIR))
 

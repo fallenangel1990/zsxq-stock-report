@@ -17,6 +17,10 @@ name: A股连板股票扫描
 env:
   PYTHONUNBUFFERED: 1
 
+concurrency:
+  group: consecutive-limit-up
+  cancel-in-progress: true
+
 jobs:
   consecutive-limit-up:
     runs-on: ubuntu-latest

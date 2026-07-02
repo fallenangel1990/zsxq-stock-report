@@ -10,6 +10,10 @@ name: 盘前财经快讯
 env:
   PYTHONUNBUFFERED: 1
 
+concurrency:
+  group: premarket-briefing
+  cancel-in-progress: true
+
 jobs:
   premarket-briefing:
     runs-on: ubuntu-latest

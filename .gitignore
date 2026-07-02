@@ -10,3 +10,17 @@ __pycache__/
 .secrets/
 .codex/
 .cursor/
+
+# Local tool directories
+.wolf/
+.claude/
+.venv/
+venv/
+.DS_Store
+*.log
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+node_modules/
+dist/
+build/
