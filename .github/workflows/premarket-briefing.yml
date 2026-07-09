@@ -3,9 +3,10 @@ name: 盘前财经快讯
 "on":
   workflow_dispatch:
 
-  schedule:
+  # schedule:  # disabled - uncomment to enable
+    # 已合并到 daily-report.yml，不再独立触发（避免重复邮件）
     # 北京时间 08:50 (UTC 00:50)，A 股交易日盘前
-    - cron: "50 0 * * 1-5"
+    # - cron: "50 0 * * 1-5"
 
 env:
   PYTHONUNBUFFERED: 1
