@@ -12,9 +12,9 @@ name: 每日股票报告
         type: boolean
         required: false
         default: false
-  schedule:
+  # schedule:  # disabled - uncomment to enable
     # A 股交易日北京时间 08:50 = UTC 00:50（周一至周五）
-    - cron: "50 0 * * 1-5"
+    # - cron: "50 0 * * 1-5"
 
 env:
   PYTHONUNBUFFERED: 1
@@ -207,6 +207,25 @@ jobs:
           PY
 
       # ═══════════════════════════════════════════════════════════
+      # 4b. 生成盘前财经快讯（合并到主流程，避免重复邮件）
+      # ═══════════════════════════════════════════════════════════
+      - name: 生成盘前财经简报
+        id: briefing
+        continue-on-error: true
+        env:
+          DEEPSEEK_V4_FLASH_API_KEY: ${{ secrets.DEEPSEEK_V4_FLASH_API_KEY }}
+        run: |
+          echo "📰 生成盘前财经简报..."
+          python3 premarket_briefing.py 2>&1 || echo "⚠️ 盘前简报生成失败，不影响主流程"
+          if [ -f data/summary/briefings/latest_briefing.md ]; then
+            echo "briefing_exists=true" >> $GITHUB_OUTPUT
+            echo "✅ 盘前简报已生成"
+          else
+            echo "briefing_exists=false" >> $GITHUB_OUTPUT
+            echo "⚠️ 未找到盘前简报文件"
+          fi
+
+      # ═══════════════════════════════════════════════════════════
       # 5. 执行主流程
       # ═══════════════════════════════════════════════════════════
       - name: 运行爬取 + 股票提取
@@ -378,12 +397,23 @@ jobs:
               md = files[-1] if files else ''
 
           if md:
+              # 读取盘前简报内容（如果有）
+              briefing_text = ''
+              import glob
+              briefings = sorted(glob.glob('data/summary/briefings/latest_briefing.md'))
+              if briefings:
+                  try:
+                      briefing_text = open(briefings[-1], encoding='utf-8').read()
+                  except Exception:
+                      pass
+
               send_report_notification(
                   markdown_path=md,
                   to_email=os.environ.get('TO_EMAIL', ''),
                   extra_info=extra,
+                  briefing_text=briefing_text if briefing_text else None,
               )
-              print("✅ 邮件已发送")
+              print("✅ 邮件已发送（含盘前简报）")
           else:
               print("❌ 未找到报告 Markdown 文件")
 

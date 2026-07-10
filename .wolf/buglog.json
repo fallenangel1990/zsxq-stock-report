@@ -1468,6 +1468,22 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-07-01"
+    },
+    {
+      "id": "bug-078",
+      "timestamp": "2026-07-09T02:50:00+08:00",
+      "error_message": "premarket-briefing.yml 定时任务仍被触发",
+      "file": ".github/workflows/premarket-briefing.yml",
+      "root_cause": "schedule: 键未被注释，只有 cron 行被注释，导致 GitHub Actions 仍注册该 workflow 的 schedule 触发器",
+      "fix": "将 schedule: 键注释掉，与其他 disabled workflow 保持一致",
+      "tags": [
+        "schedule",
+        "github-actions",
+        "workflow-trigger"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-09"
     }
   ]
 }
