@@ -129,9 +129,9 @@ def _build_news_summary(news: dict[str, list[dict]]) -> str:
 
 
 def _summarize_with_llm(news_text: str, date_str: str) -> str:
-    """使用 LLM 生成盘前快讯摘要。"""
+    """使用 LLM 生成盘前快讯摘要（HTML 格式）。"""
     if not news_text.strip():
-        return "今日盘前暂无重大科技财经新闻。"
+        return "<p>今日盘前暂无重大科技财经新闻。</p>"
 
     try:
         from summarizer import get_client
@@ -150,7 +150,13 @@ def _summarize_with_llm(news_text: str, date_str: str) -> str:
    - 对每个风险点用 ⚠️低 / ⚠️中 / ⚠️高 标记风险等级
    - 如新闻显示某板块大跌/资金外流/政策收紧，必须明确警示
 5. 全文不超过 600 字，简洁有力
-6. 使用中文，格式为 Markdown
+6. 使用中文
+7. **输出纯 HTML 格式**（不要使用 Markdown 语法），要求：
+   - 市场分组标题使用 <h3> 标签
+   - 每条新闻使用 <li> 标签包裹在 <ul> 中
+   - 「今日关注」和「⚠️ 风险提示」使用 <h3> 作为小标题，内容用 <p> 或 <ul><li> 包裹
+   - 风险等级标记（⚠️低/⚠️中/⚠️高）用 <strong> 包裹
+   - 不要输出 <html>/<head>/<body> 等文档标签，只输出内容片段
 
 日期：{date_str}
 
@@ -158,20 +164,80 @@ def _summarize_with_llm(news_text: str, date_str: str) -> str:
 {news_text}"""
 
         result = client.create(
-            system="你是一位资深财经分析师和风险管理顾问，擅长从全球市场新闻中提炼投资信号和风险预警。你的简报帮助投资者在开盘前快速把握机会、规避风险。你对风险信号特别敏感，会从新闻中识别回调、监管、资金外流等风险因素。",
+            system="你是一位资深财经分析师和风险管理顾问，擅长从全球市场新闻中提炼投资信号和风险预警。你的简报帮助投资者在开盘前快速把握机会、规避风险。你对风险信号特别敏感，会从新闻中识别回调、监管、资金外流等风险因素。请直接输出纯 HTML 内容片段，不要使用 Markdown。",
             prompt=prompt,
             max_tokens=1200,
         )
-        return result if result else "LLM 生成失败，请查看原始新闻。"
+        return result if result else "<p>LLM 生成失败，请查看原始新闻。</p>"
 
     except Exception as e:
         print(f"[LLM] 生成失败: {e}", flush=True)
         # 降级：直接返回原始新闻
-        return f"## 盘前快讯（{date_str}）\n\n{news_text}"
+        return f"<h3>盘前快讯（{date_str}）</h3><pre>{news_text}</pre>"
+
+
+def _normalize_to_html(text: str) -> str:
+    """将 LLM 输出（Markdown 或裸 HTML）统一转为邮件兼容的内联样式 HTML。
+
+    LLM 不一定严格按 prompt 输出 HTML，可能返回 Markdown。
+    先检测：若含有 Markdown 语法（#, -, * 等），用 markdown 库转为 HTML；
+    若已是 HTML 标签则直接通过。然后为裸标签添加内联样式。
+    """
+    import markdown as md_lib
+
+    # 简单启发：包含 Markdown 标题/列表/加粗语法 → 转换
+    looks_like_md = any(line.lstrip().startswith(("# ", "## ", "### ", "- ", "* "))
+                        for line in text.split("\n")[:15])
+    if looks_like_html(text) and not looks_like_md:
+        html = text
+    else:
+        html = md_lib.markdown(text, extensions=["tables", "fenced_code"])
+
+    return _style_inline_html(html)
+
+
+def looks_like_html(text: str) -> bool:
+    """判断文本是否已经是 HTML（含常见 HTML 标签）。"""
+    stripped = text.lstrip()
+    if stripped.startswith(("<!DOCTYPE", "<!doctype", "<html", "<div", "<h1", "<h2", "<h3")):
+        return True
+    tag_re = re.compile(r"<(p|ul|ol|li|h[1-6]|strong|br|div|span|table)[^>]*>", re.IGNORECASE)
+    return len(tag_re.findall(text)) >= 3
+
+
+def _style_inline_html(html: str) -> str:
+    """为裸 HTML 标签添加邮件兼容的内联样式（标题/段落/列表/加粗）。"""
+    html = html.replace(
+        "<h3>",
+        '<h3 style="color:#1d4ed8;margin:20px 0 10px;font-size:17px;line-height:1.4;'
+        'border-left:4px solid #2563eb;padding-left:10px;">',
+    )
+    html = html.replace(
+        "<h2>",
+        '<h2 style="color:#1d4ed8;margin:24px 0 12px;font-size:18px;line-height:1.4;'
+        'border-left:4px solid #2563eb;padding-left:10px;">',
+    )
+    html = html.replace(
+        "<p>",
+        '<p style="margin:8px 0;line-height:1.8;color:#374151;font-size:15px;">',
+    )
+    html = html.replace(
+        "<ul>",
+        '<ul style="margin:8px 0 14px;padding-left:22px;line-height:1.8;color:#374151;">',
+    )
+    html = html.replace(
+        "<li>",
+        '<li style="margin:5px 0;">',
+    )
+    html = html.replace(
+        "<strong>",
+        '<strong style="color:#111827;font-weight:700;">',
+    )
+    return html
 
 
 def generate_briefing() -> str:
-    """生成完整的盘前快讯报告。"""
+    """生成完整的盘前快讯报告（HTML 格式，可直接作为邮件正文）。"""
     now = _now_shanghai()
     date_str = now.strftime("%Y年%m月%d日")
     weekday_names = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
@@ -185,26 +251,42 @@ def generate_briefing() -> str:
     # 格式化新闻文本
     news_text = _build_news_summary(news)
 
-    # LLM 摘要（含风险提示）
-    summary = _summarize_with_llm(news_text, f"{date_str} {weekday}")
+    # LLM 摘要（无论返回 MD 还是 HTML，统一转为邮件兼容的内联样式 HTML）
+    summary_html = _normalize_to_html(_summarize_with_llm(news_text, f"{date_str} {weekday}"))
 
-    # 组装报告
-    report = f"""# 📰 盘前财经快讯 | {date_str} {weekday}
+    # 组装 HTML 邮件
+    report = f"""\
+<div style="background:#f3f6fb;padding:18px 10px;">
+<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:720px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;color:#1f2937;">
+  <!-- 头部横幅 -->
+  <div style="background:linear-gradient(135deg,#1d4ed8,#0284c7);color:white;padding:24px 28px;">
+    <h2 style="margin:0;font-size:22px;line-height:1.35;">📰 盘前财经快讯</h2>
+    <p style="margin:8px 0 0;opacity:0.9;font-size:14px;">{date_str} {weekday}</p>
+  </div>
 
-{summary}
+  <!-- LLM 快讯正文 -->
+  <div style="padding:20px 28px;font-size:15px;line-height:1.8;">
+    {summary_html}
+  </div>
 
----
+  <!-- 风险提示 -->
+  <div style="background:#fffbeb;border-left:4px solid #f59e0b;padding:16px 20px;margin:0 20px 16px;border-radius:0 8px 8px 0;">
+    <h3 style="margin:0 0 10px;font-size:15px;color:#b45309;">🛡️ 风险提示</h3>
+    <ul style="margin:0;padding-left:20px;font-size:14px;line-height:1.8;color:#92400e;">
+      <li>以上信息仅供参考，不构成任何投资建议</li>
+      <li>股市有风险，投资需谨慎</li>
+      <li>盘中走势受多种因素影响，请结合自身风险承受能力做出独立判断</li>
+      <li>建议单只股票仓位不超过总资金的 20%，单一行业不超过 40%</li>
+      <li>设置好止损位，严格执行纪律</li>
+    </ul>
+  </div>
 
-> 🛡️ **风险提示**
-> - 以上信息仅供参考，不构成任何投资建议
-> - 股市有风险，投资需谨慎
-> - 盘中走势受多种因素影响，请结合自身风险承受能力做出独立判断
-> - 建议单只股票仓位不超过总资金的 20%，单一行业不超过 40%
-> - 设置好止损位，严格执行纪律
-
----
-*数据来源：新浪财经 | 自动生成于 {now.strftime('%H:%M')}*
-"""
+  <!-- 页脚 -->
+  <div style="color:#6b7280;font-size:12px;padding:14px 28px;border-top:1px solid #e5e7eb;background:#fafafa;line-height:1.7;">
+    数据来源：新浪财经 | 自动生成于 {now.strftime('%H:%M')} 北京时间
+  </div>
+</div>
+</div>"""
     return report
 
 

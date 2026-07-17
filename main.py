@@ -581,20 +581,8 @@ def cmd_all(group_url: str, max_posts: int = 0) -> None:
     # ── 第 5 步：同花顺同步（可选，根据配置） ──
     _try_thssync_auto()
 
-    # ── 第 6 步：发送邮件 ──
-    _log("\n[6/6] 发送邮件报告...")
-    try:
-        from email_sender import send_report_notification
-        from datetime import datetime as _dt
-        send_report_notification(
-            stock_report_path,
-            to_email="470337944@qq.com",
-            subject_override=f"📊 知识星球股票机会报告 {_dt.now().strftime('%Y-%m-%d')}",
-            extra_info={"total_posts": len(posts)},
-        )
-        _log("邮件发送成功")
-    except Exception as e:
-        _log(f"邮件发送失败（不影响主流程）: {e}")
+    # 注意：邮件发送由 GitHub Actions workflow (daily-report.yml) 统一处理，
+    # 避免重复发送。workflow 会发送包含统计、Cookie 预警、盘前简报的更完整邮件。
 
     _log("\n" + "=" * 50)
     _log("全部完成！请查看 data/ 目录下的输出文件。")
@@ -746,6 +734,45 @@ def cmd_web(args) -> None:
     app.run(host=host, port=port, debug=False)
 
 
+
+def cmd_auto(args) -> None:
+    """自动程序化交易。"""
+    from auto_trader import cmd_auto as _cmd_auto
+    _cmd_auto(args)
+
+
+
+def cmd_auction(args) -> None:
+    """开盘竞价选股。"""
+    from auction_model import run_auction_scan, format_auction_report
+    from storage import save_auction_report
+
+    if args.action == "report":
+        from auction_model import AUCTION_RESULT_FILE
+        import json
+        if AUCTION_RESULT_FILE.exists():
+            data = json.loads(AUCTION_RESULT_FILE.read_text(encoding="utf-8"))
+            report = format_auction_report(data.get("results", []))
+            print(report)
+        else:
+            print("无竞价结果，请先运行: python3 main.py auction run")
+        return
+
+    if args.action == "run":
+        result = run_auction_scan(
+            candidate_count=args.count,
+            with_trend=args.trend,
+        )
+        if "error" in result:
+            print("错误: {}".format(result["error"]))
+
+        if result.get("results"):
+            report = format_auction_report(result["results"])
+            path = save_auction_report(report)
+            if path:
+                print("报告已保存: {}".format(path))
+        return
+
 def main():
     parser = argparse.ArgumentParser(
         description="知识星球内容爬取与总结工具",
@@ -890,6 +917,18 @@ def main():
     monitor_parser.add_argument("--rounds", type=int, default=0, help="最大轮询次数（0=无限）")
     monitor_parser.add_argument("--no-email", action="store_true", help="不发送邮件预警")
 
+    
+    auto_parser = subparsers.add_parser("auto", help="自动程序化交易（半自动/全自动）")
+    auto_parser.add_argument("action", nargs="?", default="run", choices=["run", "status", "connect"], help="run=执行交易, status=查看状态, connect=连接测试")
+    auto_parser.add_argument("--mode", choices=["semi", "full"], help="semi=半自动(默认), full=全自动")
+    auto_parser.add_argument("--broker", default=None, help="券商代码: eb/ht/zx/gf/pa/gt/zs/sw")
+
+    
+    auction_parser = subparsers.add_parser("auction", help="开盘竞价选股")
+    auction_parser.add_argument("action", nargs="?", default="run", choices=["run", "report"], help="run=扫描, report=报告")
+    auction_parser.add_argument("-n", "--count", type=int, default=50, help="候选池数量")
+    auction_parser.add_argument("--trend", action="store_true", help="获取分时趋势")
+
     args = parser.parse_args()
 
     if args.command == "login":
@@ -936,6 +975,10 @@ def main():
         cmd_web(args)
     elif args.command == "monitor":
         cmd_monitor(args)
+    elif args.command == "auto":
+        cmd_auto(args)
+    elif args.command == "auction":
+        cmd_auction(args)
     elif args.command == "all":
         cmd_all(args.url, max_posts=args.max_posts)
     else:

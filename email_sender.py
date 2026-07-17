@@ -357,6 +357,7 @@ def send_report_notification(
     to_email: str = "",
     extra_info: Optional[dict] = None,
     subject_override: str = "",
+    briefing_text: Optional[str] = None,
 ) -> bool:
     """发送报告通知邮件（HTML 正文，无附件）。
 
@@ -371,6 +372,7 @@ def send_report_notification(
             - cookie_expired: cookie 是否过期
             - cookie_warning: cookie 是否即将过期
             - cookie_days: cookie 剩余天数
+            - briefing_text: 盘前财经简报内容（可选，嵌入邮件正文顶部）
     """
     now = _now_shanghai()
     today = now.strftime("%Y-%m-%d")
@@ -417,6 +419,17 @@ def send_report_notification(
         stats_parts.append(f'📬 处理帖子：<strong>{extra_info["total_posts"]}</strong> 篇')
     if extra_info.get("new_stocks"):
         stats_parts.append(f'🎯 发现标的：<strong>{extra_info["new_stocks"]}</strong> 只')
+    # 盘前财经简报（如果有）
+    briefing_section = ''
+    if briefing_text:
+        briefing_html = _md_to_html(_remove_code_blocks(briefing_text[:5000]))
+        briefing_section = (
+            '<div style="background:#f0f9ff;border-left:4px solid #0284c7;padding:16px 20px;margin:0 20px 16px;">'
+            '<h3 style="margin:0 0 10px;font-size:16px;color:#0284c7;">📰 盘前财经简报</h3>'
+            + briefing_html +
+            '</div>'
+        )
+
     if stats_parts:
         lines.append(
             '<div style="background:#eff6ff;padding:14px 26px;border-left:4px solid #2563eb;'
@@ -442,6 +455,10 @@ def send_report_notification(
             f"⚠️ <strong>Cookie 将在 {days} 天后过期</strong>（{expires}），请提前更新。"
             "</div>"
         )
+
+    # 盘前简报（如果有）
+    if briefing_section:
+        lines.append(briefing_section)
 
     # 报告主体
     lines.append('<div style="padding:18px 26px 4px;font-size:15px;line-height:1.75;">')

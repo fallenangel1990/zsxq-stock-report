@@ -470,8 +470,14 @@ def run_monitor(
     while True:
         now = _now_shanghai()
 
-        # 非交易时段休眠
+        # 非交易时段处理：收盘后自动退出（避免无限休眠直到 workflow 超时）
         if not _is_trading_hours(now):
+            # 当天交易已结束（15:00 后）→ 退出
+            if now.hour * 100 + now.minute > 1500:
+                if verbose:
+                    print(f"[盘中预警] 交易日已结束（{now.strftime('%H:%M')}），退出监控", flush=True)
+                break
+            # 午间休市（11:30-13:00）或开盘前 → 休眠等待
             sleep_secs = _next_trading_seconds(now)
             if verbose:
                 print(f"[盘中预警] 非交易时段，休眠 {sleep_secs // 60} 分钟", flush=True)
