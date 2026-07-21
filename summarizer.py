@@ -242,12 +242,12 @@ def _init_claude(claude_config: dict):
     return ClaudeWrapper(), model, "claude"
 
 
-def summarize_posts(posts: list[dict], batch_size: int = 20) -> str:
+def summarize_posts(posts: list[dict], batch_size: int = 40) -> str:
     """对帖子列表进行分批总结，返回 Markdown 格式报告。
 
     Args:
         posts: 清洗后的结构化帖子列表（来自 extractor.py）。
-        batch_size: 每批处理的帖子数。
+        batch_size: 每批处理的帖子数（默认 40，比股票提取的 30 稍大以减少 API 调用）。
 
     Returns:
         str: Markdown 格式的总结报告。
@@ -265,16 +265,42 @@ def summarize_posts(posts: list[dict], batch_size: int = 20) -> str:
     all_summaries = []
     print(f"共 {len(posts)} 篇帖子，分 {total_batches} 批总结", flush=True)
 
+    # 准备所有批次
+    batches = []
     for i in range(0, len(posts), batch_size):
         batch = posts[i : i + batch_size]
         batch_num = i // batch_size + 1
         start_idx = i + 1
         end_idx = min(i + batch_size, len(posts))
-        print(f"  [总结 {batch_num}/{total_batches}] 处理第 {start_idx}-{end_idx} 篇...", flush=True)
+        batches.append((batch, batch_num, total_batches, start_idx, end_idx))
 
+    # 并发调用 AI（最多 3 个并发，避免触发 API 限流）
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def process_batch(batch_info):
+        batch, batch_num, total_batches, start_idx, end_idx = batch_info
+        print(f"  [总结 {batch_num}/{total_batches}] 处理第 {start_idx}-{end_idx} 篇...", flush=True)
         summary = _summarize_batch(client, batch, batch_num, total_batches)
-        all_summaries.append(summary)
         print(f"  [总结 {batch_num}/{total_batches}] 完成", flush=True)
+        return batch_num, summary
+
+    max_workers = min(3, len(batches))
+    results = {}
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_idx = {
+            executor.submit(process_batch, b): b[1]
+            for b in batches
+        }
+        for future in as_completed(future_to_idx):
+            batch_num = future_to_idx[future]
+            try:
+                num, summary = future.result()
+                results[num] = summary
+            except Exception as exc:
+                print(f"  [总结 {batch_num}] 失败: {exc}", flush=True)
+
+    # 按批次号排序
+    all_summaries = [results[k] for k in sorted(results.keys()) if results.get(k)]
 
     if total_batches > 1:
         print("生成整体概述...", flush=True)
