@@ -235,7 +235,11 @@ def extract_stock_opportunities(
                 _merge_json(all_stocks_json, batch_json)
                 q = len(batch_json.get("quantitative", []))
                 e = len(batch_json.get("elastic", []))
-                if verbose:
+                # 调试：JSON 解析成功但无股票时输出响应摘要
+                if q == 0 and e == 0 and len(report) > 200:
+                    preview = report[:500].replace('\n', ' ')
+                    print(f"  [股票 {batch_num}/{total_batches}] 完成 (量化:{q} 弹性:{e}) 响应预览: {preview}...", flush=True)
+                elif verbose:
                     print(f"  [股票 {batch_num}/{total_batches}] 完成 (量化:{q} 弹性:{e})", flush=True)
             except Exception as exc:
                 print(f"  [股票 {batch_num}/{total_batches}] 失败: {exc}", flush=True)
@@ -406,6 +410,11 @@ def _extract_stocks_batch(
     result = client.create(system=system, prompt=prompt, max_tokens=8192)
     if result is None:
         return ""
+    # 调试日志：记录 AI 响应长度，便于诊断解析失败
+    if len(result) < 100:
+        print(f"  [股票 {batch_num}] AI 响应较短 ({len(result)} 字符): {result[:200]}", flush=True)
+    elif "```json" not in result and "quantitative" not in result:
+        print(f"  [股票 {batch_num}] AI 响应无 JSON 块 ({len(result)} 字符)", flush=True)
     return result
 
 
@@ -452,25 +461,91 @@ def _merge_stock_reports(client, batch_reports: list[str]) -> str:
 def _parse_stock_json(markdown: str) -> dict:
     """从 AI 输出文本中提取 JSON 结构化数据。
 
-    优先查找 ```json 代码块，若不存在则回退到正则解析 Markdown 表格。
+    优先查找 ```json 代码块，支持多种格式变体；
+    若不存在则尝试直接提取 JSON 对象；最后回退到正则解析 Markdown 表格。
     """
+    empty = {"quantitative": [], "elastic": [], "sectors": [], "risks": []}
     if not markdown:
-        return {"quantitative": [], "elastic": [], "sectors": [], "risks": []}
-    # 方法1：提取 JSON 代码块
-    json_match = re.search(r"```json\s*\n(.*?)\n```", markdown, re.DOTALL)
-    if json_match:
-        try:
-            data = json.loads(json_match.group(1))
-            # 验证结构
+        return empty
+
+    # 方法1：提取 ```json 代码块（支持多种格式变体）
+    json_patterns = [
+        r"```json\s*\n(.*?)\n\s*```",           # 标准格式
+        r"```json\s*\r?\n(.*?)\r?\n\s*```",      # Windows 换行
+        r"```json\s*\n(.*?)```",                   # 结束 ``` 前无换行
+        r"```json\s+(.*?)```",                     # json 后有空格
+        r"```JSON\s*\n(.*?)\n\s*```",             # 大写 JSON
+    ]
+    for pattern in json_patterns:
+        json_match = re.search(pattern, markdown, re.DOTALL)
+        if json_match:
+            raw = json_match.group(1).strip()
+            parsed = _try_parse_json(raw)
+            if parsed is not None:
+                return parsed
+
+    # 方法2：直接查找 JSON 对象（无代码块包裹）
+    json_obj_match = re.search(r'\{[\s\S]*"quantitative"[\s\S]*\}', markdown)
+    if json_obj_match:
+        raw = json_obj_match.group(0)
+        parsed = _try_parse_json(raw)
+        if parsed is not None:
+            return parsed
+
+    # 方法3：查找以 { 开头、以 } 结尾的 JSON 块
+    brace_match = re.search(r'(\{[\s\S]+\})\s*$', markdown)
+    if brace_match:
+        raw = brace_match.group(1).strip()
+        parsed = _try_parse_json(raw)
+        if parsed is not None:
+            return parsed
+
+    # 方法4：回退 — 正则解析 Markdown 表格
+    return _fallback_parse_tables(markdown)
+
+
+def _try_parse_json(raw: str) -> dict | None:
+    """尝试解析 JSON，支持常见格式修复。"""
+    empty = {"quantitative": [], "elastic": [], "sectors": [], "risks": []}
+    if not raw:
+        return None
+
+    # 尝试直接解析
+    try:
+        data = json.loads(raw)
+        if isinstance(data, dict):
             for key in ("quantitative", "elastic", "sectors", "risks"):
                 if key not in data:
                     data[key] = []
             return data
-        except json.JSONDecodeError:
-            pass
+    except json.JSONDecodeError:
+        pass
 
-    # 方法2：回退 — 正则解析 Markdown 表格
-    return _fallback_parse_tables(markdown)
+    # 修复常见问题：尾部逗号
+    fixed = re.sub(r',\s*([}\]])', r'\1', raw)
+    try:
+        data = json.loads(fixed)
+        if isinstance(data, dict):
+            for key in ("quantitative", "elastic", "sectors", "risks"):
+                if key not in data:
+                    data[key] = []
+            return data
+    except json.JSONDecodeError:
+        pass
+
+    # 修复：单引号替换为双引号（AI 有时会用单引号）
+    fixed2 = fixed.replace("'", '"')
+    try:
+        data = json.loads(fixed2)
+        if isinstance(data, dict):
+            for key in ("quantitative", "elastic", "sectors", "risks"):
+                if key not in data:
+                    data[key] = []
+            return data
+    except json.JSONDecodeError:
+        pass
+
+    return None
 
 
 def _merge_text(existing: str, new: str, sep: str = "；") -> str:

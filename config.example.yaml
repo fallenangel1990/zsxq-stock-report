@@ -3,7 +3,7 @@ zsxq:
   group_url: ''
   base_url: https://wx.zsxq.com
 ai:
-  provider: deepseek-v4-flash
+  provider: longcat
   deepseek:
     api_key: ''
     api_key_encrypted: ''
@@ -148,3 +148,21 @@ sector_monitor:
 dashboard:
   top_n: 10
   board_type: all
+
+trading:
+  broker: eb              # 券商: eb=东方财富, ht=华泰, zx=中信, gf=广发, pa=平安, gt=国泰君安, zs=招商, sw=申万宏源
+  mode: semi              # semi=半自动(默认，需人工确认), full=全自动(风控兜底)
+  initial_capital: 1000000  # 初始资金（用于回撤计算）
+  broker_config:
+    user: ''              # 券商账号（或设环境变量 BROKER_USER）
+    password: ''          # 券商密码（或设环境变量 BROKER_PASSWORD）
+    comm_password: ''     # 通讯密码（或设环境变量 BROKER_COMM_PASSWORD）
+  risk:
+    max_daily_trades: 3         # 每日最多交易笔数
+    max_daily_loss_pct: 5.0     # 单日最大回撤熔断（%）
+    max_single_position_pct: 20.0  # 单票仓位上限（%）
+    max_sector_pct: 40.0        # 板块集中度上限（%）
+    buy_score_threshold: 7.4    # 买入 buy_score 阈值
+    buy_total_score: 7.0        # 买入综合评分阈值
+    sell_score_threshold: 4.0   # 卖出评分阈值
+
