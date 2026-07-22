@@ -135,7 +135,7 @@ def _init_deepseek(ds_config: dict):
             "ai.deepseek.api_key_encrypted"
         )
 
-    client = OpenAI(api_key=api_key, base_url=base_url)
+    client = OpenAI(api_key=api_key, base_url=base_url, timeout=180.0, max_retries=2)
 
     # 包装为统一接口
     class DeepSeekWrapper:
@@ -167,7 +167,7 @@ def _init_longcat(lc_config: dict):
             "ai.longcat.api_key"
         )
 
-    client = OpenAI(api_key=api_key, base_url=base_url)
+    client = OpenAI(api_key=api_key, base_url=base_url, timeout=180.0, max_retries=2)
 
     class LongCatWrapper:
         def create(self, system: str, prompt: str, max_tokens: int = 4096) -> str:
@@ -199,7 +199,7 @@ def _init_deepseek_v4_flash(ds_config: dict):
             "ai.deepseek_v4_flash.api_key"
         )
 
-    client = OpenAI(api_key=api_key, base_url=base_url)
+    client = OpenAI(api_key=api_key, base_url=base_url, timeout=180.0, max_retries=2)
 
     class DeepSeekV4FlashWrapper:
         def create(self, system: str, prompt: str, max_tokens: int = 4096) -> str:
@@ -274,38 +274,40 @@ def summarize_posts(posts: list[dict], batch_size: int = 40) -> str:
         end_idx = min(i + batch_size, len(posts))
         batches.append((batch, batch_num, total_batches, start_idx, end_idx))
 
-    # 并发调用 AI（最多 3 个并发，避免触发 API 限流）
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+    # 串行调用 AI（带重试逻辑，避免并发触发限流）
+    import time
 
-    def process_batch(batch_info):
+    max_retries = 2
+    for batch_info in batches:
         batch, batch_num, total_batches, start_idx, end_idx = batch_info
-        print(f"  [总结 {batch_num}/{total_batches}] 处理第 {start_idx}-{end_idx} 篇...", flush=True)
-        summary = _summarize_batch(client, batch, batch_num, total_batches)
-        print(f"  [总结 {batch_num}/{total_batches}] 完成", flush=True)
-        return batch_num, summary
-
-    max_workers = min(3, len(batches))
-    results = {}
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_idx = {
-            executor.submit(process_batch, b): b[1]
-            for b in batches
-        }
-        for future in as_completed(future_to_idx):
-            batch_num = future_to_idx[future]
+        success = False
+        for attempt in range(max_retries + 1):
             try:
-                num, summary = future.result()
-                results[num] = summary
+                print(f"  [总结 {batch_num}/{total_batches}] 处理第 {start_idx}-{end_idx} 篇..." +
+                      (f" (重试 {attempt}/{max_retries})" if attempt > 0 else ""), flush=True)
+                summary = _summarize_batch(client, batch, batch_num, total_batches)
+                print(f"  [总结 {batch_num}/{total_batches}] 完成", flush=True)
+                all_summaries.append(summary)
+                success = True
+                break
             except Exception as exc:
-                print(f"  [总结 {batch_num}] 失败: {exc}", flush=True)
+                print(f"  [总结 {batch_num}/{total_batches}] 第 {attempt+1} 次失败: {exc}", flush=True)
+                if attempt < max_retries:
+                    wait_time = 5 * (attempt + 1)
+                    print(f"  等待 {wait_time}s 后重试...", flush=True)
+                    time.sleep(wait_time)
+        if not success:
+            print(f"  [总结 {batch_num}/{total_batches}] 多次重试后仍失败，跳过该批次", flush=True)
+            all_summaries.append(f"(第 {batch_num} 批总结失败，已跳过)")
 
-    # 按批次号排序
-    all_summaries = [results[k] for k in sorted(results.keys()) if results.get(k)]
-
-    if total_batches > 1:
+    if total_batches > 1 and any(s and "失败" not in s for s in all_summaries):
         print("生成整体概述...", flush=True)
-        overview = _summarize_overview(client, all_summaries, stats)
-        print("整体概述完成", flush=True)
+        try:
+            overview = _summarize_overview(client, all_summaries, stats)
+            print("整体概述完成", flush=True)
+        except Exception as exc:
+            print(f"整体概述生成失败: {exc}", flush=True)
+            overview = ""
     else:
         overview = ""
 
