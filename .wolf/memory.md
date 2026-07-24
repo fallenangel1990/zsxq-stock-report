@@ -423,3 +423,37 @@
 | 15:30 | AI Berkshire 框架融合 | stock_extractor.py, backtester.py, paper_trader.py | 四大师视角+镜子测试+三情景估值+否决清单 | ~35000 |
 | $(date +%H:%M) | 禁用 premarket-briefing.yml 的 schedule 触发器 | .github/workflows/premarket-briefing.yml | 注释掉 schedule 键，避免workflow被注册为定时触发 | ~2000 |
 | 02:50 | 禁用 premarket-briefing.yml 的 schedule 触发器 | .github/workflows/premarket-briefing.yml | 注释掉 schedule 键，避免workflow被注册为定时触发 | ~2000 |
+| 03:10 | 修复本地 crontab 定时任务 | crontab (系统级) | 注释掉 50 8 * * 1-5 daily_run.sh 条目，本地定时推送停止 | ~3000 |
+
+## Session: 2026-07-15 08:52
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 08:54 | Edited premarket_briefing.py | modified _summarize_with_llm() | ~407 |
+| 08:54 | Edited premarket_briefing.py | modified generate_briefing() | ~572 |
+| 08:54 | Edited premarket_briefing.py | modified _style_inline_html() | ~238 |
+| 08:54 | Edited premarket_briefing.py | 2→2 lines | ~35 |
+| 10:30 | 盘前财经快讯改为 HTML 格式 | premarket_briefing.py | LLM prompt 改 HTML 输出 + _style_inline_html() 加内联样式 + generate_briefing() 组装 HTML 邮件模板 | ~3000 |
+| 11:00 | 修复股票机会报告邮件重复发送 | main.py cmd_all() | 移除 main.py 内的邮件发送逻辑，由 workflow 统一发送，避免两份 | ~1500 |
+| 08:55 | Session end: 4 writes across 1 files (premarket_briefing.py) | 3 reads | ~6629 tok |
+| 08:58 | Edited main.py | reduced (-12 lines) | ~74 |
+| 08:59 | Session end: 5 writes across 2 files (premarket_briefing.py, main.py) | 6 reads | ~20876 tok |
+| 09:03 | 修复 intraday-monitor.yml 超时+Node.js 警告 | intraday_monitor.py, intraday-monitor.yml | 收盘后自动退出(timeout-break)、timeout-minutes 480、Node.js 20 deprecation 注明 | ~800 |
+| 09:03 | Edited .github/workflows/intraday-monitor.yml | 5→5 lines | ~44 |
+| 09:03 | Edited .github/workflows/intraday-monitor.yml | 7→7 lines | ~60 |
+| 09:03 | Edited .github/workflows/intraday-monitor.yml | 7→7 lines | ~59 |
+| 09:04 | Session end: 9 writes across 4 files (premarket_briefing.py, main.py, intraday_monitor.py, intraday-monitor.yml) | 8 reads | ~29022 tok |
+| 09:19 | Edited premarket_briefing.py | modified _normalize_to_html() | ~562 |
+| 09:20 | Edited premarket_briefing.py | _style_inline_html() → _normalize_to_html() | ~41 |
+| 14:00 | 修复盘前快讯仍发 MD 的问题 | premarket_briefing.py | 新增 _normalize_to_html()：检测 LLM 输出格式，MD 则用 markdown 库转 HTML；统一走 _style_inline_html() 加内联样式 | ~1200 |
+| 09:22 | Session end: 11 writes across 4 files (premarket_briefing.py, main.py, intraday_monitor.py, intraday-monitor.yml) | 8 reads | ~29977 tok |
+| 15:23 | 修复 send_report_notification 缺 briefing_text 参数 | email_sender.py | 函数签名遗漏了 briefing_text 参数（函数体和 workflow 都在使用），补回 Optional[str] = None | ~300 |
+| 15:23 | Session end: 12 writes across 5 files (premarket_briefing.py, main.py, intraday_monitor.py, intraday-monitor.yml, email_sender.py) | 8 reads | ~30099 tok |
+| 09:18 | Session end: 12 writes across 5 files (premarket_briefing.py, main.py, intraday_monitor.py, intraday-monitor.yml, email_sender.py) | 8 reads | ~30099 tok |
+
+## Session: 2026-07-24 08:54
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 09:04 | Edited .github/workflows/daily-report.yml | 3→3 lines | ~18 |
+| 09:30 | 排查并修复日报执行被取消问题 | .github/workflows/daily-report.yml, .wolf/buglog.json | 根因: cancel-in-progress: true 导致运行中被取消；改为 false 排队等待 | ~2500 |

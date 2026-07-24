@@ -1474,16 +1474,101 @@
       "timestamp": "2026-07-09T02:50:00+08:00",
       "error_message": "premarket-briefing.yml 定时任务仍被触发",
       "file": ".github/workflows/premarket-briefing.yml",
-      "root_cause": "schedule: 键未被注释，只有 cron 行被注释，导致 GitHub Actions 仍注册该 workflow 的 schedule 触发器",
-      "fix": "将 schedule: 键注释掉，与其他 disabled workflow 保持一致",
+      "root_cause": "GitHub Actions schedule 注释不完整（仅是部分修复）。真正触发源是本地 crontab: 50 8 * * 1-5 运行 scripts/daily_run.sh，完全独立于 GitHub Actions",
+      "fix": "1) 注释 premarket-briefing.yml 的 schedule: 键; 2) 注释本地 crontab 条目（本地 cron 不再需要，定时任务已由 GitHub Actions 处理）",
       "tags": [
         "schedule",
         "github-actions",
         "workflow-trigger"
       ],
       "related_bugs": [],
-      "occurrences": 1,
+      "occurrences": 2,
       "last_seen": "2026-07-09"
+    },
+    {
+      "id": "bug-083",
+      "timestamp": "2026-07-15T00:54:30.504Z",
+      "error_message": "Significant refactor of ",
+      "file": "premarket_briefing.py",
+      "root_cause": "16 lines replaced/restructured",
+      "fix": "Rewrote 36→52 lines (16 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-15T00:54:30.504Z"
+    },
+    {
+      "id": "bug-084",
+      "timestamp": "2026-07-15T00:58:08.416Z",
+      "error_message": "Significant refactor of ",
+      "file": "main.py",
+      "root_cause": "14 lines replaced/restructured",
+      "fix": "Rewrote 21→9 lines (14 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-15T00:58:08.416Z"
+    },
+    {
+      "id": "bug-085",
+      "timestamp": "2026-07-17T09:30:00+08:00",
+      "error_message": "##***error***The operation was canceled. (AI summary batch 8/15 timeout)",
+      "file": "summarizer.py, .github/workflows/daily-report.yml",
+      "root_cause": "OpenAI client 未配置 timeout，默认 600s 对 LongCat API 偏短；总结逻辑用 ThreadPoolExecutor 并发 3 个批次，单个超时不影响其他但整个流程在批次 8/15 时被取消；workflow timeout-minutes=30 偏紧。",
+      "fix": "1) 所有 AI 客户端（LongCat/DeepSeek/DeepSeek-V4-Flash）加 timeout=180.0, max_retries=2；2) summarizer 总结逻辑从并发改为串行+重试（失败等 5/10s 后重试，最多 2 次），失败批次跳过不阻断；3) workflow timeout-minutes 从 30 提至 45。",
+      "tags": [
+        "summarizer",
+        "timeout",
+        "longcat",
+        "github-actions",
+        "ai-api",
+        "retry"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-17"
+    },
+    {
+      "id": "bug-086",
+      "timestamp": "2026-07-24T01:04:55.806Z",
+      "error_message": "Wrong reference: true should be false",
+      "file": ".github/workflows/daily-report.yml",
+      "root_cause": "Used \"true\" instead of \"false\"",
+      "fix": "Changed true → false",
+      "tags": [
+        "auto-detected",
+        "wrong-reference",
+        "yml"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-24T01:04:55.806Z"
+    },
+    {
+      "id": "bug-087",
+      "timestamp": "2026-07-24T01:30:00Z",
+      "error_message": "每日股票报告执行过程中被取消（cancelled），近两周多次 schedule 和 workflow_dispatch 触发均被 cancel-in-progress 取消",
+      "file": ".github/workflows/daily-report.yml",
+      "root_cause": "concurrency 块设置 cancel-in-progress: true，当同一并发组(daily-report)中有新触发时，GitHub Actions 会取消正在运行的 run 而不是排队等待。报告生成耗时 30-45 分钟，在运行期间再次触发（手动或定时）会取消正在执行的 run。",
+      "fix": "将 cancel-in-progress 从 true 改为 false，新触发会排队等待当前 run 完成，避免中途取消浪费已完成的 AI 调用。",
+      "tags": [
+        "github-actions",
+        "concurrency",
+        "cancel-in-progress",
+        "scheduled-report",
+        "workflow_dispatch"
+      ],
+      "related_bugs": [],
+      "occurrences": 10,
+      "last_seen": "2026-07-24T00:53:44Z"
     }
   ]
 }

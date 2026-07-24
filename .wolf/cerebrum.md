@@ -21,6 +21,9 @@
 - **定时邮件标题**：定时任务成功报告邮件主题使用“新闻资讯M月D日”，例如“新闻资讯5月25日”。
 - **定时邮件 UI**：邮件正文需要宽松易扫读，表格不能过于拥挤；买点、推荐、风险、止损、减仓、卖出等重点内容应在邮件中标红突出。
 - **盘后复盘任务**：用户需要独立的 A 股盘后复盘报告，覆盖大盘情绪、板块题材、龙虎榜资金、个股复盘、主线策略、仓位管理、新闻信息、明日计划和心理纪律；不要展示外资资金占位；市场上涨/下跌家数优先使用同花顺 indexflash；涨跌停数量使用真实涨跌停池；板块统计要完整展示涨跌、成交额、主力净流入、强弱分布，并单独统计强势行业和强势题材；真实持仓和新闻公告应明确标为待接入，不编造。
+- **盘前快讯格式**：盘前财经快讯不要使用 Markdown，应输出 HTML 格式（可直接作为邮件正文的完整 HTML 片段，含内联样式）。LLM 不一定严格遵循 prompt 输出 HTML，因此 `_normalize_to_html()` 会检测格式：Markdown → 用 markdown 库转 HTML；裸 HTML → 直接通过。最终统一走 `_style_inline_html()` 加内联样式。
+- **邮件发送职责唯一**：`main.py all` 不再自行发送邮件；邮件统一由 GitHub Actions workflow (`daily-report.yml`) 的 "发送成功报告邮件" 步骤发送，避免重复邮件。
+- **盘中预警收盘退出**：`intraday_monitor.py` 在 15:00 后自动退出（break），不再无限休眠直到 workflow 超时；workflow `timeout-minutes` 设为 480 作为兜底。
 - **回答语言**：尽可能使用中文回答。
 - **GitHub 同步**：每次完成本地修改后，默认提交并推送到 GitHub。
 - **本地 API Key 安全**：DeepSeek API key 不应以明文留在 config.yaml；配置使用 `api_key_encrypted`，解密密钥放在本机 `.secrets/deepseek.key` 或环境变量 `DEEPSEEK_API_KEY_ENCRYPTION_KEY`。
@@ -196,3 +199,10 @@
   - 认证方式: Bearer <REDACTED> (标准 OpenAI Authorization header)
   - GitHub Actions Secret: LONGCAT_API_KEY（需手动添加到仓库 Secrets）
   - 变更文件: config.yaml, summarizer.py, daily-report.yml, consecutive-limit-up.yml
+
+## Key Learnings (2026-07-17)
+
+- **AI API timeout 配置**：OpenAI Python 客户端默认 timeout 为 600s，LongCat/DeepSeek 等 API 在大批量请求时可能超时。需显式配置 `timeout=180.0` 和 `max_retries=2`，避免单次 API 调用长时间阻塞。
+- **AI 总结串行+重试**：300 篇帖子分 15 批总结时，并发调用容易触发限流或单批超时导致整体取消。改为串行 + 重试（失败等 5/10s 后重试 2 次）更稳定；失败批次跳过不阻断，报告中注明跳过。
+- **GitHub Actions timeout**：涉及多轮 AI 调用的任务（300 篇总结 + 股票提取），30 分钟 timeout 可能偏紧；预留 45 分钟更安全。
+- **GitHub Actions cancel-in-progress**：`concurrency.cancel-in-progress: true` 会在新触发时取消正在运行的 run，而不是排队等待。对于耗时 30-45 分钟的长任务（如日报 AI 总结），这会导致运行中途被取消、浪费已完成的 AI 调用。长任务应设为 `cancel-in-progress: false`，让新触发排队等待。
