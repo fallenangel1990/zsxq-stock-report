@@ -1569,6 +1569,24 @@
       "related_bugs": [],
       "occurrences": 10,
       "last_seen": "2026-07-24T00:53:44Z"
+    },
+    {
+      "id": "bug-088",
+      "timestamp": "2026-07-27T09:15:00Z",
+      "error_message": "TypeError: sequence item 22: expected str instance, NoneType found at summarizer.py _build_report line 429 \"\\n\".join(parts)",
+      "file": "summarizer.py",
+      "root_cause": "client.create() 返回 response.choices[0].message.content，LongCat-2.0/DeepSeek 在内容被过滤或仅返回推理时该字段为 None。重试循环只捕获异常不拦截 None，导致 None 作为批次总结传入 _build_report；该函数对 overview 有 if overview 防御，但对 batch_summaries 中的每个 summary 无 None 兜底，\"\\n\".join(parts) 因此崩溃。summarize_single_post (line 460) 同样存在 raw.strip() 遇 None 的隐患。",
+      "fix": "1) 四个 AI wrapper (DeepSeek/LongCat/DeepSeekV4Flash/Claude) 的 create() 在 content is None 时 raise ValueError，触发既有重试逻辑，重试耗尽后批次显示「第N批总结失败，已跳过」；2) _build_report 对 overview 和每个 summary 加 None 兜底（summary 为 None 时显示「该批总结为空」），确保 \"\\n\".join 永不崩溃。",
+      "tags": [
+        "typeerror",
+        "none-content",
+        "ai-api",
+        "summarizer",
+        "defense-in-depth"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-27T09:15:00Z"
     }
   ]
 }

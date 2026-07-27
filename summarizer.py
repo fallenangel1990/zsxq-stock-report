@@ -148,7 +148,10 @@ def _init_deepseek(ds_config: dict):
                     {"role": "user", "content": prompt},
                 ],
             )
-            return response.choices[0].message.content
+            content = response.choices[0].message.content
+            if content is None:
+                raise ValueError("AI 返回内容为空 (content=None)")
+            return content
 
     return DeepSeekWrapper(), model, "mimo" if is_mimo else "deepseek"
 
@@ -179,7 +182,10 @@ def _init_longcat(lc_config: dict):
                     {"role": "user", "content": prompt},
                 ],
             )
-            return response.choices[0].message.content
+            content = response.choices[0].message.content
+            if content is None:
+                raise ValueError("AI 返回内容为空 (content=None)")
+            return content
 
     return LongCatWrapper(), model, "longcat"
 
@@ -211,7 +217,10 @@ def _init_deepseek_v4_flash(ds_config: dict):
                     {"role": "user", "content": prompt},
                 ],
             )
-            return response.choices[0].message.content
+            content = response.choices[0].message.content
+            if content is None:
+                raise ValueError("AI 返回内容为空 (content=None)")
+            return content
 
     return DeepSeekV4FlashWrapper(), model, "deepseek-v4-flash"
 
@@ -237,7 +246,10 @@ def _init_claude(claude_config: dict):
                 system=system,
                 messages=[{"role": "user", "content": prompt}],
             )
-            return response.content[0].text
+            content = response.content[0].text
+            if content is None:
+                raise ValueError("AI 返回内容为空 (content=None)")
+            return content
 
     return ClaudeWrapper(), model, "claude"
 
@@ -416,14 +428,14 @@ def _build_report(stats: dict, batch_summaries: list[str], overview: str) -> str
 
     if overview:
         parts.append("## 整体概述\n")
-        parts.append(overview)
+        parts.append(overview if overview is not None else "")
         parts.append("")
 
     if batch_summaries:
         parts.append("## 详细总结\n")
         for i, summary in enumerate(batch_summaries):
             parts.append(f"### 第 {i + 1} 批\n")
-            parts.append(summary)
+            parts.append(summary if summary is not None else "(该批总结为空)")
             parts.append("")
 
     return "\n".join(parts)

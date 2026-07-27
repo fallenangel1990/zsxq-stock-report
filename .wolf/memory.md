@@ -457,3 +457,16 @@
 |------|--------|---------|---------|--------|
 | 09:04 | Edited .github/workflows/daily-report.yml | 3→3 lines | ~18 |
 | 09:30 | 排查并修复日报执行被取消问题 | .github/workflows/daily-report.yml, .wolf/buglog.json | 根因: cancel-in-progress: true 导致运行中被取消；改为 false 排队等待 | ~2500 |
+| 09:06 | Session end: 1 writes across 1 files (daily-report.yml) | 1 reads | ~3219 tok |
+
+## Session: 2026-07-27 09:04
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 09:10 | Edited summarizer.py | modified create() | ~188 |
+| 09:10 | Edited summarizer.py | modified create() | ~181 |
+| 09:10 | Edited summarizer.py | modified create() | ~188 |
+| 09:11 | Edited summarizer.py | modified create() | ~157 |
+| 09:11 | Edited summarizer.py | modified enumerate() | ~123 |
+| 09:15 | 修复 _build_report TypeError: sequence item 22 NoneType | summarizer.py | 定位根因：client.create() 返回 None (message.content=None) 时 _build_report 未防御；4个 wrapper 加 None→raise 触发重试，_build_report 加 None 兜底 | ~2500 |
+| 09:12 | Session end: 5 writes across 1 files (summarizer.py) | 1 reads | ~5270 tok |

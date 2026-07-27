@@ -203,6 +203,7 @@
 ## Key Learnings (2026-07-17)
 
 - **AI API timeout 配置**：OpenAI Python 客户端默认 timeout 为 600s，LongCat/DeepSeek 等 API 在大批量请求时可能超时。需显式配置 `timeout=180.0` 和 `max_retries=2`，避免单次 API 调用长时间阻塞。
+- **AI 返回 content 可能为 None**：LongCat-2.0 / DeepSeek 等 OpenAI 兼容 API 在内容被过滤或模型仅输出推理时，`response.choices[0].message.content` 返回 `None`（而非抛出异常）。重试循环只捕获异常无法拦截 None，需在 wrapper 层显式检查并 raise 才能触发重试；同时消费端（如 `_build_report`）应做 None 兜底实现防御深度。
 - **AI 总结串行+重试**：300 篇帖子分 15 批总结时，并发调用容易触发限流或单批超时导致整体取消。改为串行 + 重试（失败等 5/10s 后重试 2 次）更稳定；失败批次跳过不阻断，报告中注明跳过。
 - **GitHub Actions timeout**：涉及多轮 AI 调用的任务（300 篇总结 + 股票提取），30 分钟 timeout 可能偏紧；预留 45 分钟更安全。
 - **GitHub Actions cancel-in-progress**：`concurrency.cancel-in-progress: true` 会在新触发时取消正在运行的 run，而不是排队等待。对于耗时 30-45 分钟的长任务（如日报 AI 总结），这会导致运行中途被取消、浪费已完成的 AI 调用。长任务应设为 `cancel-in-progress: false`，让新触发排队等待。
