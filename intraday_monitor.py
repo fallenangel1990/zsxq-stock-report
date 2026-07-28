@@ -596,6 +596,15 @@ def run_monitor(
             if sector_alerts:
                 alerts.extend(sector_alerts)
 
+        # 集中度检测（基于 check_interval_min 折算轮次）
+        _conc_interval_rounds = max(1, CONCENTRATION_CHECK_INTERVAL_MIN * 60 // poll_interval)
+        if round_count % _conc_interval_rounds == 0:
+            now_hm = now.hour * 100 + now.minute
+            if now_hm < 1450:  # 14:50 后停止检查
+                conc_alerts = _check_concentration(state)
+                if conc_alerts:
+                    alerts.extend(conc_alerts)
+
         # 获取行情和技术指标
         try:
             prices = fetch_prices(codes)
