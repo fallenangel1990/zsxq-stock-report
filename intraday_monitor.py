@@ -22,6 +22,14 @@ ALERT_COOLDOWN = 1800  # 同一股票同类预警的冷却时间（秒）
 STATE_FILE = Path(__file__).parent / "data" / "state" / "intraday_alerts.json"
 ENRICHED_DIR = Path(__file__).parent / "data" / "summary"
 
+# ── 资金集中度监控 ──
+
+_LEVEL_ORDER = {"normal": 0, "elevated": 1, "danger": 2}
+
+CONCENTRATION_CHECK_INTERVAL_MIN = 30  # 集中度检查间隔（分钟）
+
+CONCENTRATION_STATE_KEY = "concentration_last"
+
 
 def _now_shanghai() -> datetime:
     return datetime.now(ZoneInfo("Asia/Shanghai"))
@@ -446,6 +454,90 @@ def _check_sector_rotation(state: dict) -> list[dict]:
                 })
 
     return alerts
+
+
+def _build_release_alert(level: str, now: datetime) -> dict:
+    """构建集中度回落解除预警。"""
+    return {
+        "code": "CONC",
+        "name": "集中度",
+        "type": "concentration_release",
+        "level": "🟢 机会",
+        "priority": 1,
+        "msg": f"资金集中度回落至{level}，追高风险下降。",
+        "ts": time.time(),
+        "time": now.strftime("%H:%M:%S"),
+    }
+
+
+def _build_upgrade_alert(level: str, snapshot: dict, now: datetime) -> dict:
+    """构建集中度上升预警。"""
+    flow = snapshot.get("signals", {}).get("flow_concentration", {})
+    top3_names = "、".join(t["name"] for t in flow.get("top3", []))
+    msg = f"前3板块净流入占 {flow.get('value', 0)*100:.0f}%（{top3_names}）"
+    if level == "danger":
+        msg += "。资金高度集中，注意追高风险"
+    else:
+        msg += "。资金集中度偏高，注意追高"
+    return {
+        "code": "CONC",
+        "name": "集中度",
+        "type": "concentration",
+        "level": "🔴 严重" if level == "danger" else "🟡 注意",
+        "priority": 0,
+        "msg": msg,
+        "ts": time.time(),
+        "time": now.strftime("%H:%M:%S"),
+    }
+
+
+def _check_concentration(state: dict) -> list[dict]:
+    """检查资金集中度，边缘触发预警。
+
+    仅当等级上升时推送（normal→elevated→danger），
+    等级下降时推送解除消息，等级不变不推送。
+    """
+    from concentration_monitor import compute_concentration
+
+    try:
+        snapshot = compute_concentration()
+    except Exception as exc:
+        print(f"[集中度] 获取失败: {exc}", flush=True)
+        return []
+
+    level = snapshot.get("level", "normal")
+    last = state.get(CONCENTRATION_STATE_KEY, {})
+    last_level = last.get("level", "normal")
+
+    # 更新状态
+    state[CONCENTRATION_STATE_KEY] = {
+        "level": level,
+        "timestamp": snapshot.get("timestamp"),
+    }
+
+    if level == last_level:
+        return []
+
+    current_order = _LEVEL_ORDER.get(level, 0)
+    last_order = _LEVEL_ORDER.get(last_level, 0)
+
+    # 等级上升时：同等级当天已推送过 → 不重复
+    if current_order > last_order:
+        today = _now_shanghai().strftime("%Y-%m-%d")
+        if last.get("last_push_level") == level and last.get("last_push_date") == today:
+            return []
+
+    now = _now_shanghai()
+
+    # 等级下降 → 推送解除
+    if current_order < last_order:
+        return [_build_release_alert(level, now)]
+
+    # 等级上升 → 推送预警
+    state[CONCENTRATION_STATE_KEY]["last_push_level"] = level
+    state[CONCENTRATION_STATE_KEY]["last_push_date"] = now.strftime("%Y-%m-%d")
+    return [_build_upgrade_alert(level, snapshot, now)]
+
 
 def run_monitor(
     poll_interval: int = DEFAULT_POLL_INTERVAL,
