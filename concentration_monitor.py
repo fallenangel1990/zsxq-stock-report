@@ -89,6 +89,32 @@ def _unavailable_signal(reason: str = "") -> dict:
     return {"value": 0.0, "level": LEVEL_UNAVAILABLE, "top3": [], "reason": reason}
 
 
+def _compute_turnover_signal(
+    boards: list[dict], thresholds: dict,
+) -> dict:
+    """计算板块成交额集中度信号。"""
+    if not boards:
+        return _unavailable_signal("无板块数据")
+
+    total = sum(b.get("amount_yi", 0) for b in boards)
+    if total <= 0:
+        return {"value": 0.0, "level": LEVEL_NORMAL, "top3": []}
+
+    top3 = sorted(boards, key=lambda b: b.get("amount_yi", 0), reverse=True)[:3]
+    top3_sum = sum(b.get("amount_yi", 0) for b in top3)
+    value = top3_sum / total
+
+    top3_out = [
+        {"name": b.get("name", ""), "share": round(b["amount_yi"] / total, 4)}
+        for b in top3
+    ]
+    return {
+        "value": round(value, 4),
+        "level": _judge_threshold(value, thresholds),
+        "top3": top3_out,
+    }
+
+
 def compute_concentration(
     thresholds: Optional[dict] = None,
 ) -> dict:
@@ -108,13 +134,14 @@ def compute_concentration(
         boards = []
 
     flow_signal = _compute_flow_signal(boards, t["flow_top3_pct"])
+    turnover_signal = _compute_turnover_signal(boards, t["turnover_top3_pct"])
 
     return {
         "level": flow_signal["level"],
         "timestamp": _now_shanghai().isoformat(),
         "signals": {
             "flow_concentration": flow_signal,
-            "turnover_concentration": _unavailable_signal("待实现"),
+            "turnover_concentration": turnover_signal,
             "breadth_divergence": _unavailable_signal("待实现"),
         },
         "summary": "",

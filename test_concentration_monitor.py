@@ -73,3 +73,57 @@ class TestFlowConcentration:
         mock_boards.side_effect = RuntimeError("502")
         snap = cm.compute_concentration()
         assert snap["signals"]["flow_concentration"]["level"] == cm.LEVEL_UNAVAILABLE
+
+
+class TestTurnoverConcentration:
+    @patch("concentration_monitor.fetch_boards")
+    def test_normal_when_dispersed(self, mock_boards):
+        mock_boards.return_value = [
+            _board("半导体", 10, 80),
+            _board("AI", 8, 70),
+            _board("机器人", 7, 60),
+            _board("消费", 5, 60),
+            _board("医药", 3, 55),
+            _board("金融", 2, 55),
+            _board("地产", 2, 50),
+            _board("汽车", 2, 50),
+        ]
+        snap = cm.compute_concentration()
+        to = snap["signals"]["turnover_concentration"]
+        assert to["level"] == cm.LEVEL_NORMAL
+
+    @patch("concentration_monitor.fetch_boards")
+    def test_elevated_at_47_percent(self, mock_boards):
+        """top3 成交额占 47% → elevated。"""
+        mock_boards.return_value = [
+            _board("半导体", 10, 200),
+            _board("AI", 8, 150),
+            _board("机器人", 7, 120),
+            _board("消费", 5, 100),
+            _board("医药", 3, 90),
+            _board("金融", 2, 80),
+            _board("地产", 2, 70),
+            _board("汽车", 2, 60),
+            _board("农业", 2, 50),
+            _board("纺织", 2, 40),
+            _board("化工", 2, 40),
+        ]
+        snap = cm.compute_concentration()
+        to = snap["signals"]["turnover_concentration"]
+        assert to["level"] == cm.LEVEL_ELEVATED
+        assert to["value"] == pytest.approx(0.47, abs=0.01)
+
+    @patch("concentration_monitor.fetch_boards")
+    def test_danger_at_62_percent(self, mock_boards):
+        """top3 成交额占 62% → danger。"""
+        mock_boards.return_value = [
+            _board("半导体", 10, 300),
+            _board("AI", 8, 200),
+            _board("机器人", 7, 120),
+            _board("消费", 5, 100),
+            _board("医药", 3, 80),
+            _board("金融", 2, 70),
+        ]
+        snap = cm.compute_concentration()
+        to = snap["signals"]["turnover_concentration"]
+        assert to["level"] == cm.LEVEL_DANGER
