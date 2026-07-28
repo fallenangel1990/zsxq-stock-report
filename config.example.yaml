@@ -102,6 +102,20 @@ stocks:
       稀土: 有色金属
       证券: 金融/证券
       银行: 金融/银行
+concentration:
+  thresholds:
+    flow_top3_pct:
+      elevated: 0.50
+      danger: 0.70
+    turnover_top3_pct:
+      elevated: 0.45
+      danger: 0.60
+    breadth_ratio:
+      elevated: 1.0
+      danger: 0.6
+  intraday:
+    check_interval_min: 30
+    stop_at: "14:50"
 ths:
   enabled: true
   cookies_path: cookies_ths.json
