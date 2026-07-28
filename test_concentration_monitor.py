@@ -180,3 +180,44 @@ class TestBreadthDivergence:
         mock_indices.side_effect = RuntimeError("cookie expired")
         snap = cm.compute_concentration()
         assert snap["signals"]["breadth_divergence"]["level"] == cm.LEVEL_UNAVAILABLE
+
+
+class TestAggregateLevel:
+    def test_all_normal(self):
+        signals = [
+            {"level": "normal"}, {"level": "normal"}, {"level": "normal"},
+        ]
+        assert cm._aggregate_level(signals) == cm.LEVEL_NORMAL
+
+    def test_two_elevated(self):
+        signals = [
+            {"level": "elevated"}, {"level": "elevated"}, {"level": "normal"},
+        ]
+        assert cm._aggregate_level(signals) == cm.LEVEL_ELEVATED
+
+    def test_two_danger(self):
+        signals = [
+            {"level": "danger"}, {"level": "danger"}, {"level": "normal"},
+        ]
+        assert cm._aggregate_level(signals) == cm.LEVEL_DANGER
+
+    def test_one_elevated_downgraded(self):
+        """仅 1 个 elevated + 2 个 normal → 降级为 normal。"""
+        signals = [
+            {"level": "elevated"}, {"level": "normal"}, {"level": "normal"},
+        ]
+        assert cm._aggregate_level(signals) == cm.LEVEL_NORMAL
+
+    def test_unavailable_excluded(self):
+        """unavailable 信号不参与综合判定。"""
+        signals = [
+            {"level": "danger"}, {"level": "unavailable"}, {"level": "unavailable"},
+        ]
+        # 仅 1 个有效信号，无法达到 ≥2 → normal
+        assert cm._aggregate_level(signals) == cm.LEVEL_NORMAL
+
+    def test_all_unavailable(self):
+        signals = [
+            {"level": "unavailable"}, {"level": "unavailable"},
+        ]
+        assert cm._aggregate_level(signals) == cm.LEVEL_UNAVAILABLE

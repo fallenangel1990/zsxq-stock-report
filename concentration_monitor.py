@@ -143,16 +143,61 @@ def compute_concentration(
 
     breadth_signal = _compute_breadth_signal(indices, t["breadth_ratio"])
 
+    signals = [flow_signal, turnover_signal, breadth_signal]
+    level = _aggregate_level(signals)
+
     return {
-        "level": flow_signal["level"],
+        "level": level,
         "timestamp": _now_shanghai().isoformat(),
         "signals": {
             "flow_concentration": flow_signal,
             "turnover_concentration": turnover_signal,
             "breadth_divergence": breadth_signal,
         },
-        "summary": "",
+        "summary": _build_summary({"level": level, "signals": {
+            "flow_concentration": flow_signal,
+        }}),
     }
+
+
+def _aggregate_level(signals: list[dict]) -> str:
+    """综合多信号等级。
+
+    规则：
+    - 所有有效信号 normal → normal
+    - ≥2 个有效信号 ≥ elevated → elevated
+    - ≥2 个有效信号 ≥ danger → danger
+    - 其余（如仅 1 个 elevated）→ 降级为 normal
+    - unavailable 不参与计数
+    """
+    valid = [s["level"] for s in signals if s.get("level") != LEVEL_UNAVAILABLE]
+    if not valid:
+        return LEVEL_UNAVAILABLE
+
+    elevated_count = sum(1 for l in valid if l in (LEVEL_ELEVATED, LEVEL_DANGER))
+    danger_count = sum(1 for l in valid if l == LEVEL_DANGER)
+
+    if danger_count >= 2:
+        return LEVEL_DANGER
+    if elevated_count >= 2:
+        return LEVEL_ELEVATED
+    return LEVEL_NORMAL
+
+
+def _build_summary(snapshot: dict) -> str:
+    """生成一句话总结。"""
+    signals = snapshot.get("signals", {})
+    flow = signals.get("flow_concentration", {})
+    top3_names = "、".join(t["name"] for t in flow.get("top3", [])[:3])
+    level = snapshot.get("level", "normal")
+
+    if level == LEVEL_DANGER and top3_names:
+        return f"资金高度集中于{top3_names}板块"
+    if level == LEVEL_ELEVATED and top3_names:
+        return f"资金集中度偏高，集中于{top3_names}板块"
+    if level == LEVEL_UNAVAILABLE:
+        return "集中度数据暂缺"
+    return "资金分布较分散"
 
 
 def _compute_breadth_signal(
