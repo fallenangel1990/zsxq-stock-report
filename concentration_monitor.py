@@ -136,13 +136,70 @@ def compute_concentration(
     flow_signal = _compute_flow_signal(boards, t["flow_top3_pct"])
     turnover_signal = _compute_turnover_signal(boards, t["turnover_top3_pct"])
 
+    try:
+        indices = fetch_market_indices()
+    except Exception:
+        indices = []
+
+    breadth_signal = _compute_breadth_signal(indices, t["breadth_ratio"])
+
     return {
         "level": flow_signal["level"],
         "timestamp": _now_shanghai().isoformat(),
         "signals": {
             "flow_concentration": flow_signal,
             "turnover_concentration": turnover_signal,
-            "breadth_divergence": _unavailable_signal("待实现"),
+            "breadth_divergence": breadth_signal,
         },
         "summary": "",
+    }
+
+
+def _compute_breadth_signal(
+    indices: list[dict], thresholds: dict,
+) -> dict:
+    """计算市场宽度背离信号。
+
+    仅在指数上涨时判定：涨跌比 < 1 说明权重拉个股跌，资金集中。
+    指数下跌时不触发（下跌集中 ≠ 追高风险）。
+    """
+    if not indices:
+        return _unavailable_signal("无指数数据")
+
+    # 优先使用上证指数，缺失时取第一个
+    sh_index = next(
+        (i for i in indices if i.get("code") in ("1000001", "000001")),
+        indices[0],
+    )
+    index_change = sh_index.get("change_pct", 0)
+    up_count = sh_index.get("up_count", 0)
+    down_count = sh_index.get("down_count", 0)
+
+    if down_count <= 0:
+        ratio = 1.0 if up_count > 0 else 0.0
+    else:
+        ratio = up_count / down_count
+
+    # 指数下跌时不触发背离
+    if index_change <= 0:
+        return {
+            "value": round(ratio, 2),
+            "level": LEVEL_NORMAL,
+            "index_change": index_change,
+            "advance_decline_ratio": round(ratio, 2),
+        }
+
+    # 指数上涨时，比值越低越危险（阈值含义与 flow/turnover 相反）
+    if ratio < thresholds["danger"]:
+        level = LEVEL_DANGER
+    elif ratio < thresholds["elevated"]:
+        level = LEVEL_ELEVATED
+    else:
+        level = LEVEL_NORMAL
+
+    return {
+        "value": round(ratio, 2),
+        "level": level,
+        "index_change": index_change,
+        "advance_decline_ratio": round(ratio, 2),
     }

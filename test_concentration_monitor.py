@@ -127,3 +127,56 @@ class TestTurnoverConcentration:
         snap = cm.compute_concentration()
         to = snap["signals"]["turnover_concentration"]
         assert to["level"] == cm.LEVEL_DANGER
+
+
+class TestBreadthDivergence:
+    @patch("concentration_monitor.fetch_market_indices")
+    def test_normal_when_breadth_healthy(self, mock_indices):
+        """指数涨 + 涨跌比 > 1 → normal。"""
+        mock_indices.return_value = [
+            {"code": "1000001", "name": "上证指数", "change_pct": 0.8,
+             "up_count": 1500, "down_count": 800},
+        ]
+        snap = cm.compute_concentration()
+        bd = snap["signals"]["breadth_divergence"]
+        assert bd["level"] == cm.LEVEL_NORMAL
+
+    @patch("concentration_monitor.fetch_market_indices")
+    def test_elevated_when_ratio_below_1(self, mock_indices):
+        """指数涨 + 涨跌比 < 1 → elevated。"""
+        mock_indices.return_value = [
+            {"code": "1000001", "name": "上证指数", "change_pct": 0.8,
+             "up_count": 800, "down_count": 1000},
+        ]
+        snap = cm.compute_concentration()
+        bd = snap["signals"]["breadth_divergence"]
+        assert bd["level"] == cm.LEVEL_ELEVATED
+        assert bd["advance_decline_ratio"] == pytest.approx(0.8)
+
+    @patch("concentration_monitor.fetch_market_indices")
+    def test_danger_when_ratio_below_06(self, mock_indices):
+        """指数涨 + 涨跌比 < 0.6 → danger。"""
+        mock_indices.return_value = [
+            {"code": "1000001", "name": "上证指数", "change_pct": 1.2,
+             "up_count": 550, "down_count": 1200},
+        ]
+        snap = cm.compute_concentration()
+        bd = snap["signals"]["breadth_divergence"]
+        assert bd["level"] == cm.LEVEL_DANGER
+
+    @patch("concentration_monitor.fetch_market_indices")
+    def test_no_trigger_when_index_falls(self, mock_indices):
+        """指数跌 → 不触发背离（下跌集中 ≠ 追高风险）。"""
+        mock_indices.return_value = [
+            {"code": "1000001", "name": "上证指数", "change_pct": -0.5,
+             "up_count": 600, "down_count": 1500},
+        ]
+        snap = cm.compute_concentration()
+        bd = snap["signals"]["breadth_divergence"]
+        assert bd["level"] == cm.LEVEL_NORMAL
+
+    @patch("concentration_monitor.fetch_market_indices")
+    def test_unavailable_on_fetch_failure(self, mock_indices):
+        mock_indices.side_effect = RuntimeError("cookie expired")
+        snap = cm.compute_concentration()
+        assert snap["signals"]["breadth_divergence"]["level"] == cm.LEVEL_UNAVAILABLE
