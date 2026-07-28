@@ -3369,6 +3369,7 @@ def _append_trader_summary(
     trend_scores: dict,
     market_filter: dict,
     style_exposure: dict = None,
+    concentration_snapshot: Optional[dict] = None,
 ) -> None:
     """报告顶部的交易员视角摘要。"""
     executable = [s for s in enriched if s.get("decision_tier") == "可执行清单"]
@@ -3389,6 +3390,10 @@ def _append_trader_summary(
         parts.append("- 操作纪律：只从可执行清单中选 1-3 只分批，观察清单等触发条件。")
     parts.append("")
 
+    # 集中度仪表盘
+    if concentration_snapshot:
+        _append_concentration_gauge(parts, concentration_snapshot)
+
     # 风格暴露
     style_exposure = style_exposure or {}
     if style_exposure:
@@ -3398,6 +3403,70 @@ def _append_trader_summary(
             exposure = info.get("exposure", 0)
             parts.append(f"- **{style}**: {exposure:.1f}（{direction}）")
         parts.append("")
+
+
+def _append_concentration_gauge(parts: list[str], snapshot: Optional[dict]) -> None:
+    """在交易员摘要中插入资金集中度仪表盘。
+
+    - normal: 不展示（避免冗余）
+    - elevated: 黄色警告 + 数据
+    - danger: 红色警告 + 数据 + 仓位建议
+    - unavailable: 灰色提示数据缺失
+    """
+    if not snapshot:
+        return
+
+    level = snapshot.get("level", "normal")
+    if level == "normal":
+        return
+
+    if level == "unavailable":
+        parts.append("⚠️ 集中度数据暂缺\n")
+        return
+
+    signals = snapshot.get("signals", {})
+    flow = signals.get("flow_concentration", {})
+    turnover = signals.get("turnover_concentration", {})
+    breadth = signals.get("breadth_divergence", {})
+
+    is_danger = level == "danger"
+    icon = "🚨" if is_danger else "⚠️"
+    label = "危险" if is_danger else "偏高"
+    emoji = "🔴" if is_danger else "🟡"
+
+    parts.append(f"{icon} 资金集中度：{emoji} {label}")
+
+    # 资金集中行
+    flow_level = flow.get("level", "unavailable")
+    if flow_level not in ("unavailable", "normal"):
+        pct = flow.get("value", 0) * 100
+        top3_str = "、".join(
+            f"{t['name']} {t['share']*100:.0f}%"
+            for t in flow.get("top3", [])
+        )
+        parts.append(f"  • 资金集中：前3板块净流入占 {pct:.0f}%（{top3_str}）")
+
+    # 成交集中行
+    to_level = turnover.get("level", "unavailable")
+    if to_level not in ("unavailable", "normal"):
+        pct = turnover.get("value", 0) * 100
+        parts.append(f"  • 成交集中：前3板块成交额占 {pct:.0f}%")
+
+    # 宽度背离行
+    bd_level = breadth.get("level", "unavailable")
+    if bd_level not in ("unavailable", "normal"):
+        idx_change = breadth.get("index_change", 0)
+        ratio = breadth.get("advance_decline_ratio", 1)
+        parts.append(
+            f"  • 宽度背离：沪指涨 {idx_change*100:.1f}% 但上涨/下跌 = {ratio:.2f}（权重拉个股跌）"
+        )
+
+    # 操作建议
+    if is_danger:
+        parts.append("  → 资金高度集中，追高风险极大，建议降低仓位至 5 成以下")
+    else:
+        parts.append("  → 注意追高，控制仓位")
+    parts.append("")
 
 
 def _append_decision_tables(parts: list[str], enriched: list[dict]) -> None:
@@ -3660,7 +3729,24 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
         parts.append(portfolio_summary)
         parts.append("")
 
-    _append_trader_summary(parts, passed, trend_scores, market_filter, style_exposure)
+    # 资金集中度（交易员摘要区展示）
+    concentration_snapshot = None
+    try:
+        from concentration_monitor import compute_concentration
+        _config_path = Path(__file__).parent / "config.yaml"
+        _conc_thresholds = None
+        if _config_path.exists():
+            with open(_config_path, "r") as _f:
+                _cfg = yaml.safe_load(_f) or {}
+            _conc_thresholds = _cfg.get("concentration", {}).get("thresholds")
+        concentration_snapshot = compute_concentration(thresholds=_conc_thresholds)
+    except Exception as exc:
+        print(f"[集中度] 获取失败: {exc}", flush=True)
+
+    _append_trader_summary(
+        parts, passed, trend_scores, market_filter, style_exposure,
+        concentration_snapshot=concentration_snapshot,
+    )
     _append_decision_tables(parts, passed)
     _append_mirror_test(parts, passed)
 
