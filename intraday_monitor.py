@@ -509,33 +509,34 @@ def _check_concentration(state: dict) -> list[dict]:
     last = state.get(CONCENTRATION_STATE_KEY, {})
     last_level = last.get("level", "normal")
 
-    # 更新状态
+    if level == last_level:
+        # 等级未变 → 不推送，且保留已有推送元数据（不覆盖）
+        return []
+
+    # 更新状态（合并模式：保留 last_push_level/last_push_date 元数据）
     state[CONCENTRATION_STATE_KEY] = {
+        **state.get(CONCENTRATION_STATE_KEY, {}),
         "level": level,
         "timestamp": snapshot.get("timestamp"),
     }
 
-    if level == last_level:
-        return []
-
     current_order = _LEVEL_ORDER.get(level, 0)
     last_order = _LEVEL_ORDER.get(last_level, 0)
 
-    # 等级上升时：同等级当天已推送过 → 不重复
-    if current_order > last_order:
-        today = _now_shanghai().strftime("%Y-%m-%d")
-        if last.get("last_push_level") == level and last.get("last_push_date") == today:
-            return []
-
     now = _now_shanghai()
+    today = now.strftime("%Y-%m-%d")
 
-    # 等级下降 → 推送解除
+    # 等级下降 → 推送解除（不修改推送元数据，保留高等级当日的去重记录）
     if current_order < last_order:
         return [_build_release_alert(level, now)]
 
-    # 等级上升 → 推送预警
+    # 等级上升时：同等级当天已推送过 → 不重复
+    if last.get("last_push_level") == level and last.get("last_push_date") == today:
+        return []
+
+    # 等级上升 → 推送预警，并记录推送元数据
     state[CONCENTRATION_STATE_KEY]["last_push_level"] = level
-    state[CONCENTRATION_STATE_KEY]["last_push_date"] = now.strftime("%Y-%m-%d")
+    state[CONCENTRATION_STATE_KEY]["last_push_date"] = today
     return [_build_upgrade_alert(level, snapshot, now)]
 
 

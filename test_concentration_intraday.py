@@ -72,3 +72,54 @@ class TestConcentrationIntraday:
         }}
         alerts = _check_concentration(state)
         assert alerts == []
+
+    @patch("concentration_monitor.compute_concentration")
+    def test_multi_level_fluctuation_pushes_danger_once(self, mock_compute):
+        """elevated→danger→elevated→danger 波动场景：danger 只推送一次（回归测试）。
+
+        验证同等级单交易日最多推送 1 次，即使中间有回落/反弹。
+        """
+        from intraday_monitor import _check_concentration
+
+        state: dict = {}
+
+        # 第 1 轮: normal（初始）→ elevated，升级推送
+        mock_compute.return_value = self._snapshot("elevated")
+        alerts = _check_concentration(state)
+        assert len(alerts) == 1 and alerts[0]["type"] == "concentration"
+
+        # 第 2 轮: elevated → danger，升级推送
+        mock_compute.return_value = self._snapshot("danger")
+        alerts = _check_concentration(state)
+        assert len(alerts) == 1 and alerts[0]["type"] == "concentration"
+        assert state["concentration_last"]["last_push_level"] == "danger"
+        assert state["concentration_last"]["last_push_date"] == "2026-07-29"
+
+        # 第 3 轮: danger → elevated，下降推送解除
+        mock_compute.return_value = self._snapshot("elevated")
+        alerts = _check_concentration(state)
+        assert len(alerts) == 1 and alerts[0]["type"] == "concentration_release"
+
+        # 第 4 轮: elevated → danger，当天已推送过 danger → 不推送
+        mock_compute.return_value = self._snapshot("danger")
+        alerts = _check_concentration(state)
+        assert alerts == [], "danger 当天应只推送一次，波动场景下不应重复推送"
+
+    @patch("concentration_monitor.compute_concentration")
+    def test_same_level_no_metadata_clobber(self, mock_compute):
+        """同等级连续检查不应擦除推送元数据（回归测试）。"""
+        from intraday_monitor import _check_concentration
+
+        state = {"concentration_last": {
+            "level": "elevated",
+            "last_push_level": "elevated",
+            "last_push_date": "2026-07-29",
+        }}
+
+        mock_compute.return_value = self._snapshot("elevated")
+        alerts = _check_concentration(state)
+
+        assert alerts == []
+        # 元数据必须保留
+        assert state["concentration_last"]["last_push_level"] == "elevated"
+        assert state["concentration_last"]["last_push_date"] == "2026-07-29"
