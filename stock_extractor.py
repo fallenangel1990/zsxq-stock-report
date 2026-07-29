@@ -3458,7 +3458,7 @@ def _append_concentration_gauge(parts: list[str], snapshot: Optional[dict]) -> N
         idx_change = breadth.get("index_change", 0)
         ratio = breadth.get("advance_decline_ratio", 1)
         parts.append(
-            f"  • 宽度背离：沪指涨 {idx_change*100:.1f}% 但上涨/下跌 = {ratio:.2f}（权重拉个股跌）"
+            f"  • 宽度背离：沪指涨 {idx_change:.1f}% 但上涨/下跌 = {ratio:.2f}（权重拉个股跌）"
         )
 
     # 操作建议

@@ -1,7 +1,4 @@
 """集中度报告集成测试。"""
-import pytest
-from unittest.mock import patch, MagicMock
-import concentration_monitor as cm
 
 
 class TestConcentrationGauge:
@@ -58,6 +55,20 @@ class TestConcentrationGauge:
         assert "偏高" in text
         assert "54%" in text
         assert "半导体" in text
+
+    def test_breadth_line_shows_percent_correctly(self):
+        """index_change 已是百分比量级，不应再乘 100。
+
+        eg. index_change=0.8 应显示 "0.8%" 而非 "80.0%"。
+        """
+        from stock_extractor import _append_concentration_gauge
+        parts = []
+        snap = self._snapshot("elevated", index_change=0.8)
+        snap["signals"]["breadth_divergence"]["level"] = "danger"
+        _append_concentration_gauge(parts, snap)
+        text = "\n".join(parts)
+        assert "0.8%" in text
+        assert "80.0%" not in text
 
     def test_danger_format_with_position_advice(self):
         """danger 展示红色警告 + 仓位建议。"""

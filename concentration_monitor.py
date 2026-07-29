@@ -22,13 +22,6 @@ LEVEL_ELEVATED = "elevated"
 LEVEL_DANGER = "danger"
 LEVEL_UNAVAILABLE = "unavailable"
 
-# 等级排序（用于综合判定）
-_LEVEL_ORDER = {
-    LEVEL_NORMAL: 0,
-    LEVEL_ELEVATED: 1,
-    LEVEL_DANGER: 2,
-}
-
 # ── 默认阈值 ──
 _DEFAULT_THRESHOLDS = {
     "flow_top3_pct": {"elevated": 0.50, "danger": 0.70},
@@ -130,7 +123,7 @@ def compute_concentration(
 
     try:
         boards = fetch_boards(board_type="industry")
-    except Exception as exc:
+    except Exception:
         boards = []
 
     flow_signal = _compute_flow_signal(boards, t["flow_top3_pct"])
