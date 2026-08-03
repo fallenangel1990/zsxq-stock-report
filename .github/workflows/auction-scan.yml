@@ -1,0 +1,126 @@
+name: 开盘竞价选股
+
+"on":
+  workflow_dispatch:
+    inputs:
+      count:
+        description: "候选池数量"
+        required: false
+        default: "50"
+      trend:
+        description: "获取分时趋势（较慢但更精确）"
+        type: boolean
+        required: false
+        default: false
+  # schedule:  # disabled - uncomment to enable
+    # - cron: "26 1 * * 1-5"
+
+env:
+  PYTHONUNBUFFERED: 1
+  TZ: Asia/Shanghai
+
+concurrency:
+  group: auction-scan
+  cancel-in-progress: true
+
+jobs:
+  auction-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v6
+
+      - name: 设置 Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: 安装依赖
+        run: |
+          pip install --upgrade pip -q
+          pip install -r requirements.txt -q
+
+      - name: 创建 config.yaml
+        run: |
+          if [ ! -f config.yaml ]; then
+            cp config.example.yaml config.yaml
+            echo "done"
+          fi
+
+      - name: 交易日检查
+        shell: python3 {0}
+        run: |
+          import datetime
+          from zoneinfo import ZoneInfo
+          today = datetime.datetime.now(ZoneInfo("Asia/Shanghai")).date()
+          try:
+              from chinese_calendar import is_workday, is_holiday
+              if not is_workday(today) or is_holiday(today):
+                  print(f"skip: {today}")
+                  exit(0)
+              print(f"ok: {today}")
+          except ImportError:
+              if today.weekday() >= 5:
+                  print(f"skip: weekend")
+                  exit(0)
+              print("warn: no chinese_calendar")
+
+      - name: 运行竞价选股
+        run: |
+          set -eo pipefail
+          COUNT="${{ github.event.inputs.count || '50' }}"
+          TREND=""
+          if [ "${{ github.event.inputs.trend }}" == "true" ]; then
+            TREND="--trend"
+          fi
+          python3 main.py auction run -n "${COUNT}" ${TREND} 2>&1
+
+      - name: 发送邮件
+        if: success()
+        env:
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          TO_EMAIL: ${{ secrets.TO_EMAIL }}
+        run: |
+          python3 - <<'PY'
+          import os, sys, glob
+          sys.path.insert(0, '.')
+          from pathlib import Path
+
+          reports = sorted(glob.glob('data/summary/auction_report_*.md'))
+          if not reports:
+              print("no report")
+              sys.exit(0)
+
+          latest = reports[-1]
+          content = Path(latest).read_text(encoding='utf-8')
+
+          try:
+              from email_sender import send_report_notification
+              send_report_notification(
+                  markdown_path=latest,
+                  to_email=os.environ.get('TO_EMAIL', '470337944@qq.com'),
+                  extra_info={'report_type': 'auction'},
+              )
+              print("email sent")
+          except Exception as e:
+              print(f"email error: {e}")
+              print(content[:500])
+          PY
+
+      - name: 归档
+        if: success()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/auction/ data/summary/auction_report_*.md 2>/dev/null || true
+          if git diff --staged --quiet; then
+            echo "no changes"
+          else
+            git commit -m "auction $(date +%Y-%m-%d)"
+            git push
+            echo "committed"
+          fi

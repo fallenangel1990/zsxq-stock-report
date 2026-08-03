@@ -435,3 +435,18 @@ def mark_expired_recommendations(
 
 def _log(msg: str) -> None:
     print(msg, flush=True)
+
+
+def save_auction_report(report: str, group_name: str = "") -> str:
+    """保存竞价选股报告。"""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    _get_dirs()
+    summary_dir = _get_dirs()[1]
+    date_str = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y%m%d_%H%M%S")
+    filename = "auction_report_{}.md".format(date_str)
+    if group_name:
+        filename = "auction_report_{}_{}.md".format(group_name, date_str)
+    filepath = summary_dir / filename
+    filepath.write_text(report, encoding="utf-8")
+    return str(filepath)

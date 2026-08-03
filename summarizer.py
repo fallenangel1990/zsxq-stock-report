@@ -196,7 +196,7 @@ def _init_deepseek_v4_flash(ds_config: dict):
 
     base_url = ds_config.get("base_url", "https://token.sensenova.cn/v1")
     model = ds_config.get("model", "deepseek-v4-flash")
-    env_names = ["DEEPSEEK_V4_FLASH_API_KEY"]
+    env_names = ["DEEPSEEK_V4_FLASH_API_KEY", "DEEPSEEK_API_KEY"]
     api_key = _resolve_api_key("deepseek_v4_flash", ds_config, env_names)
     if not api_key:
         env_hint = " 或 ".join(env_names)

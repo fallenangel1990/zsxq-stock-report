@@ -3,7 +3,7 @@ zsxq:
   group_url: ''
   base_url: https://wx.zsxq.com
 ai:
-  provider: longcat
+  provider: deepseek-v4-flash
   deepseek:
     api_key: ''
     api_key_encrypted: ''

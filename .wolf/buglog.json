@@ -1587,6 +1587,102 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-07-27T09:15:00Z"
+    },
+    {
+      "id": "bug-089",
+      "timestamp": "2026-07-28T23:14:41.206Z",
+      "error_message": "Significant refactor of ",
+      "file": "test_concentration_monitor.py",
+      "root_cause": "5 lines replaced/restructured",
+      "fix": "Rewrote 25→38 lines (5 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-28T23:14:41.206Z"
+    },
+    {
+      "id": "bug-090",
+      "timestamp": "2026-07-28T23:18:33.837Z",
+      "error_message": "Significant refactor of ",
+      "file": "concentration_monitor.py",
+      "root_cause": "2 lines replaced/restructured",
+      "fix": "Rewrote 12→57 lines (2 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-28T23:18:33.837Z"
+    },
+    {
+      "id": "bug-091",
+      "timestamp": "2026-07-29T00:56:53.790Z",
+      "error_message": "Significant refactor of ",
+      "file": "intraday_monitor.py",
+      "root_cause": "3 lines replaced/restructured",
+      "fix": "Rewrote 5→3 lines (3 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-29T00:56:53.790Z"
+    },
+    {
+      "id": "bug-092",
+      "timestamp": "2026-07-29T01:11:09.613Z",
+      "error_message": "Incorrect value in code",
+      "file": "stock_extractor.py",
+      "root_cause": "Had \"  • 宽度背离：沪指涨 {idx_change*100:.1f}% 但上涨/下跌 = {rati",
+      "fix": "Changed to \"  • 宽度背离：沪指涨 {idx_change:.1f}% 但上涨/下跌 = {ratio:.2",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-29T01:11:09.613Z"
+    },
+    {
+      "id": "bug-093",
+      "timestamp": "2026-08-03T01:10:38.841Z",
+      "error_message": "Wrong reference: longcat should be deepseek",
+      "file": "config.yaml",
+      "root_cause": "Used \"longcat\" instead of \"deepseek\"",
+      "fix": "Changed longcat → deepseek",
+      "tags": [
+        "auto-detected",
+        "wrong-reference",
+        "yaml"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-08-03T01:10:38.841Z"
+    },
+    {
+      "id": "bug-094",
+      "timestamp": "2026-08-03T01:10:39.304Z",
+      "error_message": "Wrong reference: longcat should be deepseek",
+      "file": "config.example.yaml",
+      "root_cause": "Used \"longcat\" instead of \"deepseek\"",
+      "fix": "Changed longcat → deepseek",
+      "tags": [
+        "auto-detected",
+        "wrong-reference",
+        "yaml"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-08-03T01:10:39.304Z"
     }
   ]
 }

@@ -10,3 +10,4 @@ markdown>=3.7
 chinese_calendar>=1.10
 cryptography>=42.0.0
 pypdf>=4.0.0
+easytrader>=0.23

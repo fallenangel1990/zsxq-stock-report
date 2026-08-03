@@ -207,3 +207,17 @@
 - **AI 总结串行+重试**：300 篇帖子分 15 批总结时，并发调用容易触发限流或单批超时导致整体取消。改为串行 + 重试（失败等 5/10s 后重试 2 次）更稳定；失败批次跳过不阻断，报告中注明跳过。
 - **GitHub Actions timeout**：涉及多轮 AI 调用的任务（300 篇总结 + 股票提取），30 分钟 timeout 可能偏紧；预留 45 分钟更安全。
 - **GitHub Actions cancel-in-progress**：`concurrency.cancel-in-progress: true` 会在新触发时取消正在运行的 run，而不是排队等待。对于耗时 30-45 分钟的长任务（如日报 AI 总结），这会导致运行中途被取消、浪费已完成的 AI 调用。长任务应设为 `cancel-in-progress: false`，让新触发排队等待。
+
+## Key Learnings (2026-07-29)
+
+- **市场资金集中度指标**：新增 `concentration_monitor.py` 模块，三信号（板块净流入占比 / 成交额占比 / 宽度背离）综合判定资金拥挤度。复用 `sector_monitor.fetch_boards()` 和 `fetch_market_indices()` 获取数据，不重复实现 eastmoney API。
+- **change_pct 是百分比值**：东方财富 push2 的 `f3` 字段（change_pct）是百分比值（0.8 = 0.8%），显示时直接 `{value:.1f}%` 不要再乘 100。这与 sector_monitor.py 的显示惯例一致。
+- **状态去重的元数据保存**：盘中预警的 daily dedup 需要把 `last_push_level`/`last_push_date` 存在 state 中。更新 state 时必须用 merge 模式（`{**old, "level": new}`）而非整体覆盖，否则同等级轮次会把元数据擦除，导致跨日波动时重复推送。
+- **降级路径不记录推送等级**：集中度等级下降（danger→elevated）的释放路径不应记录 `last_push_level`，否则会导致升级判断基准错误，产生振荡推送。
+- **config.yaml 不应提交**：config.yaml 在 .gitignore 中（含 API keys / group_url）。实现配置新功能时只提交 config.example.yaml，本地 config.yaml 手动编辑即可。
+
+## Decision Log (2026-07-29)
+
+- [2026-07-29] **集中度模块架构选择**：独立 `concentration_monitor.py` 模块而非嵌入 market_regime.py。理由：报告和盘中预警两个消费方需要共享计算逻辑；集中度是风险叠加信号而非市场状态，职责不同；符合项目模块化风格。
+- [2026-08-03] **大模型切换到 DeepSeek-V4-Flash**：用户要求将 `ai.provider` 从 longcat 切换为 `deepseek-v4-flash`。配置块（base_url `https://token.sensenova.cn/v1` + model `deepseek-v4-flash`）和 `summarizer.py` 的 `_init_deepseek_v4_flash()` 早已就绪，只缺 provider 翻转和本地 key 回退。本地 key 复用 `DEEPSEEK_API_KEY` 环境变量（`DEEPSEEK_V4_FLASH_API_KEY` 优先，`DEEPSEEK_API_KEY` 兜底）。所有 workflow 已传 `DEEPSEEK_V4_FLASH_API_KEY` secret，无需改动。涉及文件：config.yaml、config.example.yaml、summarizer.py。
+- [2026-07-29] **数据源复用策略**：集中度指标复用 `sector_monitor.fetch_boards(board_type="industry")`（提供 main_net_yi + amount_yi）和 `fetch_market_indices()`（提供 change_pct + up/down_count），不直接调用 eastmoney API。降级策略：fetch 失败直接标记 unavailable，不实现 spec 中的腾讯兜底（简化 + unavailable 路径已足够安全）。
