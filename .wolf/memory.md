@@ -564,3 +564,10 @@
 | 16:14 | Edited stock_extractor.py | modified _json_has_content() | ~192 |
 | 16:14 | Edited stock_extractor.py | 2→2 lines | ~40 |
 | 16:20 | 修复选股0只双bug：空JSON遮蔽表格 + 回退正则不认空格行；新增4回归测试 | stock_extractor.py, tests/test_stock_extractor.py | ✅ 109 tests passed, July-1响应产出4候选 | ~800 |
+| 16:17 | Session end: 6 writes across 4 files (summarizer.py, config.yaml, config.example.yaml, stock_extractor.py) | 6 reads | ~10378 tok |
+| 16:50 | Edited config.yaml | 5→5 lines | ~80 |
+| 16:51 | Edited config.example.yaml | 4→4 lines | ~30 |
+| 16:51 | Edited summarizer.py | 3→3 lines | ~55 |
+| 16:53 | Edited summarizer.py | 3→5 lines | ~82 |
+| 16:59 | Edited summarizer.py | modified create() | ~242 |
+| 16:50 | 配置 v4-flash 有效 key（加密）+ base_url 改回 api.deepseek.com + thinking disabled 修复推理烧光输出预算 | config.yaml, config.example.yaml, summarizer.py, .secrets/deepseek_v4_flash.key | ✅ 3帖端到端 q=2/e=11/s=7/r=4, 109 tests | ~900 |

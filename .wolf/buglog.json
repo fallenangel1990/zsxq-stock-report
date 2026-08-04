@@ -1718,6 +1718,57 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-08-04T00:00:00.000Z"
+    },
+    {
+      "id": "bug-097",
+      "timestamp": "2026-08-04T08:50:58.308Z",
+      "error_message": "Significant refactor of ",
+      "file": "config.yaml",
+      "root_cause": "2 lines replaced/restructured",
+      "fix": "Rewrote 5→5 lines (2 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "yaml"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-08-04T08:50:58.308Z"
+    },
+    {
+      "id": "bug-098",
+      "timestamp": "2026-08-04T08:51:06.326Z",
+      "error_message": "Incorrect value in code",
+      "file": "summarizer.py",
+      "root_cause": "Had \"https://token.sensenova.cn/v1\"",
+      "fix": "Changed to \"https://api.deepseek.com\"",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-08-04T08:51:06.326Z"
+    },
+    {
+      "id": "bug-099",
+      "timestamp": "2026-08-04T00:00:00.000Z",
+      "error_message": "deepseek-v4-flash 股票提取返回空 content（0 字符），候选池为 0",
+      "file": "summarizer.py",
+      "root_cause": "deepseek-v4-flash 是推理模型，默认把整个 max_tokens 预算烧在 reasoning_content 上，长 prompt 下 content 为空且 finish_reason=length。实测 3 篇帖子 max_tokens=8192 时 reasoning_tokens=8191、content=0 字符；32768 才够。",
+      "fix": "DeepSeekV4FlashWrapper.create() 增加 extra_body={\"thinking\": {\"type\": \"disabled\"}} 禁用推理。禁用后 10 篇帖子在 8192 预算内产出 11973 字符 content（6208 tokens），finish=stop。",
+      "tags": [
+        "deepseek-v4-flash",
+        "reasoning",
+        "content-empty",
+        "max_tokens"
+      ],
+      "related_bugs": [
+        "bug-096"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-08-04T00:00:00.000Z"
     }
   ]
 }

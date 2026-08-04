@@ -194,9 +194,11 @@ def _init_deepseek_v4_flash(ds_config: dict):
     """初始化 DeepSeek-V4-Flash client（OpenAI 兼容接口）。"""
     from openai import OpenAI
 
-    base_url = ds_config.get("base_url", "https://token.sensenova.cn/v1")
+    base_url = ds_config.get("base_url", "https://api.deepseek.com")
     model = ds_config.get("model", "deepseek-v4-flash")
-    env_names = ["DEEPSEEK_V4_FLASH_API_KEY", "DEEPSEEK_API_KEY"]
+    # 仅认 DEEPSEEK_V4_FLASH_API_KEY；不兜底 DEEPSEEK_API_KEY，
+    # 避免本地旧的无效 DEEPSEEK_API_KEY 遮蔽 config.yaml 里加密的有效 key。
+    env_names = ["DEEPSEEK_V4_FLASH_API_KEY"]
     api_key = _resolve_api_key("deepseek_v4_flash", ds_config, env_names)
     if not api_key:
         env_hint = " 或 ".join(env_names)
@@ -209,9 +211,13 @@ def _init_deepseek_v4_flash(ds_config: dict):
 
     class DeepSeekV4FlashWrapper:
         def create(self, system: str, prompt: str, max_tokens: int = 4096) -> str:
+            # deepseek-v4-flash 是推理模型，默认会把 max_tokens 全部烧在
+            # reasoning_content 上，导致 content 为空（finish_reason=length）。
+            # 禁用 thinking 后长 prompt 也能在 8192 预算内输出完整表格+JSON。
             response = client.chat.completions.create(
                 model=model,
                 max_tokens=max_tokens,
+                extra_body={"thinking": {"type": "disabled"}},
                 messages=[
                     {"role": "system", "content": system},
                     {"role": "user", "content": prompt},
