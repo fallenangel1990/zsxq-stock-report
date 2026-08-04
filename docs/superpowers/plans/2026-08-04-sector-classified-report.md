@@ -244,7 +244,8 @@ class TestRebuildReportNoScoreThreshold:
             trend_data = {"scores": {}, "groups": {}, "logic_map": {}, "market_filter": {},
                           "market_regime": {"label": "中性"}, "style_exposure": {}}
             report = _rebuild_report(enriched, "## 三、细分板块机会\n| 1 | AI/人工智能 | A | 逻辑 | 帖子1 |\n", trend_data)
-        assert "按板块分类" in report
+        # Task 3 只改筛选链路：此时"快速选股清单"仍在（Task 4 才替换），低分 B 应出现
+        assert "快速选股清单" in report
         assert "逻辑A" in report  # 高分展示
         assert "逻辑B" in report  # 低分也展示（不再被阈值截断）
 ```
@@ -252,7 +253,7 @@ class TestRebuildReportNoScoreThreshold:
 - [ ] **Step 2: 运行测试确认失败**
 
 Run: `python3 -m pytest tests/test_stock_extractor.py -k RebuildReportNoScoreThreshold -v`
-Expected: FAIL（当前低分 B 被 `passed` 阈值截断，报告中无"按板块分类"）
+Expected: FAIL（当前低分 B 被 `passed` 阈值截断，"逻辑B"不出现在报告中）
 
 - [ ] **Step 3: 修改筛选链路**
 
@@ -309,14 +310,52 @@ Expected: FAIL（当前低分 B 被 `passed` 阈值截断，报告中无"按板�
 Run: `python3 -m pytest tests/test_stock_extractor.py -k RebuildReportNoScoreThreshold -v`
 Expected: PASS
 
-- [ ] **Step 5: 修正后续对已删除变量的引用**
+- [ ] **Step 5: 修正对已删除变量 `filtered_out`/`score_threshold` 的引用**
 
-删除/改写 3766-3778 的过滤概览（Task 4 会重写），以及 3848-3857 的"过滤诊断"中对 `filtered_out`/`score_threshold` 的引用。先跑 `grep -n "filtered_out\|score_threshold" stock_extractor.py` 找出所有引用点，逐个处理（`filtered_out` 相关块可删除；`score_threshold` 在过滤概览处改为 `None`/文案调整）。
+Step 3 删除了 `filtered_out = [...]` 与 `score_threshold = ...`，但下方"过滤概览"（3766-3778）和"过滤诊断"（3848-3857）仍引用它们，会抛 NameError。必须在本任务内就地修正（不能留到 Task 4）。
+
+**5a. 过滤概览（3766-3778）** 改为不引用 `score_threshold`/`filtered_out`（Task 4 还会精修文案，此处先保证可运行）：
+
+```python
+    # 过滤统计
+    parts.append("## 过滤概览\n")
+    parts.append(
+        f"> 可评分候选 **{total_scored}** 只；"
+        f"经风控后展示 **{total_passed}** 只。"
+    )
+    parts.append("")
+```
+
+**5b. 过滤诊断（3848-3857）** 中的 `filtered_out`/`score_threshold` 引用改为：
+
+```python
+    if not passed and enriched:
+        parts.append("## 过滤诊断\n")
+        parts.append(
+            f"- 共提取 {total_scored} 只可评分候选，经流动性/相关性风控后无个股可展示。"
+        )
+        parts.append("")
+```
+
+**5c. filter_meta（3724-3730）** 中删除 `"total_filtered": len(filtered_out)` 与 `"score_threshold": 5.0` 键（`filter_meta` 本身虽未被消费，但删键避免引用已删变量）：
+
+```python
+    filter_meta = {
+        "total_scored": total_scored,
+        "total_passed": total_passed,
+        "ma5_tolerance": 3.0,
+    }
+```
+
+**5d. 验证无残留引用**：
+
+Run: `grep -n "filtered_out\|score_threshold" stock_extractor.py | grep -v "def \|_filter_trending\|REPORT_RECOMMENDATION"` 
+Expected: 仅剩 `_filter_trending_near_ma5` 内部（2634-2676）的 `score_threshold` 参数——那属于另一个函数，不受影响。
 
 - [ ] **Step 6: 运行全量测试**
 
 Run: `python3 -m pytest tests/ -q`
-Expected: 全部通过（若因删除变量失败，继续修正）
+Expected: 全部通过
 
 - [ ] **Step 7: 提交**
 
@@ -365,7 +404,7 @@ class TestSectorClassifiedReport:
 - [ ] **Step 2: 运行测试确认失败**
 
 Run: `python3 -m pytest tests/test_stock_extractor.py -k SectorClassifiedReport -v`
-Expected: FAIL（当前无"按板块分类"章节，且过滤概览是"评分 ≥3.0 分入选"）
+Expected: FAIL（当前无"按板块分类"章节、"快速选股清单"仍在）
 
 - [ ] **Step 3: 过滤概览文案更新（3766-3778）**
 
@@ -388,8 +427,8 @@ Expected: FAIL（当前无"按板块分类"章节，且过滤概览是"评分 �
 ```python
     # ── 0. 按板块分类主清单（全部候选，评分仅作板块内排序）──
     parts.append("## 📋 按板块分类（全部候选，评分仅作板块内排序）\n")
-    from stock_extractor import _load_scoring_config
-    sector_aliases = _load_scoring_config().get("sector_aliases", {})
+    scoring_cfg = _load_scoring_config()
+    sector_aliases = scoring_cfg.get("sector_aliases", {})
     sector_list = _group_stocks_by_sector(passed, sector_aliases)
 
     if not sector_list:
@@ -420,18 +459,12 @@ Expected: FAIL（当前无"按板块分类"章节，且过滤概览是"评分 �
         parts.append("")
 ```
 
-> 注意：`from stock_extractor import _load_scoring_config` 在模块内部可简写为 `_load_scoring_config()`（同模块函数），直接调用即可，无需再 import。
+> 注意：`_load_scoring_config` 是模块级函数，在 `_rebuild_report` 内直接调用即可，无需再 import。
 
-- [ ] **Step 5: 删除/改写"过滤诊断"中对已删除变量的引用（3848-3857）**
+- [ ] **Step 5: 确认"过滤诊断"已无残留引用（已在 Task 3 Step 5b 处理）**
 
-将 `if not passed and enriched:` 的"过滤诊断"块删除（因 `filtered_out` 已不存在），替换为简单的空池提示：
-
-```python
-    if not passed and enriched:
-        parts.append("## 过滤诊断\n")
-        parts.append("- 候选经流动性/相关性风控后为空，无个股可展示。")
-        parts.append("")
-```
+Run: `grep -n "filtered_out" stock_extractor.py`
+Expected: 无输出（Task 3 已删除过滤诊断中的 `filtered_out` 引用；若发现残留则就地删除）
 
 - [ ] **Step 6: 运行测试确认通过**
 
