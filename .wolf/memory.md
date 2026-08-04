@@ -571,3 +571,8 @@
 | 16:53 | Edited summarizer.py | 3→5 lines | ~82 |
 | 16:59 | Edited summarizer.py | modified create() | ~242 |
 | 16:50 | 配置 v4-flash 有效 key（加密）+ base_url 改回 api.deepseek.com + thinking disabled 修复推理烧光输出预算 | config.yaml, config.example.yaml, summarizer.py, .secrets/deepseek_v4_flash.key | ✅ 3帖端到端 q=2/e=11/s=7/r=4, 109 tests | ~900 |
+| 17:00 | Session end: 11 writes across 4 files (summarizer.py, config.yaml, config.example.yaml, stock_extractor.py) | 6 reads | ~10899 tok |
+| 17:09 | Edited stock_extractor.py | removed 21 lines | ~17 |
+| 17:10 | Edited stock_extractor.py | modified values() | ~287 |
+| 17:12 | Edited stock_extractor.py | modified values() | ~234 |
+| 17:20 | 修复 sector_aliases 作用域崩溃 + 完整 stocks 流程验证 | stock_extractor.py, tests/test_stock_extractor.py | ✅ 24帖→62增强候选(≥3分4只)，报告已保存，110 tests | ~900 |

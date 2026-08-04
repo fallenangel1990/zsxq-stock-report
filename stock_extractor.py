@@ -1149,23 +1149,6 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
     if not all_stocks:
         return [], {}
 
-    # 用 sector_aliases 关键词从逻辑文本中推断板块
-    for stock in all_stocks.values():
-        if stock.get("sector"):
-            continue
-        text = f"{stock.get('logic', '')} {stock.get('target_str', '')} {stock.get('source', '')}"
-        if not text.strip():
-            continue
-        for alias, canonical in sector_aliases.items():
-            if len(alias) >= 2 and alias in text:
-                stock["sector"] = canonical
-                break
-
-    if verbose:
-        no_sector = sum(1 for s in all_stocks.values() if not s.get("sector"))
-        if no_sector:
-            print(f"  板块推断: {len(all_stocks) - no_sector}/{len(all_stocks)} 只有关联板块，{no_sector} 只无板块", flush=True)
-
     # 批量获取价格
     valid_codes = [s["code"] for s in all_stocks.values() if s["code"] and s["code"].isdigit() and len(s["code"]) == 6]
     if valid_codes and verbose:
@@ -1281,6 +1264,24 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
 
     # 行业趋势检测
     sector_aliases = scoring.get("sector_aliases", {})
+
+    # 用 sector_aliases 关键词从逻辑文本中推断板块（必须在 sector_aliases 加载之后）
+    for stock in all_stocks.values():
+        if stock.get("sector"):
+            continue
+        text = f"{stock.get('logic', '')} {stock.get('target_str', '')} {stock.get('source', '')}"
+        if not text.strip():
+            continue
+        for alias, canonical in sector_aliases.items():
+            if len(alias) >= 2 and alias in text:
+                stock["sector"] = canonical
+                break
+
+    if verbose:
+        no_sector = sum(1 for s in all_stocks.values() if not s.get("sector"))
+        if no_sector:
+            print(f"  板块推断: {len(all_stocks) - no_sector}/{len(all_stocks)} 只有关联板块，{no_sector} 只无板块", flush=True)
+
     trend_config = scoring.get("trend", {})
     trend_scores, sector_groups, sector_logic_map = _detect_sector_trends(
         all_stocks, stocks_json.get("sectors", []),

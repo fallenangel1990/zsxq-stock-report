@@ -1769,6 +1769,41 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-08-04T00:00:00.000Z"
+    },
+    {
+      "id": "bug-100",
+      "timestamp": "2026-08-04T09:09:49.136Z",
+      "error_message": "Significant refactor of ",
+      "file": "stock_extractor.py",
+      "root_cause": "15 lines replaced/restructured",
+      "fix": "Rewrote 21→4 lines (15 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-08-04T09:09:49.136Z"
+    },
+    {
+      "id": "bug-101",
+      "timestamp": "2026-08-04T00:00:00.000Z",
+      "error_message": "UnboundLocalError: cannot access local variable sector_aliases (run stocks 崩溃)",
+      "file": "stock_extractor.py",
+      "root_cause": "_enrich_and_score 在 1152 行用 sector_aliases 推断板块，但该变量到 1283 行才通过 scoring.get(\"sector_aliases\") 定义；板块推断代码块错误地放在配置加载之前，作用域前置导致运行期崩。",
+      "fix": "把 sector_aliases = scoring.get(\"sector_aliases\", {}) 提到板块推断块之前。",
+      "tags": [
+        "unbound-local",
+        "scope",
+        "sector_aliases",
+        "crash"
+      ],
+      "related_bugs": [
+        "bug-096"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-08-04T00:00:00.000Z"
     }
   ]
 }

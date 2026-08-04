@@ -229,8 +229,9 @@
 - **deepseek-v4-flash 是推理模型，thinking 会把输出预算烧光**：默认在长 prompt 下把整个 max_tokens 消耗在 `reasoning_content` 上，`content` 为空且 `finish_reason=length`（实测 3 篇帖子 max_tokens=8192 → reasoning_tokens=8191、content 0 字符）。修复：`DeepSeekV4FlashWrapper.create()` 加 `extra_body={"thinking": {"type": "disabled"}}`。禁用后 10 篇帖子 8192 预算产出 11973 字符（6208 tokens）。
 - **DEEPSEEK_V4_FLASH_API_KEY 不兜底 DEEPSEEK_API_KEY**：本地旧 `DEEPSEEK_API_KEY`（sk-6cf...）是无效 key，会遮蔽 config.yaml 里加密的有效 key（`_resolve_api_key` 先查环境变量）。所以 v4-flash 只认 `DEEPSEEK_V4_FLASH_API_KEY`，本地用加密配置（`.secrets/deepseek_v4_flash.key` + Fernet）。
 - **v4-flash key 加密惯例**：`config.yaml` 的 `ai.deepseek_v4_flash.api_key_encrypted` 存 `fernet:<密文>`，解密密钥在 `.secrets/deepseek_v4_flash.key`（gitignored）；`_load_encryption_key` 支持 `DEEPSEEK_V4_FLASH_API_KEY_ENCRYPTION_KEY` 环境变量兜底。本地跑 v4-flash 需要 `cryptography`（requirements.txt 已有，PEP 668 需 --break-system-packages 或 venv）。
+- **sector_aliases 作用域**：`_enrich_and_score` 里板块推断块必须放在 `sector_aliases = scoring.get("sector_aliases", {})` 之后，否则 UnboundLocalError 崩溃。配置加载要放在所有依赖它的代码之前。
 
 ## Decision Log (2026-08-04)
 
-- [2026-08-04] **选股 0 只修复方案**：根因是三层：①解析链路双 bug（空 JSON 遮蔽表格 + 回退正则不认空格行）→ 空 JSON 不信任 + 表格回退 + 4 回归测试；②API key 端点错误（sensenova 401）→ base_url 改回 api.deepseek.com + 加密 key；③deepseek-v4-flash 推理烧光输出预算 → thinking disabled。验证：3 篇真实帖子端到端产出 q=2/e=11/s=7/r=4。
+- [2026-08-04] **选股 0 只修复方案**：根因是四层：①解析链路双 bug（空 JSON 遮蔽表格 + 回退正则不认空格行）→ 空 JSON 不信任 + 表格回退 + 4 回归测试；②API key 端点错误（sensenova 401）→ base_url 改回 api.deepseek.com + 加密 key；③deepseek-v4-flash 推理烧光输出预算 → thinking disabled；④sector_aliases 作用域 bug → 配置加载提到板块推断前。验证：24 篇相关帖子端到端产出 62 只增强候选（>=3 分 4 只），报告保存成功。
 - [2026-07-29] **数据源复用策略**：集中度指标复用 `sector_monitor.fetch_boards(board_type="industry")`（提供 main_net_yi + amount_yi）和 `fetch_market_indices()`（提供 change_pct + up/down_count），不直接调用 eastmoney API。降级策略：fetch 失败直接标记 unavailable，不实现 spec 中的腾讯兜底（简化 + unavailable 路径已足够安全）。
