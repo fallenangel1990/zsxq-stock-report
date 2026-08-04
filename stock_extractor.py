@@ -3695,7 +3695,7 @@ def _append_report_filter_note(parts: list[str], meta: dict) -> None:
 def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: dict = None) -> str:
     """用增强后的股票数据重建 Markdown 报告。
 
-    新增：快速选股清单、行业趋势概览，并突出买入参考、风险点、核心逻辑和目标参考。
+    新增：按板块分类主清单、行业趋势概览，并突出买入参考、风险点、核心逻辑和目标参考。
     """
     if trend_data is None:
         trend_data = {}
@@ -3778,8 +3778,8 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
     # 过滤统计
     parts.append("## 过滤概览\n")
     parts.append(
-        f"> 可评分候选 **{total_scored}** 只；"
-        f"经风控后展示 **{total_passed}** 只。"
+        f"> 全部候选 **{total_scored}** 只（不再按评分筛选）；"
+        f"经流动性/相关性风控后展示 **{total_passed}** 只。"
     )
     parts.append("")
 
@@ -3818,38 +3818,38 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
             )
         parts.append("")
 
-    # ── 0. 快速选股总览（仅展示通过筛选的股票）──
-    parts.append("## 快速选股清单（按推荐指数降序）\n")
-    parts.append(
-        "| 股票名称 | 机会类型 | 周期 | 当前市值 | 卖出/减仓触发 | 技术面 | 评分拆解 | 核心逻辑 | 目标参考 | 风险点 | 推荐指数 |"
-    )
-    parts.append(
-        "|----------|----------|------|----------|----------------|--------|----------|----------|----------|--------|----------|"
-    )
+    # ── 0. 按板块分类主清单（全部候选，评分仅作板块内排序）──
+    parts.append("## 📋 按板块分类（全部候选，评分仅作板块内排序）\n")
+    scoring_cfg = _load_scoring_config()
+    sector_aliases = scoring_cfg.get("sector_aliases", {})
+    sector_list = _group_stocks_by_sector(passed, sector_aliases)
 
-    if not passed:
+    if not sector_list:
+        parts.append("| 板块 | 备注 |")
+        parts.append("|------|------|")
+        parts.append("| - | 本次无候选个股 |")
+    for group in sector_list:
+        sec = group["sector"]
+        stocks = group["stocks"]
+        parts.append(f"### 板块：{sec}（板块内 {len(stocks)} 只）\n")
         parts.append(
-            "| - | 本次无股票通过筛选 | - | - | - | - | - | - | - | - | - |"
+            "| 股票名称 | 机会类型 | 周期 | 当前市值 | 推荐指数 | 核心逻辑 | 目标参考 | 风险点 |"
         )
-
-    for stock in passed:
-        name = _display_stock_name(stock)
-        market_cap_str = _fmt_market_cap(stock.get("market_cap_yi"))
-        target_str = _emphasize_cell(stock["target_str"])
-        logic = _emphasize_cell(stock["logic"][:70] if stock["logic"] else "")
-        risk = stock.get("risk_display", "-")[:70]
-        score_str = _format_score_display(stock)
-
         parts.append(
-            f"| {name} | "
-            f"{stock.get('opportunity_type', '-')} | {stock.get('trade_period', '-')} | "
-            f"{market_cap_str} | "
-            f"{stock.get('exit_trigger', '-')} | {stock.get('technical_view', '-')} | "
-            f"{stock.get('score_breakdown', '-')} | {logic} | {target_str} | "
-            f"{risk} | {score_str} |"
+            "|----------|----------|------|----------|----------|----------|----------|--------|"
         )
-
-    parts.append("")
+        for s in stocks:
+            name = _display_stock_name(s)
+            market_cap_str = _fmt_market_cap(s.get("market_cap_yi"))
+            target_str = _emphasize_cell(s.get("target_str", ""))
+            logic = _emphasize_cell(s.get("logic", "")[:70] if s.get("logic") else "")
+            risk = s.get("risk_display", "-")[:70]
+            score_str = _format_score_display(s)
+            parts.append(
+                f"| {name} | {s.get('opportunity_type', '-')} | {s.get('trade_period', '-')} | "
+                f"{market_cap_str} | {score_str} | {logic} | {target_str} | {risk} |"
+            )
+        parts.append("")
 
     if not passed and enriched:
         parts.append("## 过滤诊断\n")

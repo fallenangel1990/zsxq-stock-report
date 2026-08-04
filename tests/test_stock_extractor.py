@@ -412,7 +412,30 @@ class TestRebuildReportNoScoreThreshold:
             trend_data = {"scores": {}, "groups": {}, "logic_map": {}, "market_filter": {},
                           "market_regime": {"label": "中性"}, "style_exposure": {}}
             report = _rebuild_report(enriched, "## 三、细分板块机会\n| 1 | AI/人工智能 | A | 逻辑 | 帖子1 |\n", trend_data)
-        # Task 3 只改筛选链路：此时"快速选股清单"仍在（Task 4 才替换），低分 B 应出现
-        assert "快速选股清单" in report
+        # Task 4 起主清单为"按板块分类"（全部候选，评分仅作板块内排序），低分 B 应出现
+        assert "按板块分类" in report
         assert "逻辑A" in report  # 高分展示
         assert "逻辑B" in report  # 低分也展示（不再被阈值截断）
+
+
+class TestSectorClassifiedReport:
+    """Tests for sector-classified main list in report."""
+
+    def test_sector_classified_section_present(self):
+        from unittest import mock
+        from stock_extractor import _rebuild_report
+        enriched = [
+            {"name": "A", "code": "600001", "category": "elastic", "sector": "AI/人工智能",
+             "score": 3.5, "buy_score": 5.0, "logic": "逻辑A", "target_str": "目标50元",
+             "market_cap_yi": 100, "current_price": 10, "source": "帖子1",
+             "risk_display": "", "opportunity_type": "趋势", "trade_period": "中线"},
+        ]
+        with mock.patch("stock_extractor._apply_liquidity_filter", side_effect=lambda s, **kw: s), \
+             mock.patch("stock_extractor._apply_portfolio_constraints", side_effect=lambda s, **kw: s):
+            trend_data = {"scores": {}, "groups": {}, "logic_map": {}, "market_filter": {},
+                          "market_regime": {"label": "中性"}, "style_exposure": {}}
+            report = _rebuild_report(enriched, "## 三、细分板块机会\n| 1 | AI/人工智能 | A | 逻辑 | 帖子1 |\n", trend_data)
+        assert "## 📋 按板块分类" in report
+        assert "### 板块：AI/人工智能" in report or "AI/人工智能" in report
+        assert "全部候选" in report  # 过滤概览文案
+        assert "快速选股清单" not in report  # 扁平清单已移除
