@@ -826,6 +826,44 @@ def _normalize_sector_name(sector: str, sector_aliases: dict) -> str:
     return ""
 
 
+def _group_stocks_by_sector(stocks: list[dict], sector_aliases: dict) -> list[dict]:
+    """按标准化板块名聚合个股，板块内按 (buy_score, score) 降序。
+
+    板块间按板块内最高分降序；板块内个股按 code/name 去重。
+    板块名通过 _normalize_sector_name 标准化；未命中别名但板块非空的
+    个股保留原板块名，仅 sector 为空的个股归入"未分类"分组排最后，避免丢票。
+    """
+    groups: dict[str, list[dict]] = {}
+    for s in stocks:
+        raw_sector = (s.get("sector") or "").strip()
+        norm = _normalize_sector_name(raw_sector, sector_aliases)
+        key = norm if norm else (raw_sector if raw_sector else "未分类")
+        groups.setdefault(key, []).append(s)
+
+    result = []
+    for sector_name, stock_list in groups.items():
+        seen = set()
+        deduped = []
+        for s in stock_list:
+            code = s.get("code", "")
+            ident = code or s.get("name", "")
+            if ident in seen:
+                continue
+            seen.add(ident)
+            deduped.append(s)
+        deduped.sort(
+            key=lambda x: (x.get("buy_score", 0), x.get("score", 0)),
+            reverse=True,
+        )
+        result.append({"sector": sector_name, "stocks": deduped})
+
+    result.sort(
+        key=lambda g: (0 if g["sector"] == "未分类" else 1, (g["stocks"][0].get("score", 0) if g["stocks"] else 0)),
+        reverse=True,
+    )
+    return result
+
+
 def _parse_moat_score(value) -> float:
     """解析护城河评分（1-5 分映射到 0-10）。"""
     if isinstance(value, (int, float)) and 1 <= value <= 5:

@@ -335,3 +335,32 @@ class TestSectorAliasesScope:
         assert enriched, "板块推断不应崩溃，且应产出候选"
         assert all(s.get("sector") for s in enriched if s.get("name") == "思泉新材"), \
             "思泉新材应被推断出板块（从 logic 中的 AIDC/液冷关键词）"
+
+
+class TestGroupStocksBySector:
+    """Tests for _group_stocks_by_sector aggregation."""
+
+    def test_groups_by_normalized_sector(self):
+        from stock_extractor import _group_stocks_by_sector
+        aliases = {"AI": "AI/人工智能", "算力": "AI/人工智能", "光模块": "AI/人工智能"}
+        stocks = [
+            {"name": "A", "sector": "AI", "score": 3.0, "buy_score": 5.0},
+            {"name": "B", "sector": "算力", "score": 4.0, "buy_score": 6.0},
+            {"name": "C", "sector": "半导体/芯片", "score": 2.0, "buy_score": 4.0},
+            {"name": "D", "sector": "", "score": 1.0, "buy_score": 2.0},
+        ]
+        groups = _group_stocks_by_sector(stocks, aliases)
+        assert len(groups) == 3  # AI/人工智能、半导体/芯片、未分类
+        ai_group = next(g for g in groups if g["sector"] == "AI/人工智能")
+        assert [s["name"] for s in ai_group["stocks"]] == ["B", "A"]  # 板块内降序
+        assert groups[0]["sector"] == "AI/人工智能"  # 最高分板块在前
+        assert groups[-1]["sector"] == "未分类"  # 未分类排最后
+
+    def test_sector_stock_dedup(self):
+        from stock_extractor import _group_stocks_by_sector
+        stocks = [
+            {"name": "A", "code": "600001", "sector": "AI", "score": 3.0, "buy_score": 5.0},
+            {"name": "A", "code": "600001", "sector": "AI", "score": 3.0, "buy_score": 5.0},
+        ]
+        groups = _group_stocks_by_sector(stocks, {})
+        assert len(groups[0]["stocks"]) == 1  # 同代码去重
