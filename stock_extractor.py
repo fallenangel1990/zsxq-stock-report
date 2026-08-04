@@ -458,6 +458,18 @@ def _merge_stock_reports(client, batch_reports: list[str]) -> str:
 # 增强层：价格获取 + 评分 + 排序
 # ═══════════════════════════════════════════════════════════════
 
+def _json_has_content(parsed: dict) -> bool:
+    """判断解析出的 JSON 是否含任何有效条目。
+
+    AI 有时会在输出完整 Markdown 表格的同时，给出一个全空的 JSON 块
+    （{\"quantitative\": [], \"elastic\": [], ...}）。此时若直接信任该空 JSON
+    会导致候选池为空、报告 0 只。非空才返回 True，空则继续回退解析表格。
+    """
+    if not isinstance(parsed, dict):
+        return False
+    return any(parsed.get(key) for key in ("quantitative", "elastic", "sectors", "risks"))
+
+
 def _parse_stock_json(markdown: str) -> dict:
     """从 AI 输出文本中提取 JSON 结构化数据。
 
@@ -481,7 +493,7 @@ def _parse_stock_json(markdown: str) -> dict:
         if json_match:
             raw = json_match.group(1).strip()
             parsed = _try_parse_json(raw)
-            if parsed is not None:
+            if parsed is not None and _json_has_content(parsed):
                 return parsed
 
     # 方法2：直接查找 JSON 对象（无代码块包裹）
@@ -489,7 +501,7 @@ def _parse_stock_json(markdown: str) -> dict:
     if json_obj_match:
         raw = json_obj_match.group(0)
         parsed = _try_parse_json(raw)
-        if parsed is not None:
+        if parsed is not None and _json_has_content(parsed):
             return parsed
 
     # 方法3：查找以 { 开头、以 } 结尾的 JSON 块
@@ -497,7 +509,7 @@ def _parse_stock_json(markdown: str) -> dict:
     if brace_match:
         raw = brace_match.group(1).strip()
         parsed = _try_parse_json(raw)
-        if parsed is not None:
+        if parsed is not None and _json_has_content(parsed):
             return parsed
 
     # 方法4：回退 — 正则解析 Markdown 表格
@@ -635,8 +647,8 @@ def _fallback_parse_tables(markdown: str) -> dict:
             continue
 
         section_text = section_match.group(1)
-        # 匹配表格行（跳过表头和分隔行）
-        table_rows = re.findall(r"^\|(\d+)\|(.+)\|$", section_text, re.MULTILINE)
+        # 匹配表格行（跳过表头和分隔行）；容忍 `| 1 |` 与 `|1|` 两种空格格式
+        table_rows = re.findall(r"^\|\s*(\d+)\s*\|(.*)\|$", section_text, re.MULTILINE)
         for row in table_rows:
             cols = [c.strip() for c in row[1].split("|")]
             if key == "quantitative" and len(cols) >= 5:

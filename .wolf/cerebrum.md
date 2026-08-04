@@ -220,4 +220,14 @@
 
 - [2026-07-29] **集中度模块架构选择**：独立 `concentration_monitor.py` 模块而非嵌入 market_regime.py。理由：报告和盘中预警两个消费方需要共享计算逻辑；集中度是风险叠加信号而非市场状态，职责不同；符合项目模块化风格。
 - [2026-08-03] **大模型切换到 DeepSeek-V4-Flash**：用户要求将 `ai.provider` 从 longcat 切换为 `deepseek-v4-flash`。配置块（base_url `https://token.sensenova.cn/v1` + model `deepseek-v4-flash`）和 `summarizer.py` 的 `_init_deepseek_v4_flash()` 早已就绪，只缺 provider 翻转和本地 key 回退。本地 key 复用 `DEEPSEEK_API_KEY` 环境变量（`DEEPSEEK_V4_FLASH_API_KEY` 优先，`DEEPSEEK_API_KEY` 兜底）。所有 workflow 已传 `DEEPSEEK_V4_FLASH_API_KEY` secret，无需改动。涉及文件：config.yaml、config.example.yaml、summarizer.py。
+
+## Key Learnings (2026-08-04)
+
+- **空 JSON 块会遮蔽 Markdown 表格**：`_parse_stock_json` 之前命中任何可解析 JSON 块（即使全空 `{"quantitative": [], ...}`）就直接返回，导致 AI 输出完整表格 + 空 JSON 时候选池为 0。现在增加 `_json_has_content()`（stock_extractor.py:461）：只有 JSON 含有效条目才采用，空 JSON 继续回退到表格解析。
+- **Markdown 表格行正则要容忍空格**：`_fallback_parse_tables` 的行正则原来是 `^\|(\d+)\|(.+)\|$`，只能匹配 `|1|`；真实 AI 输出是 `| 1 |` 带空格，导致回退解析也拿不到行。改为 `^\|\s*(\d+)\s*\|(.*)\|$`（stock_extractor.py:651）。
+- **本地 DeepSeek Key 无效**：本地 `DEEPSEEK_API_KEY`（sk-6cf...）对 `token.sensenova.cn/v1`（商汤 SenseNova 端点）和官方 `api.deepseek.com` 都返回 401，说明该 key 不是 v4-flash 可用的 key；本地跑 v4-flash 需要 `DEEPSEEK_V4_FLASH_API_KEY`（CI 的 GitHub Secret 已配置），或提供一个有效 key。
+
+## Decision Log (2026-08-04)
+
+- [2026-08-04] **选股 0 只修复方案**：根因是解析链路双 bug（空 JSON 遮蔽表格 + 回退正则不认空格行），而非评分过严。修复为：空 JSON 不信任 + 表格回退；同时新增 4 个回归测试覆盖。验证：July-1 风格响应（表格+空 JSON）现在产出 4 只候选（思泉新材 3.80 等）。
 - [2026-07-29] **数据源复用策略**：集中度指标复用 `sector_monitor.fetch_boards(board_type="industry")`（提供 main_net_yi + amount_yi）和 `fetch_market_indices()`（提供 change_pct + up/down_count），不直接调用 eastmoney API。降级策略：fetch 失败直接标记 unavailable，不实现 spec 中的腾讯兜底（简化 + unavailable 路径已足够安全）。

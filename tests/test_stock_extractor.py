@@ -224,3 +224,78 @@ class TestMarketRegimeWeights:
         from adaptive_weights import get_market_regime_weights
         assert get_market_regime_weights("unknown") == {}
 
+
+
+class TestParseStockJson:
+    """Tests for _parse_stock_json fallback to markdown tables."""
+
+    def test_empty_json_block_does_not_shadow_tables(self):
+        """空 JSON 块不应遮蔽表格中的真实股票。"""
+        from stock_extractor import _parse_stock_json
+        markdown = """## 一、有明确量化目标的股票
+
+| 序号 | 股票名称 | 代码 | 上涨/投资逻辑 | 量化参考 | 来源帖子 |
+|------|----------|------|--------------|----------|----------|
+| 1 | 思泉新材 | 301308 | 液冷需求激增 | 目标价50元 | 帖子1 |
+
+## 三、细分板块机会
+
+| 序号 | 板块名称 | 核心标的 | 板块逻辑 | 来源帖子 |
+|------|----------|----------|----------|----------|
+| 1 | AIDC液冷 | 思泉新材 | 云厂商机柜量上修 | 帖子1 |
+
+```json
+{"quantitative": [], "elastic": [], "sectors": [], "risks": []}
+```
+"""
+        parsed = _parse_stock_json(markdown)
+        assert parsed.get("quantitative") or parsed.get("sectors"), \
+            "AI 输出空 JSON 块但表格有真实股票时，必须回退解析表格"
+
+    def test_empty_json_block_returns_sectors_from_tables(self):
+        """空 JSON + 表格中的细分板块应被解析出来。"""
+        from stock_extractor import _parse_stock_json
+        markdown = """## 三、细分板块机会
+
+| 序号 | 板块名称 | 核心标的 | 板块逻辑 | 来源帖子 |
+|------|----------|----------|----------|----------|
+| 1 | AIDC液冷 | 思泉新材 | 云厂商机柜量上修 | 帖子1 |
+| 2 | 电子布 | 中国巨石， 建滔积层板 | 景气上行 | 帖子2 |
+
+```json
+{"quantitative": [], "elastic": [], "sectors": [], "risks": []}
+```
+"""
+        parsed = _parse_stock_json(markdown)
+        sectors = parsed.get("sectors", [])
+        assert len(sectors) == 2
+        assert sectors[0]["stocks"] == "思泉新材"
+
+    def test_valid_json_still_used(self):
+        """非空 JSON 仍应优先使用，不受回退影响。"""
+        from stock_extractor import _parse_stock_json
+        markdown = """```json
+{"quantitative": [{"name": "思泉新材", "code": "301308", "sector": "AIDC液冷", "logic": "液冷需求激增", "target": "目标价50元", "source": "帖子1"}], "elastic": [], "sectors": [], "risks": []}
+```"""
+        parsed = _parse_stock_json(markdown)
+        assert len(parsed.get("quantitative", [])) == 1
+        assert parsed["quantitative"][0]["name"] == "思泉新材"
+
+
+class TestFallbackParseTables:
+    """Tests for _fallback_parse_tables with standard markdown spacing."""
+
+    def test_standard_spaced_markdown_rows(self):
+        """标准 `| 1 |` 带空格的表格行应被解析。"""
+        from stock_extractor import _fallback_parse_tables
+        markdown = """## 三、细分板块机会
+
+| 序号 | 板块名称 | 核心标的 | 板块逻辑 | 来源帖子 |
+|------|----------|----------|----------|----------|
+| 1 | AIDC液冷 | 思泉新材 | 云厂商机柜量上修 | 帖子1 |
+| 2 | 电子布 | 中国巨石， 建滔积层板 | 景气上行 | 帖子2 |
+"""
+        result = _fallback_parse_tables(markdown)
+        assert len(result["sectors"]) == 2
+        assert result["sectors"][0]["stocks"] == "思泉新材"
+        assert result["sectors"][1]["stocks"].startswith("中国巨石")

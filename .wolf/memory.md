@@ -559,3 +559,8 @@
 | 09:10 | Edited config.example.yaml | 2→2 lines | ~10 |
 | 09:12 | 切换 ai.provider 为 deepseek-v4-flash + _init_deepseek_v4_flash 增加 DEEPSEEK_API_KEY 兜底 | config.yaml, config.example.yaml, summarizer.py | ✅ get_client 返回 DeepSeekV4FlashWrapper, 105 tests passed | ~600 |
 | 09:11 | Session end: 3 writes across 3 files (summarizer.py, config.yaml, config.example.yaml) | 4 reads | ~7314 tok |
+| 09:13 | Session end: 3 writes across 3 files (summarizer.py, config.yaml, config.example.yaml) | 4 reads | ~7314 tok |
+| 16:14 | Edited stock_extractor.py | modified _json_has_content() | ~252 |
+| 16:14 | Edited stock_extractor.py | modified _json_has_content() | ~192 |
+| 16:14 | Edited stock_extractor.py | 2→2 lines | ~40 |
+| 16:20 | 修复选股0只双bug：空JSON遮蔽表格 + 回退正则不认空格行；新增4回归测试 | stock_extractor.py, tests/test_stock_extractor.py | ✅ 109 tests passed, July-1响应产出4候选 | ~800 |

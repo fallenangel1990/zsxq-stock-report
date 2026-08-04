@@ -1683,6 +1683,41 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-08-03T01:10:39.304Z"
+    },
+    {
+      "id": "bug-095",
+      "timestamp": "2026-08-04T08:14:37.442Z",
+      "error_message": "Incorrect value in code",
+      "file": "stock_extractor.py",
+      "root_cause": "Had \"^\\|(\\d+)\\|(.+)\\|$\"",
+      "fix": "Changed to `| 1 |`",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-08-04T08:14:37.442Z"
+    },
+    {
+      "id": "bug-096",
+      "timestamp": "2026-08-04T00:00:00.000Z",
+      "error_message": "分析 300 篇帖子没有一个个股符合选股条件（报告 0 只）",
+      "file": "stock_extractor.py",
+      "root_cause": "AI 输出完整 Markdown 表格的同时给出全空 JSON 块（{\"quantitative\": [], ...}）。_parse_stock_json 命中空 JSON 后直接返回，不再回退解析表格；_fallback_parse_tables 的行正则 ^\\|(\\d+)\\|(.+)\\|$ 也不容忍 | 1 | 带空格的标准 Markdown 行，双 bug 叠加导致候选池为 0。",
+      "fix": "_parse_stock_json 增加 _json_has_content()：只有 JSON 含有效条目才采用，空 JSON 继续回退到表格解析；_fallback_parse_tables 行正则改为 ^\\|\\s*(\\d+)\\s*\\|(.*)\\|$ 容忍空格。新增 4 个回归测试。",
+      "tags": [
+        "selection",
+        "parse",
+        "json",
+        "fallback"
+      ],
+      "related_bugs": [
+        "bug-092"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-08-04T00:00:00.000Z"
     }
   ]
 }
