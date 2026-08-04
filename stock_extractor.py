@@ -3711,20 +3711,11 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
     original_markdown = _strip_json_block(original_markdown)
     parts = []
 
-    # ── 市场状态自适应过滤参数 ──
+    # ── 市场状态自适应参数（分数仅作标注，不再截断）──
     regime = trend_data.get("market_regime", {})
-    score_threshold = regime.get("score_threshold", REPORT_RECOMMENDATION_THRESHOLD)
-    max_per_sector = regime.get("max_per_sector", 3)
 
-    # ── 简单过滤：仅保留得分达标的股票 ──
-    passed = [s for s in enriched if s.get("score", 0) >= score_threshold]
-    filtered_out = [s for s in enriched if s.get("score", 0) < score_threshold]
-    passed.sort(key=lambda s: s.get("score", 0), reverse=True)
-
-    # ── 组合层风控：行业集中度限制 ──
-    passed = _apply_portfolio_constraints(passed, max_per_sector=max_per_sector)
-
-    # ── 流动性过滤：剔除低流动性标的 ──
+    # ── 风控：流动性过滤 + 相关性控制（保留），不做评分阈值截断 ──
+    passed = list(enriched)
     passed = _apply_liquidity_filter(passed)
 
     # ── 滑点与冲击成本估算 ──
@@ -3747,8 +3738,6 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
     filter_meta = {
         "total_scored": total_scored,
         "total_passed": total_passed,
-        "total_filtered": len(filtered_out),
-        "score_threshold": 5.0,
         "ma5_tolerance": 3.0,
     }
 
@@ -3790,14 +3779,8 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
     parts.append("## 过滤概览\n")
     parts.append(
         f"> 可评分候选 **{total_scored}** 只；"
-        f"评分 ≥{score_threshold:.0f} 分入选 **{total_passed}** 只。"
+        f"经风控后展示 **{total_passed}** 只。"
     )
-    if filtered_out and total_passed == 0:
-        parts.append(
-            f"> 无股票达到评分阈值。被过滤的 {len(filtered_out)} 只中，"
-            f"最高分 {max((s.get('score',0) for s in filtered_out), default=0):.1f}，"
-            f"阈值 {score_threshold:.0f}。"
-        )
     parts.append("")
 
     # ── -1. 当前最佳买入清单（仅从通过筛选的股票中选取）──
@@ -3871,11 +3854,7 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
     if not passed and enriched:
         parts.append("## 过滤诊断\n")
         parts.append(
-            f"- 共提取 {total_scored} 只可评分候选，但无一达到评分阈值 {score_threshold:.0f} 分。"
-        )
-        parts.append(
-            f"- 最高分: {max((s.get('score',0) for s in enriched), default=0):.1f}，"
-            f"平均分: {sum(s.get('score',0) for s in enriched)/len(enriched):.1f}。"
+            f"- 共提取 {total_scored} 只可评分候选，经流动性/相关性风控后无个股可展示。"
         )
         parts.append("")
 

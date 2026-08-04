@@ -387,3 +387,32 @@ class TestSelectReportDisplayStocks:
         display, meta = _select_report_display_stocks([])
         assert display == []
         assert meta["display_count"] == 0
+
+
+class TestRebuildReportNoScoreThreshold:
+    """Tests for _rebuild_report removing score threshold and sector cap."""
+
+    def test_low_score_stock_not_dropped_by_threshold(self):
+        from unittest import mock
+        from stock_extractor import _rebuild_report
+        # 模拟两个候选：一个高分一个低分，均不应被评分阈值丢弃
+        enriched = [
+            {"name": "A", "code": "600001", "category": "elastic", "sector": "AI/人工智能",
+             "score": 3.5, "buy_score": 5.0, "logic": "逻辑A", "target_str": "",
+             "market_cap_yi": 100, "current_price": 10, "source": "帖子1",
+             "risk_display": "", "opportunity_type": "趋势", "trade_period": "中线"},
+            {"name": "B", "code": "600002", "category": "elastic", "sector": "AI/人工智能",
+             "score": 1.5, "buy_score": 2.0, "logic": "逻辑B", "target_str": "",
+             "market_cap_yi": 80, "current_price": 8, "source": "帖子1",
+             "risk_display": "", "opportunity_type": "观察", "trade_period": "中线"},
+        ]
+        with mock.patch("stock_extractor._apply_liquidity_filter", side_effect=lambda s, **kw: s), \
+             mock.patch("stock_extractor._apply_portfolio_constraints", side_effect=lambda s, **kw: s):
+            # 用最小 trend_data 避免外部依赖
+            trend_data = {"scores": {}, "groups": {}, "logic_map": {}, "market_filter": {},
+                          "market_regime": {"label": "中性"}, "style_exposure": {}}
+            report = _rebuild_report(enriched, "## 三、细分板块机会\n| 1 | AI/人工智能 | A | 逻辑 | 帖子1 |\n", trend_data)
+        # Task 3 只改筛选链路：此时"快速选股清单"仍在（Task 4 才替换），低分 B 应出现
+        assert "快速选股清单" in report
+        assert "逻辑A" in report  # 高分展示
+        assert "逻辑B" in report  # 低分也展示（不再被阈值截断）
