@@ -364,3 +364,26 @@ class TestGroupStocksBySector:
         ]
         groups = _group_stocks_by_sector(stocks, {})
         assert len(groups[0]["stocks"]) == 1  # 同代码去重
+
+
+class TestSelectReportDisplayStocks:
+    """Tests for _select_report_display_stocks no longer truncating."""
+
+    def test_all_stocks_returned_below_threshold(self):
+        from stock_extractor import _select_report_display_stocks
+        stocks = [
+            {"name": "A", "score": 3.5, "buy_score": 5.0},
+            {"name": "B", "score": 2.0, "buy_score": 3.0},
+            {"name": "C", "score": 1.0, "buy_score": 2.0},
+        ]
+        display, meta = _select_report_display_stocks(stocks)
+        assert len(display) == 3  # 低分股票也保留
+        assert meta["display_count"] == 3
+        assert meta["recommendation_count"] == 1  # 仅 A ≥3.0
+        assert meta["candidate_count"] == 3
+
+    def test_empty_input(self):
+        from stock_extractor import _select_report_display_stocks
+        display, meta = _select_report_display_stocks([])
+        assert display == []
+        assert meta["display_count"] == 0

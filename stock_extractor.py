@@ -3645,10 +3645,10 @@ def _append_quick_reject(parts: list[str], enriched: list[dict]) -> None:
 
 
 def _select_report_display_stocks(enriched: list[dict]) -> tuple[list[dict], dict]:
-    """选择最终报告展示池，避免高分候选过少时报告失真。
+    """选择最终报告展示池。
 
-    3 分以上仍是正式推荐阈值；当正式推荐过少时，补充展示 2 分以上的
-    高分观察候选，并在报告中明确标注为观察池，不伪装成买入推荐。
+    不再按分数截断：全部候选都进入展示，评分仅作排序依据。
+    recommendation_count 仅用于统计展示（score≥3.0 的数量），不参与过滤。
     """
     sorted_stocks = sorted(
         enriched or [],
@@ -3659,30 +3659,15 @@ def _select_report_display_stocks(enriched: list[dict]) -> tuple[list[dict], dic
         s for s in sorted_stocks
         if s.get("score", 0) >= REPORT_RECOMMENDATION_THRESHOLD
     ]
-    display_stocks = recommendations
-    mode = "recommendation"
-
-    if (
-        len(recommendations) < REPORT_MIN_RECOMMENDATIONS
-        and len(sorted_stocks) > len(recommendations)
-    ):
-        observation_pool = [
-            s for s in sorted_stocks
-            if s.get("score", 0) >= REPORT_OBSERVATION_THRESHOLD
-        ][:REPORT_MIN_VISIBLE_STOCKS]
-        if len(observation_pool) > len(display_stocks):
-            display_stocks = observation_pool
-            mode = "adaptive_observation"
-
     meta = {
         "candidate_count": len(sorted_stocks),
         "recommendation_count": len(recommendations),
-        "display_count": len(display_stocks),
+        "display_count": len(sorted_stocks),
         "threshold": REPORT_RECOMMENDATION_THRESHOLD,
         "observation_threshold": REPORT_OBSERVATION_THRESHOLD,
-        "mode": mode,
+        "mode": "all_candidates",
     }
-    return display_stocks, meta
+    return sorted_stocks, meta
 
 
 def _append_report_filter_note(parts: list[str], meta: dict) -> None:
