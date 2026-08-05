@@ -14,7 +14,7 @@
 - 长期价值权重：`moat_score×40% + fundamentals_score×30% + long_term_trend×30%`
 - 动态 N：`N = max(8, min(15, round(candidate_count * 0.15)))`，且 `N = min(N, len(candidates))`
 - 复用已有信号：`_long_term_trend_score`、`moat_score`、`fundamentals_score`、`buy_score`（不重复造轮子）
-- 评分基线调整表（见 Task 1）：`base_consensus` 1作者 2.0→3.5、post_count>=2 3.0→4.0；`recency_weight` 裸乘→`0.85+0.15*recency_weight`；`market_penalty` 全额→`min(penalty, 1.0)`；校准下限 `max(1.0,...)`→`max(1.5,...)`
+- 评分基线调整表（见 Task 1）：`base_consensus` 1作者 2.0→3.5、post_count>=2 3.0→4.0、post_count>=3 3.5→4.5（保持单调：帖子越多基础分越高）；`recency_weight` 裸乘→`0.85+0.15*recency_weight`；`market_penalty` 全额→`min(penalty, 1.0)`；校准下限 `max(1.0,...)`→`max(1.5,...)`
 - 保留现有 `score`/`buy_score`/阈值/回测逻辑；精选分是新增排序键，不替代
 - "📋 按板块分类"全量章节保留，精选 Top 清单在其前
 - 类型注解用 `Optional[...]`，不用 `|` 联合
@@ -78,6 +78,7 @@ Expected: FAIL（`test_market_penalty_capped_at_1` 断言失败——当前全�
 
 ```python
         # 基础共识分（按独立作者数计分，避免同一作者多篇重复加分）
+        # 帖子数档位保持单调递增：帖子越多基础分越高（3+帖 > 2帖 > 1帖）
         if unique_authors >= 4:
             base_consensus = 8.5
         elif unique_authors == 3:
@@ -86,7 +87,7 @@ Expected: FAIL（`test_market_penalty_capped_at_1` 断言失败——当前全�
             base_consensus = 5.5
         elif post_count >= 3:
             # 同一作者多篇推荐：给基础分但不额外加成
-            base_consensus = 3.5
+            base_consensus = 4.5
         elif post_count >= 2:
             base_consensus = 4.0
         else:
