@@ -1398,6 +1398,7 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
         author_cred = stock.get("author_credibility", 0.5)
 
         # 基础共识分（按独立作者数计分，避免同一作者多篇重复加分）
+        # 帖子数档位保持单调递增：帖子越多基础分越高（3+帖 > 2帖 > 1帖）
         if unique_authors >= 4:
             base_consensus = 8.5
         elif unique_authors == 3:
@@ -1406,14 +1407,14 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
             base_consensus = 5.5
         elif post_count >= 3:
             # 同一作者多篇推荐：给基础分但不额外加成
-            base_consensus = 3.5
+            base_consensus = 4.5
         elif post_count >= 2:
-            base_consensus = 3.0
+            base_consensus = 4.0
         else:
-            base_consensus = 2.0
+            base_consensus = 3.5
 
-        # 时间加权：最近提及权重更高
-        consensus_score = base_consensus * recency_weight
+        # 时间加权：最近提及权重更高（温和化，避免陈旧推荐被系数打到极低）
+        consensus_score = base_consensus * (0.85 + 0.15 * recency_weight)
 
         # 作者可信度加成：高可信度作者的提及更有价值
         consensus_score = consensus_score * (0.7 + 0.3 * author_cred)
@@ -2274,7 +2275,7 @@ def _calibrate_recommendation_score(
     logic_delta = (logic_score - 5.0) * 0.10
     target_delta = (target_precision - 5.0) * 0.08
     calibrated = base_score + category_bonus + consensus_nudge + logic_delta + target_delta
-    return round(max(1.0, min(10.0, calibrated)), 1)
+    return round(max(1.5, min(10.0, calibrated)), 1)
 
 
 def _score_label(score: float) -> str:
@@ -2464,7 +2465,7 @@ def _buy_score(stock: dict) -> float:
         penalty += 1.2
     if tech.get("distance_ma20_pct") is not None and tech["distance_ma20_pct"] < -6:
         penalty += 0.5
-    market_penalty = market_filter.get("buy_penalty", 0.0)
+    market_penalty = min(market_filter.get("buy_penalty", 0.0), 1.0)
     market_bonus = market_filter.get("buy_bonus", 0.0)
     credibility = _source_credibility_score(stock)
     raw = score * 0.52 + technical_score * 0.36 + credibility * 0.12

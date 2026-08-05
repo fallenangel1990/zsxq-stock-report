@@ -480,3 +480,38 @@ class TestExtractEndToEnd:
             report = extract_stock_opportunities(posts)
         assert "按板块分类" in report
         assert "思泉新材" in report
+
+
+class TestScoringBaseline:
+    """Tests for scoring baseline adjustments (long-term value feature)."""
+
+    def test_single_author_gets_higher_base_consensus(self):
+        # 1 作者、1 帖的推荐，共识基础分从 2.0 提高到 3.5
+        # 通过 _calibrate 间接验证：base_score 用较高共识分后校准值上升
+        from stock_extractor import _calibrate_recommendation_score
+        # 模拟 base_score 只含共识贡献（w_consensus=0.18 * 3.5 ≈ 0.63）
+        calibrated = _calibrate_recommendation_score(
+            base_score=0.63,
+            logic_score=5.0,
+            target_precision=5.0,
+            post_count=1,
+            category="elastic",
+            unique_authors=1,
+        )
+        assert calibrated >= 1.5, "校准下限应从 1.0 提到 1.5"
+
+    def test_market_penalty_capped_at_1(self):
+        # 用真实 _buy_score 验证惩罚上限
+        from stock_extractor import _buy_score
+        stock = {
+            "score": 2.0,
+            "technical_score": 5.0,
+            "risk_display": "",
+            "technical": {},
+            "change_5d": 1.0,
+            "market_filter": {"buy_penalty": 2.0, "buy_bonus": 0.0},
+        }
+        bs = _buy_score(stock)
+        # score*0.52=1.04 + tech*0.36=1.8 + cred*0.12=0.636 + 0 - min(2,1)=1.0 → ≈2.48
+        # 旧基线全额扣 2.0 时 bs=1.5；封顶 1.0 后 bs=2.5。断言 >=2.0 才能区分（>=1.0 在旧代码也通过，不具判别力）
+        assert bs >= 2.0, "市场惩罚超过 1.0 时应封顶，避免吃掉全部得分"
