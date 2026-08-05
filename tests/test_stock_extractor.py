@@ -439,3 +439,38 @@ class TestSectorClassifiedReport:
         assert "### 板块：AI/人工智能" in report or "AI/人工智能" in report
         assert "全部候选" in report  # 过滤概览文案
         assert "快速选股清单" not in report  # 扁平清单已移除
+
+
+class TestExtractEndToEnd:
+    """End-to-end regression: extract_stock_opportunities produces sector-classified report."""
+
+    def test_full_pipeline_no_zero_candidates(self):
+        from unittest import mock
+        from stock_extractor import extract_stock_opportunities
+        posts = [
+            {"title": "AI算力", "author": "张三", "time": "2026-08-01",
+             "content": "思泉新材 液冷需求激增，目标价50元。买入推荐。"},
+        ]
+        fake_report = "## 一、有明确量化目标的股票\n| 1 | 思泉新材 | 301308 | 逻辑 | 目标价50元 | 帖子1 |\n" \
+                      "## 三、细分板块机会\n| 1 | AIDC液冷 | 思泉新材 | 逻辑 | 帖子1 |\n" \
+                      "```json\n{\"quantitative\": [{\"name\": \"思泉新材\", \"code\": \"301308\", " \
+                      "\"sector\": \"AIDC液冷\", \"logic\": \"液冷需求激增\", \"target\": \"目标价50元\", " \
+                      "\"source\": \"帖子1\"}], \"elastic\": [], \"sectors\": [], \"risks\": []}\n```\n"
+        fake_client = mock.Mock()
+        fake_client.create.return_value = fake_report
+        weights = {"upside": 0.2, "quality": 0.22, "consensus": 0.18, "sector": 0.14,
+                   "trend": 0.12, "fundamentals": 0.14, "capital_flow": 0.0, "volume_confirm": 0.0}
+        with mock.patch("summarizer.get_client", return_value=(fake_client, "deepseek-v4-flash", "deepseek-v4-flash")), \
+             mock.patch("price_fetcher.fetch_prices", return_value={"301308": {"price": 40.0, "pe": 30, "pb": 4, "market_cap_yi": 150}}), \
+             mock.patch("price_fetcher.fetch_5day_changes", return_value={"301308": 3.0}), \
+             mock.patch("price_fetcher.fetch_technical_indicators", return_value={}), \
+             mock.patch("price_fetcher.fetch_market_environment", return_value={}), \
+             mock.patch("price_fetcher.fetch_money_flow", return_value={}), \
+             mock.patch("market_review.fetch_lhb_details", return_value={}), \
+             mock.patch("adaptive_weights.get_latest_weights", return_value=None), \
+             mock.patch("market_regime.detect_market_regime", return_value={"label": "中性", "score": 50.0, "desc": "", "signals": {}}), \
+             mock.patch("market_regime.get_scoring_weights", return_value=weights), \
+             mock.patch("stock_extractor._apply_liquidity_filter", side_effect=lambda s, **kw: s):
+            report = extract_stock_opportunities(posts)
+        assert "按板块分类" in report
+        assert "思泉新材" in report
