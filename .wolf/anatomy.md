@@ -1,7 +1,7 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-08-03T01:10:39.298Z
-> Files: 71 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-08-05T01:06:17.616Z
+> Files: 76 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../../.claude/plans/
 
@@ -38,8 +38,8 @@
 - `CLAUDE.md` — OpenWolf (~57 tok)
 - `concentration_monitor.py` — 市场资金集中度监控模块。 (~1858 tok)
 - `concentration_monitor.py` — 市场资金集中度监控模块：三信号（板块净流入/成交额/宽度背离）采集 + 等级判定 + 综合汇总。 (~2500 tok)
-- `config.example.yaml` (~1033 tok)
-- `config.yaml` (~665 tok)
+- `config.example.yaml` (~1032 tok)
+- `config.yaml` (~705 tok)
 - `consecutive_limit_up.py` — A股连板股票扫描模块，抓取涨停池、计算连板天数、AI分类分组、生成报告。 (~4800 tok)
 - `cookies.json` (~132 tok)
 - `crawler.py` — 知识星球专栏内容爬取模块。 (~3380 tok)
@@ -58,9 +58,9 @@
 - `premarket_briefing.py` — 盘前财经快讯模块。 (~2885 tok)
 - `price_fetcher.py` — 实时股价获取模块。 (~6325 tok)
 - `requirements.txt` — Python dependencies (~43 tok)
-- `stock_extractor.py` — 股票机会提取模块。 (~38945 tok)
+- `stock_extractor.py` — 股票机会提取模块。 (~38494 tok)
 - `storage.py` — 数据持久化模块。 (~3506 tok)
-- `summarizer.py` — 内容总结模块。 (~4439 tok)
+- `summarizer.py` — 内容总结模块。 (~4538 tok)
 - `test_concentration_intraday.py` — 盘中集中度预警测试（边缘触发 + 日去重 + 回归）。 (~1200 tok)
 - `test_concentration_intraday.py` — 集中度盘中预警测试。 (~1467 tok)
 - `test_concentration_monitor.py` — 集中度核心模块单元测试（三信号 + 综合判定 + 降级）。 (~1500 tok)
@@ -96,12 +96,14 @@
 
 ## .superpowers/sdd/
 
-- `final-fix-report.md` — Concentration Feature — Final Fix Report (~631 tok)
-- `task-1-report.md` — Task 1 Report: concentration_monitor.py 核心模块 (~708 tok)
-- `task-2-report.md` — Task 2 Report: 配置段新增 (~225 tok)
-- `task-3-report.md` — Task 3 Report: 报告集成（stock_extractor.py） (~417 tok)
+- `final-fix-report.md` — 个股按板块分类展示 + 去掉评分阈值 — Final Fix Report (~1435 tok)
+- `sector-classified-progress.md` — SDD Progress — 按板块分类展示 + 去评分阈值 (~87 tok)
+- `task-1-report.md` — Task 1 Report: 新增 `_group_stocks_by_sector` 板块聚合函数 (~1010 tok)
+- `task-2-report.md` — Task 2 Report: `_select_report_display_stocks` 去掉评分截断 (~1303 tok)
+- `task-3-report.md` — Task 3 Report: `_rebuild_report` 筛选链路去掉评分阈值 + 每板块上限 (~1638 tok)
 - `task-4-fix-report.md` — Fix Report: `_check_concentration` state-clobber bug (~1113 tok)
-- `task-4-report.md` — Task 4 Report: 盘中实时预警集成 (~720 tok)
+- `task-4-report.md` — Task 4 Report: 按板块分类主清单 + 过滤概览文案更新 (~1046 tok)
+- `task-5-report.md` — Task 5 Report — 端到端回归验证 (E2E Regression Verification) (~1230 tok)
 
 ## data/
 
@@ -122,11 +124,17 @@
 ## docs/superpowers/plans/
 
 - `2026-07-29-concentration.md` — 市场资金集中度指标 — 实现计划 (~8682 tok)
+- `2026-08-04-sector-classified-report.md` — 个股按板块分类展示 + 去掉评分阈值 — 实现计划 (~5323 tok)
 
 ## docs/superpowers/specs/
 
 - `2026-07-29-concentration-design.md` — 市场资金集中度指标 — 设计文档 (~1598 tok)
+- `2026-08-04-sector-classified-report-design.md` — 个股按板块分类展示 + 去掉评分阈值 — 设计文档 (~669 tok)
 
 ## templates/
 
 - `index.html` — Web仪表盘前端：暗色主题SPA，6个Tab页（总览/股票报告/模拟组合/回测分析/市场状态/数据文件），20个API交互。 (~5500 tok)
+
+## tests/
+
+- `test_stock_extractor.py` — Unit tests for pure functions in stock_extractor.py. (~6054 tok)

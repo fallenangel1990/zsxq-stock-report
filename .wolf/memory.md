@@ -576,3 +576,55 @@
 | 17:10 | Edited stock_extractor.py | modified values() | ~287 |
 | 17:12 | Edited stock_extractor.py | modified values() | ~234 |
 | 17:20 | 修复 sector_aliases 作用域崩溃 + 完整 stocks 流程验证 | stock_extractor.py, tests/test_stock_extractor.py | ✅ 24帖→62增强候选(≥3分4只)，报告已保存，110 tests | ~900 |
+| 17:15 | Session end: 14 writes across 4 files (summarizer.py, config.yaml, config.example.yaml, stock_extractor.py) | 7 reads | ~20506 tok |
+| 17:23 | Session end: 14 writes across 4 files (summarizer.py, config.yaml, config.example.yaml, stock_extractor.py) | 7 reads | ~20506 tok |
+| 17:24 | Session end: 14 writes across 4 files (summarizer.py, config.yaml, config.example.yaml, stock_extractor.py) | 7 reads | ~20506 tok |
+| 17:25 | Session end: 14 writes across 4 files (summarizer.py, config.yaml, config.example.yaml, stock_extractor.py) | 7 reads | ~20506 tok |
+| 17:26 | Session end: 14 writes across 4 files (summarizer.py, config.yaml, config.example.yaml, stock_extractor.py) | 7 reads | ~20506 tok |
+| 17:28 | Created docs/superpowers/specs/2026-08-04-sector-classified-report-design.md | — | ~714 |
+| 17:28 | Session end: 15 writes across 5 files (summarizer.py, config.yaml, config.example.yaml, stock_extractor.py, 2026-08-04-sector-classified-report-design.md) | 7 reads | ~21271 tok |
+| 17:31 | Created docs/superpowers/plans/2026-08-04-sector-classified-report.md | — | ~5499 |
+| 17:31 | Edited docs/superpowers/plans/2026-08-04-sector-classified-report.md | 7→5 lines | ~47 |
+| 17:31 | Edited docs/superpowers/plans/2026-08-04-sector-classified-report.md | 6→6 lines | ~68 |
+| 17:32 | Session end: 18 writes across 6 files (summarizer.py, config.yaml, config.example.yaml, stock_extractor.py, 2026-08-04-sector-classified-report-design.md) | 7 reads | ~27287 tok |
+| 18:06 | Edited docs/superpowers/plans/2026-08-04-sector-classified-report.md | 12→13 lines | ~170 |
+| 18:06 | Edited docs/superpowers/plans/2026-08-04-sector-classified-report.md | modified feat() | ~403 |
+| 18:06 | Edited docs/superpowers/plans/2026-08-04-sector-classified-report.md | 5→5 lines | ~68 |
+| 18:07 | Edited docs/superpowers/plans/2026-08-04-sector-classified-report.md | modified feat() | ~159 |
+| 18:07 | Edited docs/superpowers/plans/2026-08-04-sector-classified-report.md | 2→2 lines | ~33 |
+| 18:08 | Created .superpowers/sdd/sector-classified-progress.md | — | ~93 |
+| 18:09 | Edited tests/test_stock_extractor.py | modified test_groups_by_normalized_sector() | ~472 |
+| 18:09 | Edited stock_extractor.py | modified _group_stocks_by_sector() | ~376 |
+| 18:10 | Edited stock_extractor.py | modified _group_stocks_by_sector() | ~162 |
+| 18:10 | 新增 _group_stocks_by_sector 板块聚合函数 + 2 测试，TDD RED→GREEN | stock_extractor.py tests/test_stock_extractor.py | 112 passed | ~250 |
+| 18:10 | Created .superpowers/sdd/task-1-report.md | — | ~1078 |
+| 18:13 | Edited tests/test_stock_extractor.py | modified test_all_stocks_returned_below_threshold() | ~294 |
+| 18:14 | Edited stock_extractor.py | modified _select_report_display_stocks() | ~234 |
+| 18:14 | _select_report_display_stocks 去掉评分截断：全部候选进展示，meta recommendation_count 仅统计 | stock_extractor.py tests/test_stock_extractor.py | TDD RED(1 fail)→GREEN, 114 passed, commit 77f9872 | ~300 |
+| 18:14 | Created .superpowers/sdd/task-2-report.md | — | ~1390 |
+| 18:17 | Edited tests/test_stock_extractor.py | modified test_empty_input() | ~545 |
+| 18:18 | Edited stock_extractor.py | reduced (-9 lines) | ~57 |
+| 18:18 | Edited stock_extractor.py | 7→5 lines | ~38 |
+| 18:18 | Edited stock_extractor.py | reduced (-6 lines) | ~48 |
+| 18:18 | Edited stock_extractor.py | 10→6 lines | ~53 |
+| 18:20 | Created .superpowers/sdd/task-3-report.md | — | ~1747 |
+| 18:24 | Edited stock_extractor.py | 7→7 lines | ~52 |
+| 18:24 | Edited stock_extractor.py | 32→32 lines | ~405 |
+| 18:24 | Edited tests/test_stock_extractor.py | 4→4 lines | ~50 |
+| 18:26 | Edited stock_extractor.py | 4→4 lines | ~25 |
+| 18:40 | Task 4: 快速选股清单→按板块分类主清单 + 过滤概览文案 | stock_extractor.py, tests/test_stock_extractor.py | committed 7cc38e7; 116 passed | ~900 |
+| 18:34 | Created .superpowers/sdd/task-4-report.md | — | ~1115 |
+| 19:30 | Session end: 42 writes across 12 files (summarizer.py, config.yaml, config.example.yaml, stock_extractor.py, 2026-08-04-sector-classified-report-design.md) | 22 reads | ~51333 tok |
+| 08:46 | Edited tests/test_stock_extractor.py | modified test_full_pipeline_no_zero_candidates() | ~753 |
+| 08:47 | Edited tests/test_stock_extractor.py | "stock_extractor.get_clien" → "summarizer.get_client" | ~35 |
+| 08:47 | Edited tests/test_stock_extractor.py | modified patch() | ~108 |
+| 08:52 | Task 5 完成: E2E 测试通过 + 真实数据 run 验证按板块分类 + 全量 117 测试绿 + commit dfda767 | tests/test_stock_extractor.py | ~300 |
+| 08:53 | Created .superpowers/sdd/task-5-report.md | — | ~1312 |
+| 09:01 | Edited stock_extractor.py | 4→2 lines | ~21 |
+| 09:04 | Edited stock_extractor.py | removed 43 lines | ~8 |
+| 09:04 | Edited stock_extractor.py | removed 26 lines | ~16 |
+| 09:04 | Edited tests/test_stock_extractor.py | modified patch() | ~114 |
+| 09:04 | Edited tests/test_stock_extractor.py | modified patch() | ~92 |
+| 09:05 | Final review fixes: deleted _apply_portfolio_constraints/REPORT_MIN_* constants/_append_report_filter_note (dead); hermetic mocks for _rebuild_report tests + E2E storage writes | stock_extractor.py, tests/test_stock_extractor.py | 40 covering + 117 full suite pass; _rebuild_report tests now ~ms (were ~90s network); E2E side-effect-free | ~350 |
+| 09:06 | Created .superpowers/sdd/final-fix-report.md | — | ~1531 |
+| 09:20 | SDD 执行：个股按板块分类展示+去评分阈值（6任务+最终审查修复）| stock_extractor.py, tests/, docs/superpowers/* | ✅ 117 tests, 报告按板块分类展示全部候选 | ~2000 |

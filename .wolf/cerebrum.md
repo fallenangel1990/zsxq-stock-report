@@ -230,8 +230,27 @@
 - **DEEPSEEK_V4_FLASH_API_KEY 不兜底 DEEPSEEK_API_KEY**：本地旧 `DEEPSEEK_API_KEY`（sk-6cf...）是无效 key，会遮蔽 config.yaml 里加密的有效 key（`_resolve_api_key` 先查环境变量）。所以 v4-flash 只认 `DEEPSEEK_V4_FLASH_API_KEY`，本地用加密配置（`.secrets/deepseek_v4_flash.key` + Fernet）。
 - **v4-flash key 加密惯例**：`config.yaml` 的 `ai.deepseek_v4_flash.api_key_encrypted` 存 `fernet:<密文>`，解密密钥在 `.secrets/deepseek_v4_flash.key`（gitignored）；`_load_encryption_key` 支持 `DEEPSEEK_V4_FLASH_API_KEY_ENCRYPTION_KEY` 环境变量兜底。本地跑 v4-flash 需要 `cryptography`（requirements.txt 已有，PEP 668 需 --break-system-packages 或 venv）。
 - **sector_aliases 作用域**：`_enrich_and_score` 里板块推断块必须放在 `sector_aliases = scoring.get("sector_aliases", {})` 之后，否则 UnboundLocalError 崩溃。配置加载要放在所有依赖它的代码之前。
+- **`_group_stocks_by_sector` 的分组回退语义**：实现计划 brief 里的 `key = norm if norm else "未分类"` 会把"板块非空但未命中别名"的个股（如"半导体/芯片"）错误并入"未分类"。正确语义应以测试为 spec：norm 为空时回退到原非空板块名，仅 sector 为空的才归"未分类"。config 的 sector_aliases 里规范名通常也有子串别名（如 `半导体: 半导体/芯片`），所以真实数据里规范板块大多能命中；回退只兜住别名表外的非空板块。
+- **mock 函数局部 import 的 patch 目标**：当被测代码用函数内 `from X import Y` 导入时，`mock.patch("stock_extractor.Y")` 是静默空转（stock_extractor 没有模块级 Y 属性），必须 patch 源模块 `X.Y`。同理 E2E 测试要 patch `storage.save_enriched_stocks`/`storage.append_recommendation_history`（而非 `stock_extractor.*`），才能让测试免副作用。
+- **报告按板块分类展示**：股票报告主清单从扁平"快速选股清单"改为"📋 按板块分类（全部候选，评分仅作板块内排序）"，用 `_group_stocks_by_sector(passed, sector_aliases)` 聚合；`_select_report_display_stocks` 不再按分数截断（display_count=全部候选，recommendation_count 仅统计）。筛选链路：全部 enriched → `_apply_liquidity_filter` → `filter_by_correlation`。删除死代码：`_apply_portfolio_constraints`、`REPORT_MIN_*` 常量、`_append_report_filter_note`。`_rebuild_report` 相关测试需 mock `portfolio_builder.filter_by_correlation`/`select_allocation_method` 和 `concentration_monitor.compute_concentration`，否则真实网络调用拖到 ~90s。
 
 ## Decision Log (2026-08-04)
 
 - [2026-08-04] **选股 0 只修复方案**：根因是四层：①解析链路双 bug（空 JSON 遮蔽表格 + 回退正则不认空格行）→ 空 JSON 不信任 + 表格回退 + 4 回归测试；②API key 端点错误（sensenova 401）→ base_url 改回 api.deepseek.com + 加密 key；③deepseek-v4-flash 推理烧光输出预算 → thinking disabled；④sector_aliases 作用域 bug → 配置加载提到板块推断前。验证：24 篇相关帖子端到端产出 62 只增强候选（>=3 分 4 只），报告保存成功。
+- [2026-08-05] **个股按板块分类展示 + 去掉评分阈值（方案3）**：报告主清单改为按板块分类展示全部候选（评分仅作板块内排序/标注），移除评分阈值截断与每板块上限，保留流动性/相关性风控。6 任务 SDD 执行：新增 `_group_stocks_by_sector`、`_select_report_display_stocks` 去截断、`_rebuild_report` 筛选链路改造、按板块分类主清单、端到端回归、清理死代码。测试 117 passed。设计/计划见 docs/superpowers/specs + plans 2026-08-04 两份文档。
 - [2026-07-29] **数据源复用策略**：集中度指标复用 `sector_monitor.fetch_boards(board_type="industry")`（提供 main_net_yi + amount_yi）和 `fetch_market_indices()`（提供 change_pct + up/down_count），不直接调用 eastmoney API。降级策略：fetch 失败直接标记 unavailable，不实现 spec 中的腾讯兜底（简化 + unavailable 路径已足够安全）。
+
+## Key Learnings (2026-08-04 Task 4)
+
+- **板块替换跨任务测试耦合**：Task 3 的 `TestRebuildReportNoScoreThreshold` 断言 `"快速选股清单" in report`（注释明确写着"Task 4 才替换"），Task 4 把该章节替换为"按板块分类"后此断言必然失败。跨任务删除/重命名报告章节时，必须 grep 所有测试里对旧章节名的断言并同步更新，否则全量回归必红。更新为 `assert "按板块分类" in report` 保留测试本意（低分票不被阈值丢弃）即可。
+- **Task 4 实现代码与测试无矛盾**：与 Task 1-3 不同，本次 brief 的 Step 4 实现代码与 Step 1 测试完全自洽，`_group_stocks_by_sector(passed, sector_aliases)` + `_load_scoring_config()` 直接照抄即可，无需要按测试修正实现。
+
+## Key Learnings (2026-08-05 Task 5)
+
+- **brief 的 mock 目标/返回值可能过期**：Task 5 brief 的 E2E 测试两处要按真实实现修正：①`mock.patch("stock_extractor.get_client")` → 该名只存在于函数内 `from summarizer import get_client`，不是模块属性，须改 patch `summarizer.get_client`；②`detect_market_regime` mock 返回 tuple `("中性", {})` → 真实返回 dict，tuple 在 `_enrich_and_score` 被 try/except 容忍但流入 `trend_data["market_regime"]` 后在 `_rebuild_report` 的 `regime.get("label")`（无 try/except）崩溃。写 mock 前先 grep 真实导入来源与返回类型。
+- **`_apply_liquidity_filter` 在 stock_extractor 是模块属性**（def 2577），patch `stock_extractor._apply_liquidity_filter` 有效；`_rebuild_report` 内 `filter_by_correlation`/`format_portfolio_summary` 有 try/except，E2E 无需 mock。
+
+## Key Learnings (2026-08-05 Final Review Fix)
+
+- **patch 函数内 `from X import Y` 的局部导入，目标是 `X.Y`，不是调用方模块属性**：`_rebuild_report` 里 `from portfolio_builder import filter_by_correlation, select_allocation_method`（line ~3727）和 `from concentration_monitor import compute_concentration`（line ~3760）、`extract_stock_opportunities` 里 `from storage import append_recommendation_history, save_enriched_stocks`（line ~288）都是在**函数执行时**从源模块取属性绑定局部名。`mock.patch("stock_extractor.filter_by_correlation")` 等对 `stock_extractor.*` 打补丁是 no-op（该名根本不是 stock_extractor 的属性）。正确目标：`mock.patch("portfolio_builder.filter_by_correlation")`、`mock.patch("portfolio_builder.select_allocation_method")`、`mock.patch("concentration_monitor.compute_concentration", return_value=None)`、`mock.patch("storage.save_enriched_stocks")`、`mock.patch("storage.append_recommendation_history")`。final-review brief 建议的 `stock_extractor.*` 目标本身就是错的，写这类 mock 前先确认是模块级 def 还是函数内局部 import。
+- **`_append_trader_summary` 对 `concentration_snapshot=None` 是安全的**（`if concentration_snapshot:` 守卫，line ~3445），所以 `compute_concentration` mock 直接 `return_value=None` 即可，无需构造最小 snapshot dict；`_append_concentration_gauge` 在 None 时不调用。
