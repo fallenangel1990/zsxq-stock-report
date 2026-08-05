@@ -2084,21 +2084,33 @@ def _long_term_trend_score(logic_text: str, target_str: str = "", risk_str: str 
     score -= risk_hits * 1.0
 
     return round(max(0.0, min(10.0, score)), 1)
-    """基于关键词分析板块逻辑文本的情感倾向。
 
-    起始 5 分（中性），每个正面关键词 +0.8，负面 -0.8，结果截断至 [0, 10]。
-    """
-    if not logic_text:
-        return 5.0
-    score = 5.0
-    text_lower = logic_text.lower()
-    for kw in _POSITIVE_LOGIC_KW:
-        if kw in text_lower:
-            score += 0.8
-    for kw in _NEGATIVE_LOGIC_KW:
-        if kw in text_lower:
-            score -= 0.8
-    return max(0.0, min(10.0, score))
+
+def _long_term_value_score(stock: dict) -> float:
+    """长期投资价值（0-10）：护城河40% + 基本面30% + 长期景气30%。"""
+    moat = stock.get("moat_score", 5.0)
+    fundamentals = stock.get("fundamentals_score", 5.0)
+    lt_trend = stock.get("long_term_trend")
+    if lt_trend is None:
+        lt_trend = _long_term_trend_score(
+            stock.get("logic", ""), stock.get("target_str", ""), stock.get("risk_str", "")
+        )
+    return round(moat * 0.4 + fundamentals * 0.3 + lt_trend * 0.3, 2)
+
+
+def _selectivity_score(stock: dict) -> float:
+    """精选综合分：score×40% + logic_strength×30% + long_term_value×20% + buy_score×10%。"""
+    score = stock.get("score", 0)
+    logic = stock.get("logic_strength")
+    if logic is None:
+        logic = _long_term_trend_score(
+            stock.get("logic", ""), stock.get("target_str", ""), stock.get("risk_str", "")
+        )
+    ltv = stock.get("long_term_value")
+    if ltv is None:
+        ltv = _long_term_value_score(stock)
+    buy = stock.get("buy_score", 0)
+    return round(score * 0.4 + logic * 0.3 + ltv * 0.2 + buy * 0.1, 2)
 
 
 def _detect_sector_trends(

@@ -515,3 +515,41 @@ class TestScoringBaseline:
         # score*0.52=1.04 + tech*0.36=1.8 + cred*0.12=0.636 + 0 - min(2,1)=1.0 → ≈2.48
         # 旧基线全额扣 2.0 时 bs=1.5；封顶 1.0 后 bs=2.5。断言 >=2.0 才能区分（>=1.0 在旧代码也通过，不具判别力）
         assert bs >= 2.0, "市场惩罚超过 1.0 时应封顶，避免吃掉全部得分"
+
+
+class TestSelectivityScores:
+    """Tests for long-term value and selectivity scoring."""
+
+    def test_long_term_value_weighted(self):
+        from stock_extractor import _long_term_value_score
+        stock = {
+            "moat_score": 8.0,          # 高护城河
+            "fundamentals_score": 7.0,  # 基本面健康
+            "long_term_trend": 9.0,     # 长期景气高
+        }
+        score = _long_term_value_score(stock)
+        expected = round(8.0 * 0.4 + 7.0 * 0.3 + 9.0 * 0.3, 2)
+        assert score == expected
+        assert score >= 7.0  # 高护城河+景气 → 高长期价值
+
+    def test_selectivity_score_weights(self):
+        from stock_extractor import _selectivity_score
+        stock = {
+            "score": 4.0,
+            "logic_strength": 8.0,
+            "long_term_value": 7.0,
+            "buy_score": 6.0,
+        }
+        s = _selectivity_score(stock)
+        expected = round(4.0 * 0.4 + 8.0 * 0.3 + 7.0 * 0.2 + 6.0 * 0.1, 2)
+        assert s == expected
+        # 逻辑强度权重高 → 高分逻辑推高精选分
+        assert s > stock["score"]
+
+    def test_missing_signals_fallback(self):
+        from stock_extractor import _long_term_value_score, _selectivity_score
+        empty = {}
+        ltv = _long_term_value_score(empty)  # moat缺省5.0, fundamentals缺省5.0, trend用_long_term_trend("")=3.0
+        assert 0 <= ltv <= 10
+        sel = _selectivity_score(empty)
+        assert 0 <= sel <= 10
