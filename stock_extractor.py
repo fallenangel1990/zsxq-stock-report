@@ -78,8 +78,6 @@ _RESEARCH_REPORT_KEYWORDS = [
 
 REPORT_RECOMMENDATION_THRESHOLD = 3.0
 REPORT_OBSERVATION_THRESHOLD = 2.0
-REPORT_MIN_VISIBLE_STOCKS = 8
-REPORT_MIN_RECOMMENDATIONS = 5
 
 
 def _filter_investment_posts(posts: list[dict]) -> tuple[list[dict], list[dict]]:
@@ -2532,48 +2530,6 @@ def _is_near_ma5(stock: dict, tolerance_pct: float = 3.0, atr_tolerance: float =
     return abs(distance_pct) <= tolerance_pct
 
 
-def _apply_portfolio_constraints(passed: list[dict], max_per_sector: int = 3) -> list[dict]:
-    """行业集中度控制：同一板块最多保留 max_per_sector 只，按得分降序保留。
-
-    同时使用 portfolio_builder.apply_sector_cap 做仓位占比限制，
-    确保单一行业仓位不超过 25%。
-
-    Args:
-        passed: 通过趋势精选的股票列表（已按得分降序）。
-        max_per_sector: 每个板块最多保留的股票数。
-
-    Returns:
-        通过行业集中度检查的股票列表。
-    """
-    # 第一步：数量限制
-    sector_count = {}
-    result = []
-    for stock in passed:
-        sector = stock.get("sector") or "未分类"
-        sector_count[sector] = sector_count.get(sector, 0) + 1
-        if sector_count[sector] <= max_per_sector:
-            stock.pop("_sector_limited", None)
-            result.append(stock)
-        else:
-            stock["_filter_reason"] = f"板块'{sector}'已选{max_per_sector}只，集中度限制"
-            stock["_sector_limited"] = True
-
-    # 第二步：仓位占比限制（通过 portfolio_builder）
-    try:
-        from portfolio_builder import apply_sector_cap
-        result = apply_sector_cap(
-            result,
-            max_per_sector=max_per_sector,
-            max_sector_pct=0.25,
-            total_slots=8,
-            verbose=False,
-        )
-    except ImportError:
-        pass
-
-    return result
-
-
 def _apply_liquidity_filter(
     stocks: list[dict],
     min_amount_yi: float = 0.5,
@@ -3668,28 +3624,6 @@ def _select_report_display_stocks(enriched: list[dict]) -> tuple[list[dict], dic
         "mode": "all_candidates",
     }
     return sorted_stocks, meta
-
-
-def _append_report_filter_note(parts: list[str], meta: dict) -> None:
-    """展示提取和过滤统计，让报告数量异常时有解释。"""
-    candidate_count = meta.get("candidate_count", 0)
-    recommendation_count = meta.get("recommendation_count", 0)
-    display_count = meta.get("display_count", 0)
-    threshold = meta.get("threshold", REPORT_RECOMMENDATION_THRESHOLD)
-    observation_threshold = meta.get("observation_threshold", REPORT_OBSERVATION_THRESHOLD)
-
-    parts.append("## 提取与过滤概览\n")
-    parts.append(
-        f"> 可评分候选 **{candidate_count}** 只；"
-        f"{threshold:.0f} 分以上正式推荐 **{recommendation_count}** 只；"
-        f"本报告展示 **{display_count}** 只。"
-    )
-    if meta.get("mode") == "adaptive_observation":
-        parts.append(
-            f"> 正式推荐数量偏少，已补充展示 {observation_threshold:.0f} 分以上高分观察候选。"
-            "这些标的用于复核和等待买点，不等同于立即买入。"
-        )
-    parts.append("")
 
 
 def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: dict = None) -> str:

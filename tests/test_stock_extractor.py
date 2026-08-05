@@ -407,7 +407,9 @@ class TestRebuildReportNoScoreThreshold:
              "risk_display": "", "opportunity_type": "观察", "trade_period": "中线"},
         ]
         with mock.patch("stock_extractor._apply_liquidity_filter", side_effect=lambda s, **kw: s), \
-             mock.patch("stock_extractor._apply_portfolio_constraints", side_effect=lambda s, **kw: s):
+             mock.patch("portfolio_builder.filter_by_correlation", side_effect=lambda s, **kw: s), \
+             mock.patch("portfolio_builder.select_allocation_method", side_effect=lambda s, **kw: s), \
+             mock.patch("concentration_monitor.compute_concentration", return_value=None):
             # 用最小 trend_data 避免外部依赖
             trend_data = {"scores": {}, "groups": {}, "logic_map": {}, "market_filter": {},
                           "market_regime": {"label": "中性"}, "style_exposure": {}}
@@ -431,7 +433,9 @@ class TestSectorClassifiedReport:
              "risk_display": "", "opportunity_type": "趋势", "trade_period": "中线"},
         ]
         with mock.patch("stock_extractor._apply_liquidity_filter", side_effect=lambda s, **kw: s), \
-             mock.patch("stock_extractor._apply_portfolio_constraints", side_effect=lambda s, **kw: s):
+             mock.patch("portfolio_builder.filter_by_correlation", side_effect=lambda s, **kw: s), \
+             mock.patch("portfolio_builder.select_allocation_method", side_effect=lambda s, **kw: s), \
+             mock.patch("concentration_monitor.compute_concentration", return_value=None):
             trend_data = {"scores": {}, "groups": {}, "logic_map": {}, "market_filter": {},
                           "market_regime": {"label": "中性"}, "style_exposure": {}}
             report = _rebuild_report(enriched, "## 三、细分板块机会\n| 1 | AI/人工智能 | A | 逻辑 | 帖子1 |\n", trend_data)
@@ -470,6 +474,8 @@ class TestExtractEndToEnd:
              mock.patch("adaptive_weights.get_latest_weights", return_value=None), \
              mock.patch("market_regime.detect_market_regime", return_value={"label": "中性", "score": 50.0, "desc": "", "signals": {}}), \
              mock.patch("market_regime.get_scoring_weights", return_value=weights), \
+             mock.patch("storage.save_enriched_stocks", return_value=None), \
+             mock.patch("storage.append_recommendation_history", return_value=None), \
              mock.patch("stock_extractor._apply_liquidity_filter", side_effect=lambda s, **kw: s):
             report = extract_stock_opportunities(posts)
         assert "按板块分类" in report
