@@ -1564,6 +1564,9 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
         stock_view["action"] = _selection_action(stock_view)
         stock_view["trade_period"] = _trade_period(stock_view)
         stock_view["exit_trigger"] = _exit_trigger(stock_view)
+        stock_view["logic_strength"] = round(lt_trend, 1)
+        stock_view["long_term_value"] = _long_term_value_score(stock_view)
+        stock_view["selectivity_score"] = _selectivity_score(stock_view)
 
         enriched.append({
             **stock_view,
