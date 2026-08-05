@@ -3768,6 +3768,53 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
             )
         parts.append("")
 
+    # ── 0. 精选 Top 清单（最有长期投资价值，全部候选按精选分取前 N）──
+    scored_candidates = list(passed)
+    for s in scored_candidates:
+        if "selectivity_score" not in s:
+            s["selectivity_score"] = _selectivity_score(s)
+    scored_candidates.sort(key=lambda s: s.get("selectivity_score", 0), reverse=True)
+    n_display = max(8, min(15, round(len(scored_candidates) * 0.15)))
+    n_display = min(n_display, len(scored_candidates))
+    top_picks = scored_candidates[:n_display]
+
+    parts.append("## ⭐ 精选 Top 清单（最有长期投资价值）\n")
+    parts.append(
+        f"> 精选依据：推荐指数 40% + 逻辑强度 30% + 长期价值 20% + 买点质量 10%"
+        f"；精选 {len(top_picks)} 只 / 全部候选 {len(scored_candidates)} 只。"
+    )
+    parts.append("")
+    if not top_picks:
+        parts.append("| 排名 | 股票名称 | 板块 | 精选分 | 备注 |")
+        parts.append("|------|----------|------|--------|------|")
+        parts.append("| - | 本次无候选个股 | - | - | - |")
+    else:
+        parts.append(
+            "| 排名 | 股票名称 | 板块 | 精选分 | 推荐指数 | 逻辑强度 | 长期价值 | 护城河 | 核心逻辑 | 目标参考 | 风险点 |"
+        )
+        parts.append(
+            "|------|----------|------|--------|----------|----------|----------|--------|----------|----------|--------|"
+        )
+        for i, s in enumerate(top_picks, 1):
+            name = _display_stock_name(s)
+            sector = s.get("sector", "-")
+            sel = s.get("selectivity_score", 0)
+            score_str = _format_score_display(s)
+            logic_str = s.get("logic_strength", "-")
+            ltv_str = s.get("long_term_value", "-")
+            moat_type = s.get("moat_type", "-")
+            moat_score = s.get("moat_score", 5.0)
+            moat_flag = " 🏰" if moat_score >= 8.0 else ""
+            logic = _emphasize_cell(s.get("logic", "")[:70] if s.get("logic") else "")
+            target = _emphasize_cell(s.get("target_str", "")[:50])
+            risk = s.get("risk_display", "-")[:70]
+            parts.append(
+                f"| {i} | {name} | {sector} | **{sel:.1f}** | {score_str} | "
+                f"{logic_str} | {ltv_str} | {moat_type}{moat_flag} | "
+                f"{logic} | {target} | {risk} |"
+            )
+    parts.append("")
+
     # ── 0. 按板块分类主清单（全部候选，评分仅作板块内排序）──
     parts.append("## 📋 按板块分类（全部候选，评分仅作板块内排序）\n")
     scoring_cfg = _load_scoring_config()

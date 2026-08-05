@@ -589,3 +589,39 @@ class TestEnrichSelectivityFields:
         assert "long_term_value" in s
         assert "selectivity_score" in s
         assert 0 <= s["selectivity_score"] <= 10
+
+
+class TestSelectivityReportSection:
+    """Tests for 精选 Top 清单 section in report."""
+
+    def test_selectivity_section_present_and_ranked(self):
+        from unittest import mock
+        from stock_extractor import _rebuild_report
+        enriched = [
+            {"name": "高价值A", "code": "600001", "category": "elastic", "sector": "AI/人工智能",
+             "score": 4.0, "buy_score": 6.0, "logic": "涨价+供不应求+国产替代，护城河强",
+             "target_str": "目标价50元", "market_cap_yi": 100, "current_price": 10,
+             "source": "帖子1", "risk_display": "", "opportunity_type": "趋势",
+             "trade_period": "中线", "moat_score": 8.0, "fundamentals_score": 7.0},
+            {"name": "低价值B", "code": "600002", "category": "elastic", "sector": "AI/人工智能",
+             "score": 2.0, "buy_score": 2.0, "logic": "普通逻辑", "target_str": "",
+             "market_cap_yi": 80, "current_price": 8, "source": "帖子1", "risk_display": "",
+             "opportunity_type": "观察", "trade_period": "中线", "moat_score": 4.0,
+             "fundamentals_score": 4.0},
+        ]
+        # 注意：filter_by_correlation/select_allocation_method 在 _rebuild_report 内是函数内
+        # `from portfolio_builder import ...` 局部导入，compute_concentration 同理来自
+        # concentration_monitor，故必须 patch 源模块，不能 patch stock_extractor.*（静默空转）。
+        with mock.patch("stock_extractor._apply_liquidity_filter", side_effect=lambda s, **kw: s), \
+             mock.patch("portfolio_builder.filter_by_correlation", side_effect=lambda s, **kw: s), \
+             mock.patch("portfolio_builder.select_allocation_method", side_effect=lambda s, **kw: s), \
+             mock.patch("concentration_monitor.compute_concentration", return_value=None):
+            trend_data = {"scores": {}, "groups": {}, "logic_map": {}, "market_filter": {},
+                          "market_regime": {"label": "中性"}, "style_exposure": {}}
+            report = _rebuild_report(enriched, "## 三、细分板块机会\n| 1 | AI/人工智能 | 高价值A | 逻辑 | 帖子1 |\n", trend_data)
+        assert "⭐ 精选 Top 清单" in report
+        # 高价值A 精选分更高 → 应排在低价值B 前面
+        a_idx = report.index("高价值A")
+        b_idx = report.index("低价值B")
+        assert a_idx < b_idx, "高长期价值股票应排在精选清单前面"
+        assert "📋 按板块分类" in report  # 全量章节保留
