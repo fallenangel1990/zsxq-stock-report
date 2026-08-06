@@ -638,6 +638,40 @@ class TestEnrichSelectivityFields:
         assert 0 <= s["selectivity_score"] <= 10
 
 
+class TestEnrichLiquidityField:
+    """Tests for enriched stocks carrying liquidity_score."""
+
+    def test_enriched_stocks_have_liquidity_score(self):
+        from unittest import mock
+        from stock_extractor import _enrich_and_score
+        stocks_json = {
+            "quantitative": [{
+                "name": "思泉新材", "code": "301308", "sector": "AIDC液冷",
+                "logic": "液冷需求激增，供不应求", "target": "目标价50元",
+                "target_aggressive": "", "target_moderate": "", "target_conservative": "",
+                "risk": "", "moat": "技术壁垒", "moat_score": 5,
+                "management": "", "source": "帖子1", "author": "张三", "confidence": 4,
+            }],
+            "elastic": [], "sectors": [], "risks": [],
+        }
+        weights = {"upside": 0.2, "quality": 0.22, "consensus": 0.18, "sector": 0.14,
+                   "trend": 0.12, "fundamentals": 0.14, "capital_flow": 0.0, "volume_confirm": 0.0}
+        with mock.patch("price_fetcher.fetch_prices", return_value={"301308": {"price": 40.0, "pe": 30, "pb": 4, "market_cap_yi": 150}}), \
+             mock.patch("price_fetcher.fetch_5day_changes", return_value={"301308": 3.0}), \
+             mock.patch("price_fetcher.fetch_technical_indicators", return_value={}), \
+             mock.patch("price_fetcher.fetch_market_environment", return_value={}), \
+             mock.patch("price_fetcher.fetch_money_flow", return_value={}), \
+             mock.patch("market_review.fetch_lhb_details", return_value={}), \
+             mock.patch("adaptive_weights.get_latest_weights", return_value=None), \
+             mock.patch("market_regime.detect_market_regime", return_value=("中性", {})), \
+             mock.patch("market_regime.get_scoring_weights", return_value=weights):
+            enriched, _ = _enrich_and_score(stocks_json, verbose=False)
+        assert enriched
+        s = enriched[0]
+        assert "liquidity_score" in s
+        assert 0 <= s["liquidity_score"] <= 10
+
+
 class TestSelectivityReportSection:
     """Tests for 精选 Top 清单 section in report."""
 
