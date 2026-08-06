@@ -294,12 +294,11 @@ git commit -m "feat(stocks): enriched 股票落盘 liquidity_score"
 - Consumes: `_liquidity_eligible`（Task 1）、`passed`（筛选后展示池）
 - Produces: 精选 Top 清单只含流动性合格票；头部文案更新；表格加"流动性"列
 
-- [ ] **Step 1: 更新既有测试（门槛 + 流动性列 + 💧）**
+- [ ] **Step 1: 在既有 `TestSelectivityReportSection` 类中新增测试方法**
+
+既有类（tests/test_stock_extractor.py:640）已有 `test_selectivity_section_present_and_ranked`，**保留它**，只往该类里**新增**一个方法 `test_selectivity_section_excludes_low_liquidity`（不要替换/删除既有方法）。将下面的方法体插入到该类中，紧跟既有方法之后：
 
 ```python
-class TestSelectivityReportSection:
-    """Tests for 精选 Top 清单 section in report (liquidity-aware)."""
-
     def test_selectivity_section_excludes_low_liquidity(self):
         from unittest import mock
         from stock_extractor import _rebuild_report
