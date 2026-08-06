@@ -481,6 +481,52 @@ class TestExtractEndToEnd:
         assert "按板块分类" in report
         assert "思泉新材" in report
 
+    def test_end_to_end_has_selectivity_section(self):
+        """端到端回归：extract_stock_opportunities 全链路产出"⭐ 精选 Top 清单"。
+
+        相对 brief 的三处修正（test-as-spec）：
+        ① detect_market_regime 真实返回 dict，mock 返回 tuple ("中性", {}) 会流入
+           trend_data["market_regime"]，在 _rebuild_report 的 regime.get("label") 处崩溃；
+        ② filter_by_correlation / compute_concentration 是 _rebuild_report 内函数级
+           `from X import Y` 局部导入，patch stock_extractor.* 是静默空转，须 patch
+           portfolio_builder.* / concentration_monitor.*；
+        ③ 补上同 try 块内的 select_allocation_method mock，保证测试免真实网络调用。
+        """
+        from unittest import mock
+        from stock_extractor import extract_stock_opportunities
+        posts = [
+            {"title": "AI算力", "author": "张三", "time": "2026-08-01",
+             "content": "思泉新材 液冷需求激增，供不应求，目标价50元。买入推荐。"},
+        ]
+        fake_report = "## 一、有明确量化目标的股票\n| 1 | 思泉新材 | 301308 | 逻辑 | 目标价50元 | 帖子1 |\n" \
+                      "## 三、细分板块机会\n| 1 | AIDC液冷 | 思泉新材 | 逻辑 | 帖子1 |\n" \
+                      "```json\n{\"quantitative\": [{\"name\": \"思泉新材\", \"code\": \"301308\", " \
+                      "\"sector\": \"AIDC液冷\", \"logic\": \"液冷需求激增，供不应求，国产替代\", " \
+                      "\"target\": \"目标价50元\", \"source\": \"帖子1\"}], \"elastic\": [], \"sectors\": [], \"risks\": []}\n```\n"
+        fake_client = mock.Mock()
+        fake_client.create.return_value = fake_report
+        weights = {"upside": 0.2, "quality": 0.22, "consensus": 0.18, "sector": 0.14,
+                   "trend": 0.12, "fundamentals": 0.14, "capital_flow": 0.0, "volume_confirm": 0.0}
+        with mock.patch("summarizer.get_client", return_value=(fake_client, "deepseek-v4-flash", "deepseek-v4-flash")), \
+             mock.patch("storage.save_enriched_stocks", return_value=None), \
+             mock.patch("storage.append_recommendation_history", return_value=None), \
+             mock.patch("price_fetcher.fetch_prices", return_value={"301308": {"price": 40.0, "pe": 30, "pb": 4, "market_cap_yi": 150}}), \
+             mock.patch("price_fetcher.fetch_5day_changes", return_value={"301308": 3.0}), \
+             mock.patch("price_fetcher.fetch_technical_indicators", return_value={}), \
+             mock.patch("price_fetcher.fetch_market_environment", return_value={}), \
+             mock.patch("price_fetcher.fetch_money_flow", return_value={}), \
+             mock.patch("market_review.fetch_lhb_details", return_value={}), \
+             mock.patch("adaptive_weights.get_latest_weights", return_value=None), \
+             mock.patch("market_regime.detect_market_regime", return_value={"label": "中性", "score": 50.0, "desc": "", "signals": {}}), \
+             mock.patch("market_regime.get_scoring_weights", return_value=weights), \
+             mock.patch("stock_extractor._apply_liquidity_filter", side_effect=lambda s, **kw: s), \
+             mock.patch("portfolio_builder.filter_by_correlation", side_effect=lambda s, **kw: s), \
+             mock.patch("portfolio_builder.select_allocation_method", side_effect=lambda s, **kw: s), \
+             mock.patch("concentration_monitor.compute_concentration", return_value=None):
+            report = extract_stock_opportunities(posts)
+        assert "⭐ 精选 Top 清单" in report
+        assert "思泉新材" in report
+
 
 class TestScoringBaseline:
     """Tests for scoring baseline adjustments (long-term value feature)."""

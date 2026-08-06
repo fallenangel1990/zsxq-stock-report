@@ -628,3 +628,43 @@
 | 09:05 | Final review fixes: deleted _apply_portfolio_constraints/REPORT_MIN_* constants/_append_report_filter_note (dead); hermetic mocks for _rebuild_report tests + E2E storage writes | stock_extractor.py, tests/test_stock_extractor.py | 40 covering + 117 full suite pass; _rebuild_report tests now ~ms (were ~90s network); E2E side-effect-free | ~350 |
 | 09:06 | Created .superpowers/sdd/final-fix-report.md | — | ~1531 |
 | 09:20 | SDD 执行：个股按板块分类展示+去评分阈值（6任务+最终审查修复）| stock_extractor.py, tests/, docs/superpowers/* | ✅ 117 tests, 报告按板块分类展示全部候选 | ~2000 |
+| 09:10 | Session end: 52 writes across 14 files (summarizer.py, config.yaml, config.example.yaml, stock_extractor.py, 2026-08-04-sector-classified-report-design.md) | 29 reads | ~60049 tok |
+| 10:26 | Session end: 52 writes across 14 files (summarizer.py, config.yaml, config.example.yaml, stock_extractor.py, 2026-08-04-sector-classified-report-design.md) | 30 reads | ~64929 tok |
+| 10:47 | Session end: 52 writes across 14 files (summarizer.py, config.yaml, config.example.yaml, stock_extractor.py, 2026-08-04-sector-classified-report-design.md) | 30 reads | ~64929 tok |
+| 18:01 | Session end: 52 writes across 14 files (summarizer.py, config.yaml, config.example.yaml, stock_extractor.py, 2026-08-04-sector-classified-report-design.md) | 30 reads | ~64929 tok |
+| 18:01 | Session end: 52 writes across 14 files (summarizer.py, config.yaml, config.example.yaml, stock_extractor.py, 2026-08-04-sector-classified-report-design.md) | 30 reads | ~64929 tok |
+| 18:05 | Session end: 52 writes across 14 files (summarizer.py, config.yaml, config.example.yaml, stock_extractor.py, 2026-08-04-sector-classified-report-design.md) | 30 reads | ~64929 tok |
+| 18:06 | Session end: 52 writes across 14 files (summarizer.py, config.yaml, config.example.yaml, stock_extractor.py, 2026-08-04-sector-classified-report-design.md) | 30 reads | ~64929 tok |
+| 18:08 | Session end: 52 writes across 14 files (summarizer.py, config.yaml, config.example.yaml, stock_extractor.py, 2026-08-04-sector-classified-report-design.md) | 30 reads | ~64929 tok |
+| 18:08 | Session end: 52 writes across 14 files (summarizer.py, config.yaml, config.example.yaml, stock_extractor.py, 2026-08-04-sector-classified-report-design.md) | 30 reads | ~64929 tok |
+| 18:09 | Created docs/superpowers/specs/2026-08-05-selectivity-design.md | — | ~1050 |
+| 18:09 | Session end: 53 writes across 15 files (summarizer.py, config.yaml, config.example.yaml, stock_extractor.py, 2026-08-04-sector-classified-report-design.md) | 30 reads | ~66054 tok |
+| 18:12 | Created docs/superpowers/plans/2026-08-05-selectivity.md | — | ~5474 |
+| 18:12 | Session end: 54 writes across 16 files (summarizer.py, config.yaml, config.example.yaml, stock_extractor.py, 2026-08-04-sector-classified-report-design.md) | 30 reads | ~71918 tok |
+| 18:12 | Created .superpowers/sdd/selectivity-progress.md | — | ~84 |
+| 18:13 | Edited docs/superpowers/plans/2026-08-05-selectivity.md | inline fix | ~62 |
+| 18:13 | Edited docs/superpowers/plans/2026-08-05-selectivity.md | 14→15 lines | ~131 |
+| 18:14 | Edited tests/test_stock_extractor.py | modified test_single_author_gets_higher_base_consensus() | ~384 |
+| 18:14 | Edited tests/test_stock_extractor.py | 3→4 lines | ~72 |
+| 18:15 | Edited stock_extractor.py | 17→18 lines | ~174 |
+| 18:15 | Edited stock_extractor.py | inline fix | ~20 |
+| 18:15 | Edited stock_extractor.py | 1.0 → 1.5 | ~15 |
+| 19:02 | Task1 评分基线调整：base_consensus 单作者3.5/2帖4.0/3帖4.5 + 时间衰减 0.85+0.15*recency + 市场惩罚 min(,1.0) + 校准下限 1.5 | stock_extractor.py tests/test_stock_extractor.py | commit 38b12a0, 119 passed | ~600 |
+| 18:16 | Created .superpowers/sdd/task-1-report.md | — | ~1070 |
+| 18:18 | Edited stock_extractor.py | modified _long_term_value_score() | ~317 |
+| 10:30 | Task2 新增 _long_term_value_score(护城河40+基本面30+景气30) 与 _selectivity_score(score40+logic30+ltv20+buy10)，均带缺省回退到 _long_term_trend_score | stock_extractor.py tests/test_stock_extractor.py | commit 9c0cc3d, 122 passed | ~600 |
+| 18:19 | Created .superpowers/sdd/task-2-report.md | — | ~1309 |
+| 18:19 | Edited .superpowers/sdd/selectivity-progress.md | 3→3 lines | ~24 |
+| 18:19 | Edited .superpowers/sdd/selectivity-progress.md | 2→5 lines | ~132 |
+| 18:22 | Edited tests/test_stock_extractor.py | modified test_enriched_stocks_have_selectivity_fields() | ~652 |
+| 18:22 | Edited stock_extractor.py | 4→7 lines | ~103 |
+| 18:23 | Created .superpowers/sdd/task-3-report.md | — | ~1324 |
+| 18:25 | Task 3: _enrich_and_score 落盘 logic_strength/long_term_value/selectivity_score（置于 enriched.append 前、buy_score 之后） | stock_extractor.py tests/test_stock_extractor.py | 全量 123 passed，commit 0a80800 | ~1k |
+| 18:26 | Edited tests/test_stock_extractor.py | modified test_selectivity_section_present_and_ranked() | ~680 |
+| 18:26 | Edited stock_extractor.py | modified enumerate() | ~633 |
+| 18:32 | Task4 精选Top清单章节: _rebuild_report插入精选章节(动态N=15%/8-15, 按selectivity排序, 护城河>=8加🏰) | stock_extractor.py tests/test_stock_extractor.py | 全量124 passed, commit 33470dd | ~800 |
+| 18:43 | Session end: 72 writes across 17 files (summarizer.py, config.yaml, config.example.yaml, stock_extractor.py, 2026-08-04-sector-classified-report-design.md) | 34 reads | ~79000 tok |
+| 08:50 | Created .superpowers/sdd/task-4-report.md | — | ~1774 |
+| 09:05 | Verified Task4 (精选Top清单) already committed 33470dd; RED confirmed via worktree@0a80800 (assert 精选Top清单 fails), GREEN 1 passed, full 124 passed; backed up old sdd/task-4-report, wrote new report; tracker #21 -> completed | stock_extractor.py tests/test_stock_extractor.py .superpowers/sdd/task-4-report.md | no new commit needed (already present) | ~3500 |
+| 08:55 | Edited tests/test_stock_extractor.py | modified test_end_to_end_has_selectivity_section() | ~1008 |
+| 08:57 | Task5 端到端验证+文档：新增 test_end_to_end_has_selectivity_section（修正 brief 的 detect_market_regime tuple→dict + filter_by_correlation/compute_concentration 改 patch 源模块 + 补 select_allocation_method），focused PASS 0.08s，全量 125 passed | tests/test_stock_extractor.py .wolf/cerebrum.md | ✅ 完成（未 push，留待控制器真数据 run） | ~500 |

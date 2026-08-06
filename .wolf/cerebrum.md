@@ -254,3 +254,23 @@
 
 - **patch 函数内 `from X import Y` 的局部导入，目标是 `X.Y`，不是调用方模块属性**：`_rebuild_report` 里 `from portfolio_builder import filter_by_correlation, select_allocation_method`（line ~3727）和 `from concentration_monitor import compute_concentration`（line ~3760）、`extract_stock_opportunities` 里 `from storage import append_recommendation_history, save_enriched_stocks`（line ~288）都是在**函数执行时**从源模块取属性绑定局部名。`mock.patch("stock_extractor.filter_by_correlation")` 等对 `stock_extractor.*` 打补丁是 no-op（该名根本不是 stock_extractor 的属性）。正确目标：`mock.patch("portfolio_builder.filter_by_correlation")`、`mock.patch("portfolio_builder.select_allocation_method")`、`mock.patch("concentration_monitor.compute_concentration", return_value=None)`、`mock.patch("storage.save_enriched_stocks")`、`mock.patch("storage.append_recommendation_history")`。final-review brief 建议的 `stock_extractor.*` 目标本身就是错的，写这类 mock 前先确认是模块级 def 还是函数内局部 import。
 - **`_append_trader_summary` 对 `concentration_snapshot=None` 是安全的**（`if concentration_snapshot:` 守卫，line ~3445），所以 `compute_concentration` mock 直接 `return_value=None` 即可，无需构造最小 snapshot dict；`_append_concentration_gauge` 在 None 时不调用。
+
+## Key Learnings (2026-08-05 Task 1)
+
+- **brief 的弱断言可能不是有效 RED 测试**：Task 1 `test_market_penalty_capped_at_1` 的断言 `bs >= 1.0` 在旧代码上也通过（`_buy_score` 有 `max(1.0, ...)` 下限，旧值 1.5 ≥ 1.0），无法区分惩罚是否封顶。brief 注释自己算出的期望新值是 ≈2.48。处理：按 TDD 把断言加强为 `bs >= 2.0`（旧 1.5 失败、新 2.5 通过），以 brief 意图为 spec 而非照抄弱断言。写 brief 提供的测试时先心算新旧值确认断言有判别力。
+- **`_buy_score` 的 `max(1.0, ...)` 下限会掩盖惩罚改动**：由于最终 `round(max(1.0, min(10.0, raw - penalty)), 1)` 有 1.0 地板，任何小于 1.0 的原始结果都被夹到 1.0。测试惩罚封顶时，需构造原始分 > 1.0 的输入并断言具体分数区间，否则断言在改动前后都通过。
+- **评分基线四参数已调整（commit 38b12a0）**：base_consensus 单作者 2.0→3.5、2帖 3.0→4.0、3帖 3.5→4.5（保持单调）；时间加权 `base_consensus * recency_weight` → `* (0.85 + 0.15 * recency_weight)`（recency_weight∈[0.7,1.0]，因子∈[0.955,1.0] 温和衰减）；`_buy_score` 市场惩罚 `min(market_filter.get("buy_penalty",0.0), 1.0)`；`_calibrate_recommendation_score` 下限 `max(1.0,...)`→`max(1.5,...)`。为"精选 Top 清单"功能铺路，让候选池能从 2.1 分档铺开到更高分档。
+
+## Key Learnings (2026-08-05 Task 4)
+
+- **精选 Top 清单 brief 的测试 mock 目标又错了，但实现代码照抄即可**：Task 4 brief 的 Step 1 测试里 `mock.patch("stock_extractor.filter_by_correlation")` 和 `mock.patch("stock_extractor.compute_concentration")` 是静默空转（`_rebuild_report` 内是 `from portfolio_builder import filter_by_correlation` / `from concentration_monitor import compute_concentration` 函数内局部导入）。按既有模式改为 patch `portfolio_builder.filter_by_correlation`/`portfolio_builder.select_allocation_method`/`concentration_monitor.compute_concentration`，并补上 brief 漏掉的 `select_allocation_method` mock。与之前 Task 4（按板块分类）的 mock 目标完全一致。实现代码（排序 scored_candidates 取前 N、渲染表格）与测试自洽，无需按测试修改实现。
+- **精选表在报告中的位置在"最适合买入清单"之后、"按板块分类"之前**：精选分 `_selectivity_score` 会为缺 `selectivity_score` 的 stock 回填，因此测试里 hand-built 的 dict 也能排对序；护城河 >=8 加 🏰 标识。
+
+## Key Learnings (2026-08-06 Task 5)
+
+- **E2E 的 mock 目标修正第三次重复出现**：Task 5 brief 的端到端测试和 Task 4 一样又写错了 mock 目标——`stock_extractor.filter_by_correlation`/`stock_extractor.compute_concentration` 是 `_rebuild_report` 内函数级局部导入（patch `stock_extractor.*` 静默空转），且 `detect_market_regime` 用了已废弃的 tuple 返回值 `("中性", {})`。统一按既有模式修正：detect_market_regime 必须 mock 返回 dict（tuple 流入 `trend_data["market_regime"]` 后在 `_rebuild_report` 的 `regime.get("label")` 无 try/except 处崩溃）；相关性/集中度 patch `portfolio_builder.*`/`concentration_monitor.*`；同 try 块补 `portfolio_builder.select_allocation_method`。写 brief 提供的测试前先 grep 真实导入来源与返回类型——本项目每次 brief 都在这里错。
+- **现有 `test_full_pipeline_no_zero_candidates` 仍会发真实网络调用**：该旧 E2E 未 mock `filter_by_correlation`（`_fetch_recent_returns`）和 `compute_concentration`，全量 suite 时长在 1.3s~43s 间随机波动（有 try/except 不会崩溃，只是慢）。新 `test_end_to_end_has_selectivity_section` 是 hermetic（~0.08s）。若后续要稳定 CI 时长，可给旧 E2E 补同样的 hermetic mock。
+
+## Decision Log (2026-08-06)
+
+- [2026-08-06] **精选 Top 清单端到端验证（Task 5）**：新增 `TestExtractEndToEnd.test_end_to_end_has_selectivity_section`，驱动 `extract_stock_opportunities` 全链路（mock summarizer.get_client + price_fetcher.* + market_regime.* + storage 写库 no-op + portfolio_builder.*/concentration_monitor.*），断言报告含"⭐ 精选 Top 清单"与思泉新材。全量 125 passed，commit `test(stocks): 精选 Top 清单端到端验证`。
