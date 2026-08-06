@@ -313,3 +313,9 @@
 - **E2E 慢测试源于缺失 mock**：`test_full_pipeline_no_zero_candidates` 缺 `filter_by_correlation`/`select_allocation_method`/`compute_concentration` 三个 mock，导致真实网络调用 23.5s。补齐后 0.13s（全测试 25.5s→10.2s）。新 E2E 测试必须 mock portfolio_builder 网络函数。
 - **分组去重/排序边界**：`_group_stocks_by_sector` 的 `ident = code or name` 在无代码无名时会全部合并成一条（空字符串碰撞）；`x.get("buy_score", 0)` 当值存在但为 None 时返回 None 导致排序 TypeError。修复：`ident = code or name or f"__idx_{idx}"` + `(x.get("buy_score") or 0)`。
 - **换手率自然打破精选并列**：加入换手率分量后，之前"MLCC 5 只同分 3.8"自然分散（4.14~3.46）。剩余真并列（如 4.0）用次级排序键（流动性→买点→分数）破。报告显示 1 位小数可能隐藏真实差异（3.65 vs 3.57 都显示 3.6），排序用未取整值正确。
+
+## Key Learnings (2026-08-06 第二轮三项优化)
+
+- **backtester 单测触发真实网络**：`validate_score_monotonicity` 对每条记录调 `_get_forward_returns`（真实取行情），单测里 1 条记录就 9.8s。测试应 mock `backtester._get_forward_returns` 返回 None 模拟无数据，9.8s→0.16s。
+- **enriched 重复股票的根源是 key 漂移**：`_enrich_and_score` 收集用 `key = code if code else name`，但 sectors 回填循环里 sector 拆分 entry 无 code 时 key=name，若该股票已以 code 作 key 存在（quant/elastic 提过），就产生两条。修复：sectors 回填先按 name 匹配已有股票（只补 sector 不新增）。实测重复 17 组→0。
+- **AI 误写股票名搜索查不到**：误写名（晟冢→昀冢 688260）东财搜索无结果。加 `_STOCK_ALIAS_CODES` 别名表，搜索前命中直接返回代码。

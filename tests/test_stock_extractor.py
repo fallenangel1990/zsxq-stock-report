@@ -179,9 +179,12 @@ class TestScoreMonotonicity:
         assert result["is_monotonic"] is False
 
     def test_insufficient_data(self):
+        from unittest import mock
         from backtester import validate_score_monotonicity
         records = [{"code": "600000", "score": 5, "current_price": 100, "generated_at": "2026-07-01"}]
-        result = validate_score_monotonicity(records)
+        # mock 掉网络取行情，模拟无前向收益数据（避免真实 HTTP 请求拖慢单测）
+        with mock.patch("backtester._get_forward_returns", return_value=None):
+            result = validate_score_monotonicity(records)
         # No forward returns available
         assert result["is_monotonic"] is False
 
@@ -1024,3 +1027,82 @@ class TestSelectivityTieBreak:
         hi_idx = report.index("高流动性")
         lo_idx = report.index("低流动性")
         assert hi_idx < lo_idx, "精选分相同时，流动性高的应排在前面"
+
+
+class TestEnrichDedup:
+    """Tests for dedup of same stock across categories/sectors."""
+
+    def test_same_code_quant_elastic_merges(self):
+        from unittest import mock
+        from stock_extractor import _enrich_and_score
+        stocks_json = {
+            "quantitative": [{"name": "科达利", "code": "002850", "sector": "机器人",
+                              "logic": "quant逻辑", "target": "目标千亿", "source": "帖子1",
+                              "author": "张三", "confidence": 4}],
+            "elastic": [{"name": "科达利", "code": "002850", "sector": "机器人",
+                         "logic": "elastic逻辑", "target": "", "source": "帖子1",
+                         "author": "李四", "confidence": 3}],
+            "sectors": [], "risks": [],
+        }
+        weights = {"upside": 0.2, "quality": 0.22, "consensus": 0.18, "sector": 0.14,
+                   "trend": 0.12, "fundamentals": 0.14, "capital_flow": 0.0, "volume_confirm": 0.0}
+        with mock.patch("price_fetcher.fetch_prices", return_value={"002850": {"price": 100, "pe": 20, "pb": 3, "market_cap_yi": 500, "turnover_rate": 2}}), \
+             mock.patch("price_fetcher.fetch_5day_changes", return_value={"002850": 1.0}), \
+             mock.patch("price_fetcher.fetch_technical_indicators", return_value={}), \
+             mock.patch("price_fetcher.fetch_market_environment", return_value={}), \
+             mock.patch("price_fetcher.fetch_money_flow", return_value={}), \
+             mock.patch("market_review.fetch_lhb_details", return_value={}), \
+             mock.patch("adaptive_weights.get_latest_weights", return_value=None), \
+             mock.patch("market_regime.detect_market_regime", return_value=("中性", {})), \
+             mock.patch("market_regime.get_scoring_weights", return_value=weights):
+            enriched, _ = _enrich_and_score(stocks_json, verbose=False)
+        keda_name = [s for s in enriched if s.get("name") == "科达利"]
+        assert len(keda_name) == 1, f"同 code 股票应合并为 1 条，实际 {len(keda_name)} 条"
+        assert keda_name[0]["category"] == "quantitative"  # 高优先级类别保留
+
+    def test_sector_split_name_matches_existing_code(self):
+        from unittest import mock
+        from stock_extractor import _enrich_and_score
+        stocks_json = {
+            "quantitative": [{"name": "科达利", "code": "002850", "sector": "机器人",
+                              "logic": "quant逻辑", "target": "目标千亿", "source": "帖子1",
+                              "author": "张三", "confidence": 4}],
+            "elastic": [],
+            # sectors 拆出的核心标的是"科达利"（无 code），应与已有 code 的科达利合并
+            "sectors": [{"sector": "机器人", "stocks": "科达利", "logic": "板块逻辑", "source": "帖子1"}],
+            "risks": [],
+        }
+        weights = {"upside": 0.2, "quality": 0.22, "consensus": 0.18, "sector": 0.14,
+                   "trend": 0.12, "fundamentals": 0.14, "capital_flow": 0.0, "volume_confirm": 0.0}
+        with mock.patch("price_fetcher.fetch_prices", return_value={"002850": {"price": 100, "pe": 20, "pb": 3, "market_cap_yi": 500, "turnover_rate": 2}}), \
+             mock.patch("price_fetcher.fetch_5day_changes", return_value={"002850": 1.0}), \
+             mock.patch("price_fetcher.fetch_technical_indicators", return_value={}), \
+             mock.patch("price_fetcher.fetch_market_environment", return_value={}), \
+             mock.patch("price_fetcher.fetch_money_flow", return_value={}), \
+             mock.patch("market_review.fetch_lhb_details", return_value={}), \
+             mock.patch("adaptive_weights.get_latest_weights", return_value=None), \
+             mock.patch("market_regime.detect_market_regime", return_value=("中性", {})), \
+             mock.patch("market_regime.get_scoring_weights", return_value=weights):
+            enriched, _ = _enrich_and_score(stocks_json, verbose=False)
+        keda = [s for s in enriched if s.get("name") == "科达利"]
+        assert len(keda) == 1, f"sector 拆分应与已有 code 股票合并，实际 {len(keda)} 条"
+
+
+class TestStockAliasCorrection:
+    """Tests for AI-misspelled stock name alias correction."""
+
+    def test_alias_corrected_to_code(self):
+        # 晟冢科技 是 昀冢科技(688260) 的误写 → 别名表直接给代码
+        from price_fetcher import search_stock_code_by_name
+        code = search_stock_code_by_name("晟冢科技")
+        assert code == "688260"
+
+    def test_normal_name_still_searches(self):
+        from price_fetcher import search_stock_code_by_name
+        code = search_stock_code_by_name("科达利")
+        assert code == "002850"
+
+    def test_unknown_name_returns_empty(self):
+        from price_fetcher import search_stock_code_by_name
+        code = search_stock_code_by_name("完全不存在的股票名xyz")
+        assert code == ""

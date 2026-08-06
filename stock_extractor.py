@@ -1218,7 +1218,19 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
             code = entry.get("code", "").strip()
             name = entry.get("name", "")
             key = code if code else name
-            if not key or key in all_stocks:
+            if not key:
+                continue
+            # 该股票可能已以 code 作 key 存在（quant/elastic 提过）；按 name 匹配则只补板块不新增
+            existing_by_name = next(
+                (st for st in all_stocks.values()
+                 if st.get("name") == name and st.get("code") != code),
+                None,
+            )
+            if existing_by_name is not None:
+                if not existing_by_name.get("sector") and sector_name:
+                    existing_by_name["sector"] = sector_name
+                continue
+            if key in all_stocks:
                 continue
             _author = (entry.get("author") or "").strip()
             all_stocks[key] = {

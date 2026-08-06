@@ -153,6 +153,13 @@ def _fetch_eastmoney_quotes(codes: list[str], timeout: int = 10) -> dict:
     return result
 
 
+# AI 误写/别称的股票名 → 正确 6 位 A 股代码。
+# 命中别名表直接返回代码，跳过搜索（搜索对误写名常查不到）。
+_STOCK_ALIAS_CODES = {
+    "晟冢科技": "688260",  # 昀冢科技 误写
+}
+
+
 def search_stock_code_by_name(name: str, timeout: int = 10) -> str:
     """按股票名称搜索 A 股 6 位代码（东方财富搜索接口）。
 
@@ -167,6 +174,9 @@ def search_stock_code_by_name(name: str, timeout: int = 10) -> str:
     """
     if not name or not name.strip():
         return ""
+    # AI 误写/别称优先查别名表
+    if name.strip() in _STOCK_ALIAS_CODES:
+        return _STOCK_ALIAS_CODES[name.strip()]
     url = "https://searchapi.eastmoney.com/api/suggest/get"
     params = {
         "input": name.strip(),
