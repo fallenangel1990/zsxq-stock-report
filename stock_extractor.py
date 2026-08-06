@@ -1593,6 +1593,7 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
     for stock in enriched:
         stock["market_filter"] = market_filter
         stock["buy_score"] = _buy_score(stock)
+        stock["selectivity_score"] = _selectivity_score(stock)
         stock["entry_ref"] = _technical_buy_reference(stock)
         stock["action"] = _selection_action(stock)
         stock["trade_period"] = _trade_period(stock)
