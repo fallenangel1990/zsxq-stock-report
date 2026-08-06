@@ -668,3 +668,38 @@
 | 09:05 | Verified Task4 (精选Top清单) already committed 33470dd; RED confirmed via worktree@0a80800 (assert 精选Top清单 fails), GREEN 1 passed, full 124 passed; backed up old sdd/task-4-report, wrote new report; tracker #21 -> completed | stock_extractor.py tests/test_stock_extractor.py .superpowers/sdd/task-4-report.md | no new commit needed (already present) | ~3500 |
 | 08:55 | Edited tests/test_stock_extractor.py | modified test_end_to_end_has_selectivity_section() | ~1008 |
 | 08:57 | Task5 端到端验证+文档：新增 test_end_to_end_has_selectivity_section（修正 brief 的 detect_market_regime tuple→dict + filter_by_correlation/compute_concentration 改 patch 源模块 + 补 select_allocation_method），focused PASS 0.08s，全量 125 passed | tests/test_stock_extractor.py .wolf/cerebrum.md | ✅ 完成（未 push，留待控制器真数据 run） | ~500 |
+| 08:59 | Created .superpowers/sdd/task-5-report.md | — | ~1127 |
+| 09:09 | Edited stock_extractor.py | 2→3 lines | ~49 |
+| 09:11 | Created .superpowers/sdd/final-fix-report.md | — | ~412 |
+| 09:14 | Session end: 77 writes across 17 files (summarizer.py, config.yaml, config.example.yaml, stock_extractor.py, 2026-08-04-sector-classified-report-design.md) | 40 reads | ~89137 tok |
+| 09:19 | Session end: 77 writes across 17 files (summarizer.py, config.yaml, config.example.yaml, stock_extractor.py, 2026-08-04-sector-classified-report-design.md) | 41 reads | ~95462 tok |
+| 09:21 | Session end: 77 writes across 17 files (summarizer.py, config.yaml, config.example.yaml, stock_extractor.py, 2026-08-04-sector-classified-report-design.md) | 41 reads | ~95462 tok |
+| 09:23 | Session end: 77 writes across 17 files (summarizer.py, config.yaml, config.example.yaml, stock_extractor.py, 2026-08-04-sector-classified-report-design.md) | 41 reads | ~95462 tok |
+| 09:24 | Session end: 77 writes across 17 files (summarizer.py, config.yaml, config.example.yaml, stock_extractor.py, 2026-08-04-sector-classified-report-design.md) | 41 reads | ~95462 tok |
+| 09:25 | Created docs/superpowers/specs/2026-08-06-liquidity-design.md | — | ~898 |
+| 09:26 | Session end: 78 writes across 18 files (summarizer.py, config.yaml, config.example.yaml, stock_extractor.py, 2026-08-04-sector-classified-report-design.md) | 41 reads | ~96424 tok |
+| 09:30 | Created docs/superpowers/plans/2026-08-06-liquidity.md | — | ~5170 |
+| 09:31 | Session end: 79 writes across 19 files (summarizer.py, config.yaml, config.example.yaml, stock_extractor.py, 2026-08-04-sector-classified-report-design.md) | 41 reads | ~101963 tok |
+| 09:39 | Created .superpowers/sdd/liquidity-progress.md | — | ~87 |
+| 09:40 | Edited docs/superpowers/plans/2026-08-06-liquidity.md | modified test_selectivity_section_excludes_low_liquidity() | ~90 |
+| 09:41 | Edited tests/test_stock_extractor.py | modified test_liquidity_score_weighted() | ~468 |
+| 09:41 | Edited stock_extractor.py | modified _liquidity_score() | ~333 |
+| 09:42 | Task 1: added _liquidity_score + _liquidity_eligible after _selectivity_score; 4 new tests, full suite 129 passed | stock_extractor.py, tests/test_stock_extractor.py | commit fdc8f5b | ~420 |
+| 09:42 | Created .superpowers/sdd/task-1-report.md | — | ~1134 |
+| 09:45 | Edited tests/test_stock_extractor.py | modified test_selectivity_score_weights() | ~146 |
+| 09:45 | Edited stock_extractor.py | modified _selectivity_score() | ~194 |
+| 09:46 | Task 2: _selectivity_score weights 40/30/20/10 -> 35/25/20/10/10 + liquidity component; test updated, full suite 129 passed | stock_extractor.py, tests/test_stock_extractor.py | commit ae72fae | ~410 |
+| 09:46 | Created .superpowers/sdd/task-2-report.md | — | ~1300 |
+| 09:46 | Created .superpowers/sdd/task-2-report.md | — | ~1289 |
+| 09:49 | Edited tests/test_stock_extractor.py | modified test_enriched_stocks_have_liquidity_score() | ~617 |
+| 09:49 | Edited stock_extractor.py | 3→4 lines | ~79 |
+| 09:49 | Task 3: added stock_view["liquidity_score"]=_liquidity_score(stock_view) + TestEnrichLiquidityField; RED→GREEN, full suite 130 passed | stock_extractor.py, tests/test_stock_extractor.py | commit 19c50fb | ~530 |
+| 09:49 | Created .superpowers/sdd/task-3-report.md | — | ~1032 |
+| 09:51 | Edited tests/test_stock_extractor.py | modified test_selectivity_section_excludes_low_liquidity() | ~646 |
+| 09:51 | Edited stock_extractor.py | list() → _liquidity_eligible() | ~216 |
+| 09:51 | Edited stock_extractor.py | modified enumerate() | ~398 |
+| 09:53 | Created .superpowers/sdd/task-4-report.md | — | ~1150 |
+| 09:53 | Task 4: _rebuild_report 精选加流动性门槛 (_liquidity_eligible) + 头部文案 + 流动性列(💧>=7.0)；新增 test_selectivity_section_excludes_low_liquidity 保留既有方法；RED→GREEN，全量 131 passed | stock_extractor.py, tests/test_stock_extractor.py | commit 107728d | ~900 |
+| 09:56 | Edited tests/test_stock_extractor.py | modified test_end_to_end_has_liquidity_in_selectivity() | ~1028 |
+| 10:30 | Task 5: 端到端验证+文档：新增 test_end_to_end_has_liquidity_in_selectivity（brief 仅一处修正——detect_market_regime mock tuple→dict，其余 mock 目标含 storage 写库 no-op 均写对），focused PASS 0.13s，全量 132 passed；更新 cerebrum Decision Log | tests/test_stock_extractor.py, .wolf/cerebrum.md | ✅ 完成（未 push，待控制器真数据 run） | ~500 |
+| 09:58 | Created .superpowers/sdd/task-5-report.md | — | ~1134 |

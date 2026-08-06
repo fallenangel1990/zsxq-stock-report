@@ -274,3 +274,20 @@
 ## Decision Log (2026-08-06)
 
 - [2026-08-06] **精选 Top 清单端到端验证（Task 5）**：新增 `TestExtractEndToEnd.test_end_to_end_has_selectivity_section`，驱动 `extract_stock_opportunities` 全链路（mock summarizer.get_client + price_fetcher.* + market_regime.* + storage 写库 no-op + portfolio_builder.*/concentration_monitor.*），断言报告含"⭐ 精选 Top 清单"与思泉新材。全量 125 passed，commit `test(stocks): 精选 Top 清单端到端验证`。
+- [2026-08-06] **精选流动性端到端验证（流动性 Task 5）**：新增 `TestExtractEndToEnd.test_end_to_end_has_liquidity_in_selectivity`，沿用既有 E2E mock 模式，断言报告含"⭐ 精选 Top 清单"、"流动性"与思泉新材。相对 brief 仅一处修正：detect_market_regime mock 返回 dict（brief 的 tuple `("中性", {})` 会在 `_rebuild_report` 的 `regime.get("label")` 处崩溃），其余 mock 目标（含 storage.* 写库 no-op）brief 已写对。全量 132 passed，commit `test(stocks): 精选流动性端到端验证`（未 push，待控制器真数据 run）。
+
+## Key Learnings (2026-08-06 流动性 Task 1)
+
+- **流动性 brief 的代码与测试自洽，可照抄**：与之前多个 brief 不同，`_liquidity_score`/`_liquidity_eligible` 的 Step 4 实现代码与 Step 1 测试完全一致（250亿→cap≈3.63、vol 1.5→8、加权≈4.94；clamp/neutral/eligibility 边界全部吻合），无需要按测试修正实现。插入位置在 `_selectivity_score` 的 `return round(score*0.4+...)`（原 2117 行）之后、`_detect_sector_trends` 之前；`math` 已在第 9 行导入。全量 129 passed，commit `feat(stocks): 新增 _liquidity_score 与 _liquidity_eligible`。
+
+## Key Learnings (2026-08-06 流动性 Task 2)
+
+- **brief 测试权重算术巧合导致非 RED**：Task 2 brief 的 `test_selectivity_score_weights` 用 score=4.0/logic=8.0/ltv=7.0/buy=6.0/liquidity=6.0，新旧权重结果恰好都等于 6.0（旧 4*0.4+8*0.3+7*0.2+6*0.1=6.0；新 4*0.35+8*0.25+7*0.2+6*0.1+6*0.1=6.0），该测试在旧代码上也会通过，不是有效 RED。修复：把 `liquidity_score` 改为 7.0（旧 6.0 ≠ 新 6.1，RED 有效）。实现代码与 brief 一致照抄。心算新旧结果确认断言有判别力后再改测试——与 2026-08-05 Task 1 同一模式。
+
+## Key Learnings (2026-08-06 流动性 Task 3)
+
+- **brief 测试与实现完全自洽，可照抄**：Task 3 brief 的 `TestEnrichLiquidityField` 与 `TestEnrichSelectivityFields` mock 模式一致（`detect_market_regime` mock 返回 tuple `("中性", {})`，因为只调用 `_enrich_and_score`，tuple 在该函数内被 try/except 容忍，不会流到 `_rebuild_report` 的 `regime.get("label")` 崩溃点）。实现仅加一行 `stock_view["liquidity_score"] = _liquidity_score(stock_view)`。RED（`"liquidity_score" in s` 断言失败）→ GREEN，全量 130 passed，commit `feat(stocks): enriched 股票落盘 liquidity_score`。
+
+## Key Learnings (2026-08-06 流动性 Task 4)
+
+- **brief 测试与实现完全自洽，可照抄**：Task 4 brief 的 mock 目标（`stock_extractor._apply_liquidity_filter` / `portfolio_builder.filter_by_correlation` / `portfolio_builder.select_allocation_method` / `concentration_monitor.compute_concentration`）已符合函数内局部导入的 patch 约定，无需修正（这是少数 mock 目标写对的 brief）。实现三处改动照抄：`scored_candidates = [s for s in passed if _liquidity_eligible(s)]` + 头部文案（35/25/20/10/10 + 市值≥50亿门槛）+ 表格加"流动性"列（`liquidity_score >= 7.0` 加 `💧`）。`"⭐ 精选 Top 清单"` 子串在旧/新标题中都存在，既有 `test_selectivity_section_present_and_ranked` 与 E2E 不破。全量 131 passed，commit `feat(stocks): 精选 Top 清单加流动性门槛（市值≥50亿）与流动性列`。
