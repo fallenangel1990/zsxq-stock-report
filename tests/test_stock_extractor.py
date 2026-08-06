@@ -707,6 +707,38 @@ class TestSelectivityReportSection:
         assert a_idx < b_idx, "高长期价值股票应排在精选清单前面"
         assert "📋 按板块分类" in report  # 全量章节保留
 
+    def test_selectivity_section_excludes_low_liquidity(self):
+        from unittest import mock
+        from stock_extractor import _rebuild_report
+        enriched = [
+            {"name": "高价值大票", "code": "600001", "category": "elastic", "sector": "AI/人工智能",
+             "score": 4.0, "buy_score": 6.0, "logic": "涨价+供不应求，护城河强",
+             "target_str": "目标价50元", "market_cap_yi": 200.0, "current_price": 10,
+             "source": "帖子1", "risk_display": "", "opportunity_type": "趋势",
+             "trade_period": "中线", "moat_score": 8.0, "fundamentals_score": 7.0,
+             "technical": {"volume_ratio": 1.5}},
+            {"name": "小市值逻辑好", "code": "600002", "category": "elastic", "sector": "AI/人工智能",
+             "score": 5.0, "buy_score": 7.0, "logic": "涨价+供不应求，护城河强",
+             "target_str": "目标价50元", "market_cap_yi": 30.0, "current_price": 8,
+             "source": "帖子1", "risk_display": "", "opportunity_type": "趋势",
+             "trade_period": "中线", "moat_score": 8.0, "fundamentals_score": 7.0,
+             "technical": {"volume_ratio": 1.5}},
+        ]
+        with mock.patch("stock_extractor._apply_liquidity_filter", side_effect=lambda s, **kw: s), \
+             mock.patch("portfolio_builder.filter_by_correlation", side_effect=lambda s, **kw: s), \
+             mock.patch("portfolio_builder.select_allocation_method", side_effect=lambda s, **kw: s), \
+             mock.patch("concentration_monitor.compute_concentration", return_value=None):
+            trend_data = {"scores": {}, "groups": {}, "logic_map": {}, "market_filter": {},
+                          "market_regime": {"label": "中性"}, "style_exposure": {}}
+            report = _rebuild_report(enriched, "## 三、细分板块机会\n| 1 | AI/人工智能 | 高价值大票 | 逻辑 | 帖子1 |\n", trend_data)
+        assert "⭐ 精选 Top 清单" in report
+        # 高价值大票（市值200亿）进精选；小市值逻辑好（市值30亿）被门槛挡在精选外
+        assert "高价值大票" in report
+        assert "小市值逻辑好" not in report.split("⭐ 精选 Top 清单")[1].split("📋 按板块分类")[0]
+        # 头部文案含流动性
+        assert "流动性" in report
+        assert "📋 按板块分类" in report  # 全量章节保留
+
 
 class TestLiquidityScore:
     """Tests for liquidity scoring and eligibility."""
