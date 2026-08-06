@@ -671,3 +671,38 @@ class TestSelectivityReportSection:
         b_idx = report.index("低价值B")
         assert a_idx < b_idx, "高长期价值股票应排在精选清单前面"
         assert "📋 按板块分类" in report  # 全量章节保留
+
+
+class TestLiquidityScore:
+    """Tests for liquidity scoring and eligibility."""
+
+    def test_liquidity_score_weighted(self):
+        from stock_extractor import _liquidity_score
+        # 市值 250亿 → 5*log10(250)/log10(2000) ≈ 5*2.398/3.301 ≈ 3.63 → 3.63
+        # 量比 1.5 → 8.0
+        # score = 3.63*0.7 + 8*0.3 = 2.54 + 2.4 = 4.94
+        stock = {"market_cap_yi": 250.0, "technical": {"volume_ratio": 1.5}}
+        s = _liquidity_score(stock)
+        assert 4.0 <= s <= 6.0, f"expected ~4.94, got {s}"
+
+    def test_liquidity_score_missing_signals_neutral(self):
+        from stock_extractor import _liquidity_score
+        s = _liquidity_score({})
+        assert s == 5.0  # 无市值+无量比 → 全中性
+
+    def test_liquidity_score_cap_clamp(self):
+        from stock_extractor import _liquidity_score
+        # 超大市值 clamp 到 10
+        big = _liquidity_score({"market_cap_yi": 1e6, "technical": {"volume_ratio": 1.5}})
+        assert big <= 10.0
+        # 小市值 clamp 到 2
+        small = _liquidity_score({"market_cap_yi": 1.0, "technical": {"volume_ratio": 1.5}})
+        assert small >= 2.0
+
+    def test_liquidity_eligible_threshold(self):
+        from stock_extractor import _liquidity_eligible
+        assert _liquidity_eligible({"market_cap_yi": 100.0}) is True   # ≥50 放行
+        assert _liquidity_eligible({"market_cap_yi": 49.0}) is False    # <50 挡
+        assert _liquidity_eligible({"market_cap_yi": 50.0}) is True     # ==50 放行
+        assert _liquidity_eligible({"market_cap_yi": None}) is True     # 无市值放行
+        assert _liquidity_eligible({}) is True                          # 无市值放行

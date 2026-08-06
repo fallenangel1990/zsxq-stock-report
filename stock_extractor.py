@@ -2117,6 +2117,42 @@ def _selectivity_score(stock: dict) -> float:
     return round(score * 0.4 + logic * 0.3 + ltv * 0.2 + buy * 0.1, 2)
 
 
+def _liquidity_score(stock: dict) -> float:
+    """流动性评分（0-10）：市值分×70% + 量比活跃度×30%。
+
+    市值分：对数映射（越大越优），无市值给中性 5.0。
+    量比分：放量(>=1.5)8 / 温和放量(>=1.2)7 / 中性(>=0.8)5 / 缩量(<0.8)3，无量比给中性 5.0。
+    """
+    market_cap = stock.get("market_cap_yi")
+    if market_cap is not None and market_cap > 0:
+        cap_score = min(10.0, max(2.0, 5 * math.log10(market_cap) / math.log10(2000)))
+    else:
+        cap_score = 5.0
+
+    tech = stock.get("technical") or {}
+    volume_ratio = tech.get("volume_ratio")
+    if volume_ratio is None:
+        vol_score = 5.0
+    elif volume_ratio >= 1.5:
+        vol_score = 8.0
+    elif volume_ratio >= 1.2:
+        vol_score = 7.0
+    elif volume_ratio >= 0.8:
+        vol_score = 5.0
+    else:
+        vol_score = 3.0
+
+    return round(cap_score * 0.7 + vol_score * 0.3, 2)
+
+
+def _liquidity_eligible(stock: dict, min_cap_yi: float = 50.0) -> bool:
+    """精选流动性门槛：市值>=50亿（中大盘）；无市值数据时放行（不误杀）。"""
+    cap = stock.get("market_cap_yi")
+    if cap is None:
+        return True
+    return cap >= min_cap_yi
+
+
 def _detect_sector_trends(
     all_stocks: dict,
     sectors_list: list[dict],
