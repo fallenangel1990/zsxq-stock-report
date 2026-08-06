@@ -148,6 +148,40 @@ def _is_a_share_candidate(stock: dict) -> bool:
     return True
 
 
+def _backfill_stock_codes(all_stocks: dict) -> int:
+    """给无代码的 A 股候选按名称回填 6 位代码。
+
+    AI 提取弹性候选时可能漏填 code，导致行情/市值/流动性分全部缺失。
+    对无代码且 _is_a_share_candidate 通过的股票，用东方财富搜索接口按名称
+    反查代码。搜索失败或非 A 股保持无代码，不阻断主流程。
+
+    Args:
+        all_stocks: key 为 code 或 name 的股票字典。
+
+    Returns:
+        回填成功的股票数。
+    """
+    from price_fetcher import search_stock_code_by_name
+
+    filled = 0
+    for stock in all_stocks.values():
+        if stock.get("code"):
+            continue
+        if not _is_a_share_candidate(stock):
+            continue
+        name = (stock.get("name") or "").strip()
+        if not name:
+            continue
+        try:
+            code = search_stock_code_by_name(name)
+        except Exception:
+            code = ""  # 搜索失败降级，不阻断
+        if code:
+            stock["code"] = code
+            filled += 1
+    return filled
+
+
 def extract_stock_opportunities(
     posts: list[dict],
     batch_size: int = 30,
@@ -1184,6 +1218,15 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
 
     if not all_stocks:
         return [], {}
+
+    # 给 AI 漏填代码的弹性候选按名称回填代码，保证行情/市值/流动性分可用
+    try:
+        n_backfilled = _backfill_stock_codes(all_stocks)
+        if n_backfilled and verbose:
+            print(f"  代码回填: 按名称补回 {n_backfilled} 只股票代码", flush=True)
+    except Exception as exc:
+        if verbose:
+            print(f"  代码回填失败（不影响主流程）: {exc}", flush=True)
 
     # 批量获取价格
     valid_codes = [s["code"] for s in all_stocks.values() if s["code"] and s["code"].isdigit() and len(s["code"]) == 6]

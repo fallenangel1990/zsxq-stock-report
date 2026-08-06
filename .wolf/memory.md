@@ -703,3 +703,11 @@
 | 09:56 | Edited tests/test_stock_extractor.py | modified test_end_to_end_has_liquidity_in_selectivity() | ~1028 |
 | 10:30 | Task 5: 端到端验证+文档：新增 test_end_to_end_has_liquidity_in_selectivity（brief 仅一处修正——detect_market_regime mock tuple→dict，其余 mock 目标含 storage 写库 no-op 均写对），focused PASS 0.13s，全量 132 passed；更新 cerebrum Decision Log | tests/test_stock_extractor.py, .wolf/cerebrum.md | ✅ 完成（未 push，待控制器真数据 run） | ~500 |
 | 09:58 | Created .superpowers/sdd/task-5-report.md | — | ~1134 |
+| 10:05 | Session end: 96 writes across 20 files (summarizer.py, config.yaml, config.example.yaml, stock_extractor.py, 2026-08-04-sector-classified-report-design.md) | 50 reads | ~123467 tok |
+| 10:09 | Session end: 96 writes across 20 files (summarizer.py, config.yaml, config.example.yaml, stock_extractor.py, 2026-08-04-sector-classified-report-design.md) | 50 reads | ~123467 tok |
+| 10:20 | Edited price_fetcher.py | modified search_stock_code_by_name() | ~362 |
+| 10:20 | Edited stock_extractor.py | modified _backfill_stock_codes() | ~306 |
+| 10:21 | Edited stock_extractor.py | expanded (+9 lines) | ~172 |
+| 10:22 | Edited tests/test_stock_extractor.py | modified fake_search() | ~83 |
+| 10:22 | Edited tests/test_stock_extractor.py | modified fake_search() | ~65 |
+| 10:45 | 流动性覆盖修复：名称→代码回填（东财搜索），_enrich_and_score 查行情前调用 | price_fetcher.py, stock_extractor.py, tests/ | ✅ 有代码48%→87%, 有市值50%→87%, 中性流动性57%→13%, 135 tests | ~800 |

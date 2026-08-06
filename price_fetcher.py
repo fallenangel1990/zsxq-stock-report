@@ -153,6 +153,36 @@ def _fetch_eastmoney_quotes(codes: list[str], timeout: int = 10) -> dict:
     return result
 
 
+def search_stock_code_by_name(name: str, timeout: int = 10) -> str:
+    """按股票名称搜索 A 股 6 位代码（东方财富搜索接口）。
+
+    返回匹配的 A 股代码，找不到或非 A 股（港股/美股/基金等）返回空字符串。
+    用于回填 AI 提取时未给出代码的弹性候选。
+    """
+    if not name or not name.strip():
+        return ""
+    url = "https://searchapi.eastmoney.com/api/suggest/get"
+    params = {
+        "input": name.strip(),
+        "type": "14",
+        "token": "D43BF722C8E33BDC906FB84D85E326E8",
+        "count": 5,
+    }
+    try:
+        resp = _request_with_retry(url, params=params, timeout=timeout)
+        data = resp.json() or {}
+    except (requests.RequestException, ValueError):
+        return ""
+    items = (data.get("QuotationCodeTable") or {}).get("Data") or []
+    for item in items:
+        code = str(item.get("Code") or "")
+        sec_type = str(item.get("SecurityTypeName") or "")
+        # 仅接受 6 位 A 股代码（深A/沪A/北A）
+        if len(code) == 6 and code.isdigit() and sec_type in ("深A", "沪A", "北A"):
+            return code
+    return ""
+
+
 def _merge_quote_info(primary: dict, fallback: dict) -> dict:
     """只用 fallback 补齐 primary 的缺失字段。"""
     merged = dict(primary or {})

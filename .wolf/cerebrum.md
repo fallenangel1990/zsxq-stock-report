@@ -291,3 +291,8 @@
 ## Key Learnings (2026-08-06 流动性 Task 4)
 
 - **brief 测试与实现完全自洽，可照抄**：Task 4 brief 的 mock 目标（`stock_extractor._apply_liquidity_filter` / `portfolio_builder.filter_by_correlation` / `portfolio_builder.select_allocation_method` / `concentration_monitor.compute_concentration`）已符合函数内局部导入的 patch 约定，无需修正（这是少数 mock 目标写对的 brief）。实现三处改动照抄：`scored_candidates = [s for s in passed if _liquidity_eligible(s)]` + 头部文案（35/25/20/10/10 + 市值≥50亿门槛）+ 表格加"流动性"列（`liquidity_score >= 7.0` 加 `💧`）。`"⭐ 精选 Top 清单"` 子串在旧/新标题中都存在，既有 `test_selectivity_section_present_and_ranked` 与 E2E 不破。全量 131 passed，commit `feat(stocks): 精选 Top 清单加流动性门槛（市值≥50亿）与流动性列`。
+
+## Key Learnings (2026-08-06 流动性数据覆盖修复)
+
+- **弹性候选无代码是流动性中性主因**：34/66 只无市值的股票全部是 elastic 类且全部无 code（AI 提取时漏填）。行情/市值/流动性分依赖代码，无代码则全缺失。修复：`price_fetcher.search_stock_code_by_name()`（东财搜索 API 按名称查 A 股代码，`SecurityTypeName` 过滤 深A/沪A/北A，港股如建滔积层板→01888 返回空）+ `stock_extractor._backfill_stock_codes()`（无代码 A 股回填，搜索失败降级不阻断）。`_enrich_and_score` 在收集完成后、查行情前调用。实测有代码 48%→87%，有市值 50%→87%，中性流动性分 57%→13%。
+- **东财搜索 API**：`https://searchapi.eastmoney.com/api/suggest/get`，参数 `input=<名称>&type=14&token=D43BF722C8E33BDC906FB84D85E326E8&count=5`，返回 `QuotationCodeTable.Data[].Code/Name/SecurityTypeName`。token 是公开搜索接口的固定值。

@@ -823,3 +823,51 @@ class TestLiquidityScore:
         assert _liquidity_eligible({"market_cap_yi": 50.0}) is True     # ==50 放行
         assert _liquidity_eligible({"market_cap_yi": None}) is True     # 无市值放行
         assert _liquidity_eligible({}) is True                          # 无市值放行
+
+
+class TestBackfillStockCodes:
+    """Tests for name-to-code backfill for elastic stocks."""
+
+    def test_backfill_fills_missing_codes(self):
+        from unittest import mock
+        from stock_extractor import _backfill_stock_codes
+        all_stocks = {
+            "科达利": {"name": "科达利", "code": "", "sector": "机器人"},
+            "大族数控": {"name": "大族数控", "code": "", "sector": "玻璃基板"},
+            "已有代码": {"name": "已有代码", "code": "600001", "sector": "A"},
+        }
+        # mock 搜索接口：科达利→002850(深A)，大族数控→301200(深A)
+        def fake_search(name):
+            return {
+                "科达利": "002850",
+                "大族数控": "301200",
+            }.get(name, "")
+        with mock.patch("price_fetcher.search_stock_code_by_name", side_effect=fake_search):
+            filled = _backfill_stock_codes(all_stocks)
+        assert all_stocks["科达利"]["code"] == "002850"
+        assert all_stocks["大族数控"]["code"] == "301200"
+        assert all_stocks["已有代码"]["code"] == "600001"  # 已有代码不动
+        assert filled == 2  # 回填 2 只
+
+    def test_backfill_ignores_hk_and_non_a_share(self):
+        from unittest import mock
+        from stock_extractor import _backfill_stock_codes
+        all_stocks = {
+            "建滔积层板": {"name": "建滔积层板", "code": "", "sector": "电子布"},
+        }
+        # 搜索返回港股（SecurityTypeName=港股）→ 不应回填
+        def fake_search(name):
+            return ""  # 港股 → search_stock_code_by_name 返回空
+        with mock.patch("price_fetcher.search_stock_code_by_name", side_effect=fake_search):
+            filled = _backfill_stock_codes(all_stocks)
+        assert all_stocks["建滔积层板"]["code"] == ""
+        assert filled == 0
+
+    def test_backfill_search_failure_degrades(self):
+        from unittest import mock
+        from stock_extractor import _backfill_stock_codes
+        all_stocks = {"科达利": {"name": "科达利", "code": "", "sector": "机器人"}}
+        with mock.patch("price_fetcher.search_stock_code_by_name", side_effect=Exception("API down")):
+            filled = _backfill_stock_codes(all_stocks)  # 不抛异常
+        assert filled == 0
+        assert all_stocks["科达利"]["code"] == ""

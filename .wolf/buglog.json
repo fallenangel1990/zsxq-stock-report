@@ -1933,6 +1933,139 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-08-05T09:05:00+08:00"
+    },
+    {
+      "id": "bug-110",
+      "timestamp": "2026-08-05T10:14:56.900Z",
+      "error_message": "Significant refactor of ",
+      "file": "tests/test_stock_extractor.py",
+      "root_cause": "2 lines replaced/restructured",
+      "fix": "Rewrote 3→4 lines (2 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-08-05T10:14:56.900Z"
+    },
+    {
+      "id": "bug-111",
+      "timestamp": "2026-08-05T10:15:08.340Z",
+      "error_message": "Wrong return value",
+      "file": "stock_extractor.py",
+      "root_cause": "Was returning: round(max(1.0, min(10.0, calibrated)), 1)",
+      "fix": "Now returns: round(max(1.5, min(10.0, calibrated)), 1)",
+      "tags": [
+        "auto-detected",
+        "return-value",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-08-05T10:15:08.340Z"
+    },
+    {
+      "id": "bug-112",
+      "timestamp": "2026-08-05T10:18:39.045Z",
+      "error_message": "Significant refactor of ",
+      "file": "stock_extractor.py",
+      "root_cause": "14 lines replaced/restructured",
+      "fix": "Rewrote 16→28 lines (14 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-08-05T10:18:39.045Z"
+    },
+    {
+      "id": "bug-113",
+      "timestamp": "2026-08-05T00:00:00.000Z",
+      "error_message": "Unreachable dead code after _long_term_trend_score return references undefined _POSITIVE_LOGIC_KW/_NEGATIVE_LOGIC_KW",
+      "file": "stock_extractor.py",
+      "root_cause": "Orphaned body of a removed sentiment-scoring function left inside _long_term_trend_score() after its return (lines 2087-2101), referencing never-defined constants",
+      "fix": "Removed the dead block when inserting _long_term_value_score/_selectivity_score; behavior-neutral since code was unreachable",
+      "tags": [
+        "dead-code",
+        "cleanup",
+        "py",
+        "pre-existing"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-08-05T00:00:00.000Z"
+    },
+    {
+      "id": "bug-114",
+      "timestamp": "2026-08-06T01:09:22.735Z",
+      "error_message": "Incorrect value in code",
+      "file": "stock_extractor.py",
+      "root_cause": "Had \"entry_ref\"",
+      "fix": "Changed to \"selectivity_score\"",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-08-06T01:09:22.735Z"
+    },
+    {
+      "id": "bug-115",
+      "timestamp": "2026-08-06T01:40:30.930Z",
+      "error_message": "Significant refactor of ",
+      "file": "docs/superpowers/plans/2026-08-06-liquidity.md",
+      "root_cause": "3 lines replaced/restructured",
+      "fix": "Rewrote 7→6 lines (3 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "md"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-08-06T01:40:30.930Z"
+    },
+    {
+      "id": "bug-116",
+      "timestamp": "2026-08-06T00:00:00.000Z",
+      "error_message": "34/66 只 elastic 股票无市值数据，流动性分大量为中性 5.0，精选流动性功能区分度受限",
+      "file": "stock_extractor.py, price_fetcher.py",
+      "root_cause": "AI 提取弹性候选时未给部分股票填 code（code 为空字符串），导致 valid_codes 里查不到这些股票，后续行情/市值/流动性分全缺失。实测无市值 34 只全部是 elastic 且全部无 code。",
+      "fix": "已实施：新增 price_fetcher.search_stock_code_by_name（东财搜索按名称查A股代码，过滤港股）+ stock_extractor._backfill_stock_codes（对无代码A股回填）。_enrich_and_score 在收集完成后、查行情前调用。实测回填36只，有代码 32/66→72/83，有市值 33/66→72/83，中性流动性分 43/76→11/83。",
+      "tags": [
+        "liquidity",
+        "code-missing",
+        "elastic",
+        "eastmoney"
+      ],
+      "related_bugs": [
+        "bug-050"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-08-06T00:00:00.000Z",
+      "status": "resolved"
+    },
+    {
+      "id": "bug-117",
+      "timestamp": "2026-08-06T02:22:11.556Z",
+      "error_message": "Wrong return value",
+      "file": "tests/test_stock_extractor.py",
+      "root_cause": "Was returning: [(\"01888\", \"建滔积层板\", \"港股\")]",
+      "fix": "Now returns: \"\"  # 港股 → search_stock_code_by_name 返回空",
+      "tags": [
+        "auto-detected",
+        "return-value",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-08-06T02:22:11.556Z"
     }
   ]
 }
