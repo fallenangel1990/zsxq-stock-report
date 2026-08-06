@@ -136,7 +136,7 @@ def _annotate_foreign_research_sources(stocks_json: dict, foreign_post_numbers: 
 
 
 def _is_a_share_candidate(stock: dict) -> bool:
-    """只保留 A 股推荐；非 A 股代码或明显境外标的剔除。"""
+    """只保留 A 股推荐；非 A 股代码、明显境外标的、或 AI 占位文本剔除。"""
     code = (stock.get("code") or "").strip()
     if code:
         return bool(re.fullmatch(r"\d{6}", code))
@@ -145,7 +145,27 @@ def _is_a_share_candidate(stock: dict) -> bool:
     name = (stock.get("name") or "").strip()
     if re.search(r"\b[A-Z]{1,5}(?:\.[A-Z]{1,3})?\b", name):
         return False
+    # 过滤 AI 输出占位文本被误填进 name 的情况（"无直接A股推荐标的"等）
+    if _is_placeholder_name(name):
+        return False
     return True
+
+
+_PLACEHOLDER_NAME_PATTERNS = [
+    "无", "暂无", "标的", "研究覆盖", "中金研究", "板块", "关注",
+    "本批", "符合", "不构成", "风险提示", "免责",
+]
+
+
+def _is_placeholder_name(name: str) -> bool:
+    """判断名称是否为 AI 占位文本（非真实股票名）。
+
+    AI 有时把"无直接A股推荐标的"/"本批次暂无符合条件的标的"等占位文本
+    误填进 name 字段，导致候选池混入垃圾条目。命中任意模式即判为占位。
+    """
+    if not name:
+        return True
+    return any(kw in name for kw in _PLACEHOLDER_NAME_PATTERNS)
 
 
 def _backfill_stock_codes(all_stocks: dict) -> int:

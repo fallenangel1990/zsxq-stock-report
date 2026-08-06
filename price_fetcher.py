@@ -158,6 +158,12 @@ def search_stock_code_by_name(name: str, timeout: int = 10) -> str:
 
     返回匹配的 A 股代码，找不到或非 A 股（港股/美股/基金等）返回空字符串。
     用于回填 AI 提取时未给出代码的弹性候选。
+
+    按代码段判定 A 股（兼容 SecurityTypeName 变体）：
+    - 60xxxx 沪市主板、688xxx 科创板（SecurityTypeName=科创板）
+    - 00xxxx 深市主板、30xxxx 创业板
+    - 8xxxxx/4xxxxx 北交所
+    港股（如 01888）与美股等非 A 股返回空。
     """
     if not name or not name.strip():
         return ""
@@ -176,9 +182,9 @@ def search_stock_code_by_name(name: str, timeout: int = 10) -> str:
     items = (data.get("QuotationCodeTable") or {}).get("Data") or []
     for item in items:
         code = str(item.get("Code") or "")
-        sec_type = str(item.get("SecurityTypeName") or "")
-        # 仅接受 6 位 A 股代码（深A/沪A/北A）
-        if len(code) == 6 and code.isdigit() and sec_type in ("深A", "沪A", "北A"):
+        if len(code) != 6 or not code.isdigit():
+            continue
+        if code.startswith(("6", "0", "3", "8", "4")):
             return code
     return ""
 

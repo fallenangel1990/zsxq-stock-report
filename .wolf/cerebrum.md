@@ -296,3 +296,8 @@
 
 - **弹性候选无代码是流动性中性主因**：34/66 只无市值的股票全部是 elastic 类且全部无 code（AI 提取时漏填）。行情/市值/流动性分依赖代码，无代码则全缺失。修复：`price_fetcher.search_stock_code_by_name()`（东财搜索 API 按名称查 A 股代码，`SecurityTypeName` 过滤 深A/沪A/北A，港股如建滔积层板→01888 返回空）+ `stock_extractor._backfill_stock_codes()`（无代码 A 股回填，搜索失败降级不阻断）。`_enrich_and_score` 在收集完成后、查行情前调用。实测有代码 48%→87%，有市值 50%→87%，中性流动性分 57%→13%。
 - **东财搜索 API**：`https://searchapi.eastmoney.com/api/suggest/get`，参数 `input=<名称>&type=14&token=D43BF722C8E33BDC906FB84D85E326E8&count=5`，返回 `QuotationCodeTable.Data[].Code/Name/SecurityTypeName`。token 是公开搜索接口的固定值。
+
+## Key Learnings (2026-08-06 数据覆盖修复续)
+
+- **东财搜索 SecurityTypeName 变体**：科创板股票返回"科创板"而非"沪A"（德龙激光→688170 科创板）。按 `SecurityTypeName` 文本过滤会漏掉科创板。正确做法是按**代码段**判定 A 股：6/0/3/8/4 开头（含 688 科创板、300 创业板、8/4 北交所），港股/美股按代码特征排除。
+- **AI 占位文本会混入候选池**：AI 把"无直接A股推荐标的"/"中金研究覆盖"/"本批次暂无符合条件的标的"等占位文本误填进 name 字段，`_is_a_share_candidate` 只过滤拉丁字母境外代码，拦不住中文占位。修复：`_is_placeholder_name()` 过滤占位模式（无/暂无/标的/研究覆盖/板块等），真实股票名（科达利/三环集团等）不受影响。

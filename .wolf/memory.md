@@ -711,3 +711,7 @@
 | 10:22 | Edited tests/test_stock_extractor.py | modified fake_search() | ~83 |
 | 10:22 | Edited tests/test_stock_extractor.py | modified fake_search() | ~65 |
 | 10:45 | 流动性覆盖修复：名称→代码回填（东财搜索），_enrich_and_score 查行情前调用 | price_fetcher.py, stock_extractor.py, tests/ | ✅ 有代码48%→87%, 有市值50%→87%, 中性流动性57%→13%, 135 tests | ~800 |
+| 10:26 | Session end: 101 writes across 21 files (summarizer.py, config.yaml, config.example.yaml, stock_extractor.py, 2026-08-04-sector-classified-report-design.md) | 50 reads | ~124455 tok |
+| 10:29 | Edited price_fetcher.py | modified search_stock_code_by_name() | ~315 |
+| 10:32 | Edited stock_extractor.py | modified _is_a_share_candidate() | ~255 |
+| 10:55 | 数据补全：科创板代码回填修复 + AI占位文本过滤 | price_fetcher.py, stock_extractor.py, tests/ | ✅ 有代码97%, 有市值97%, 中性流动性3%, 141 tests | ~800 |

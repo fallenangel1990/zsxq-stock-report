@@ -871,3 +871,44 @@ class TestBackfillStockCodes:
             filled = _backfill_stock_codes(all_stocks)  # 不抛异常
         assert filled == 0
         assert all_stocks["科达利"]["code"] == ""
+
+
+class TestSearchStockCodeKCB:
+    """Tests for KCB (科创板 688) support in search_stock_code_by_name."""
+
+    def test_kcb_688_stock_accepted(self):
+        # 德龙激光 688170，东方财富返回 SecurityTypeName=科创板
+        import price_fetcher
+        code = price_fetcher.search_stock_code_by_name("德龙激光")
+        assert code == "688170"
+
+    def test_hk_01888_rejected(self):
+        import price_fetcher
+        # 建滔积层板 港股 01888 → 应返回空
+        code = price_fetcher.search_stock_code_by_name("建滔积层板")
+        assert code == ""
+
+    def test_shenzhen_mainboard_accepted(self):
+        import price_fetcher
+        # 科达利 002850 深A
+        code = price_fetcher.search_stock_code_by_name("科达利")
+        assert code == "002850"
+
+
+class TestIsAShareCandidatePlaceholder:
+    """Tests for filtering AI placeholder junk from candidates."""
+
+    def test_placeholder_names_rejected(self):
+        from stock_extractor import _is_a_share_candidate
+        for name in ["无直接A股推荐标的", "中金研究覆盖", "本批次暂无符合条件的标的", "无符合条件的标的"]:
+            assert _is_a_share_candidate({"name": name, "code": ""}) is False, f"{name} 应被过滤"
+
+    def test_real_stock_names_accepted(self):
+        from stock_extractor import _is_a_share_candidate
+        for name in ["科达利", "三环集团", "思泉新材"]:
+            assert _is_a_share_candidate({"name": name, "code": ""}) is True, f"{name} 应保留"
+
+    def test_code_present_overrides_name(self):
+        from stock_extractor import _is_a_share_candidate
+        # 有 6 位代码即使名字是占位也保留（可能 AI 给了代码但名字怪）
+        assert _is_a_share_candidate({"name": "无直接A股推荐标的", "code": "600001"}) is True
