@@ -896,15 +896,17 @@ def _group_stocks_by_sector(stocks: list[dict], sector_aliases: dict) -> list[di
     for sector_name, stock_list in groups.items():
         seen = set()
         deduped = []
-        for s in stock_list:
-            code = s.get("code", "")
-            ident = code or s.get("name", "")
+        for idx, s in enumerate(stock_list):
+            code = s.get("code", "") or ""
+            name = s.get("name", "") or ""
+            # 有代码按代码去重；无代码按名称去重；两者皆空用序号区分，避免误合并
+            ident = code or name or f"__idx_{idx}"
             if ident in seen:
                 continue
             seen.add(ident)
             deduped.append(s)
         deduped.sort(
-            key=lambda x: (x.get("buy_score", 0), x.get("score", 0)),
+            key=lambda x: ((x.get("buy_score") or 0), (x.get("score") or 0)),
             reverse=True,
         )
         result.append({"sector": sector_name, "stocks": deduped})
@@ -3892,7 +3894,15 @@ def _rebuild_report(enriched: list[dict], original_markdown: str, trend_data: di
     for s in scored_candidates:
         if "selectivity_score" not in s:
             s["selectivity_score"] = _selectivity_score(s)
-    scored_candidates.sort(key=lambda s: s.get("selectivity_score", 0), reverse=True)
+    scored_candidates.sort(
+        key=lambda s: (
+            (s.get("selectivity_score") or 0),
+            (s.get("liquidity_score") or 0),
+            (s.get("buy_score") or 0),
+            (s.get("score") or 0),
+        ),
+        reverse=True,
+    )
     n_display = max(8, min(15, round(len(scored_candidates) * 0.15)))
     n_display = min(n_display, len(scored_candidates))
     top_picks = scored_candidates[:n_display]

@@ -476,7 +476,10 @@ class TestExtractEndToEnd:
              mock.patch("market_regime.get_scoring_weights", return_value=weights), \
              mock.patch("storage.save_enriched_stocks", return_value=None), \
              mock.patch("storage.append_recommendation_history", return_value=None), \
-             mock.patch("stock_extractor._apply_liquidity_filter", side_effect=lambda s, **kw: s):
+             mock.patch("stock_extractor._apply_liquidity_filter", side_effect=lambda s, **kw: s), \
+             mock.patch("portfolio_builder.filter_by_correlation", side_effect=lambda s, **kw: s), \
+             mock.patch("portfolio_builder.select_allocation_method", side_effect=lambda s, **kw: s), \
+             mock.patch("concentration_monitor.compute_concentration", return_value=None):
             report = extract_stock_opportunities(posts)
         assert "按板块分类" in report
         assert "思泉新材" in report
@@ -964,3 +967,60 @@ class TestLiquidityTurnover:
         # 无换手率不报错，返回有效分
         s = _liquidity_score({"market_cap_yi": 250.0, "technical": {"volume_ratio": 1.5}})
         assert 0 <= s <= 10
+
+
+class TestGroupStocksEdgeCases:
+    """Tests for grouping edge cases (dedup + sort robustness)."""
+
+    def test_buy_score_none_does_not_crash_sort(self):
+        from stock_extractor import _group_stocks_by_sector
+        stocks = [
+            {"name": "A", "code": "600001", "sector": "AI", "buy_score": None, "score": 3.0},
+            {"name": "B", "code": "600002", "sector": "AI", "buy_score": 5.0, "score": 4.0},
+        ]
+        groups = _group_stocks_by_sector(stocks, {})
+        # 不崩溃；None 按 0 处理，B 在前
+        assert groups[0]["stocks"][0]["name"] == "B"
+
+    def test_empty_name_does_not_collapse_all(self):
+        from stock_extractor import _group_stocks_by_sector
+        stocks = [
+            {"name": "", "code": "", "sector": "AI", "buy_score": 1.0, "score": 1.0},
+            {"name": "", "code": "", "sector": "AI", "buy_score": 2.0, "score": 2.0},
+        ]
+        groups = _group_stocks_by_sector(stocks, {})
+        # 无 code 无名 → 不应全部合并成一条（用索引区分）
+        assert len(groups[0]["stocks"]) == 2
+
+
+class TestSelectivityTieBreak:
+    """Tests for 精选 tie-break (same selectivity score → liquidity)."""
+
+    def test_same_score_breaks_by_liquidity(self):
+        from unittest import mock
+        from stock_extractor import _rebuild_report
+        # 两只精选分完全相同，但流动性不同 → 流动性高的排前面
+        # 注意：输入顺序故意让"低流动性"在前，若排序键未生效（稳定排序保序），断言会失败
+        enriched = [
+            {"name": "低流动性", "code": "600002", "category": "elastic", "sector": "AI/人工智能",
+             "score": 3.0, "buy_score": 5.0, "logic": "逻辑B", "target_str": "",
+             "market_cap_yi": 200.0, "current_price": 10, "source": "帖子1",
+             "risk_display": "", "opportunity_type": "趋势", "trade_period": "中线",
+             "selectivity_score": 5.0, "liquidity_score": 3.0},
+            {"name": "高流动性", "code": "600001", "category": "elastic", "sector": "AI/人工智能",
+             "score": 3.0, "buy_score": 5.0, "logic": "逻辑A", "target_str": "",
+             "market_cap_yi": 200.0, "current_price": 10, "source": "帖子1",
+             "risk_display": "", "opportunity_type": "趋势", "trade_period": "中线",
+             "selectivity_score": 5.0, "liquidity_score": 8.0},
+        ]
+        with mock.patch("stock_extractor._apply_liquidity_filter", side_effect=lambda s, **kw: s), \
+             mock.patch("portfolio_builder.filter_by_correlation", side_effect=lambda s, **kw: s), \
+             mock.patch("portfolio_builder.select_allocation_method", side_effect=lambda s, **kw: s), \
+             mock.patch("concentration_monitor.compute_concentration", return_value=None):
+            trend_data = {"scores": {}, "groups": {}, "logic_map": {}, "market_filter": {},
+                          "market_regime": {"label": "中性"}, "style_exposure": {}}
+            report = _rebuild_report(enriched, "## 三、细分板块机会\n| 1 | AI/人工智能 | 高流动性 | 逻辑 | 帖子1 |\n", trend_data)
+        # 精选表格中高流动性应排在低流动性前
+        hi_idx = report.index("高流动性")
+        lo_idx = report.index("低流动性")
+        assert hi_idx < lo_idx, "精选分相同时，流动性高的应排在前面"

@@ -307,3 +307,9 @@
 - **腾讯行情 turnover_rate 字段在 fetch_prices 已返回但未透传**：price_fetcher 的 `_FIELD_TURNOVER`（f38）解析后有 `turnover_rate`，但 `_enrich_and_score` 只取 price/pe/pb/market_cap，导致 stock_view 无换手率。`_apply_liquidity_filter` 的换手率检查因此长期是死代码。修复：`_enrich_and_score` 加 `price_info.get("turnover_rate")` 透传 + 落盘 stock_view。
 - **换手率加入流动性分**：`_liquidity_score` 从 市值×0.7+量比×0.3 改为 市值×0.5+量比×0.25+换手率×0.25（换手率>=5%→8 / >=2%→7 / >=1%→5 / <1%→3，无数据→5）。实测换手率>=5% 流动性均值 4.98 vs <1% 的 3.41，区分有效。
 - **price_info 取字段用 .get() 不用 []**：既有 mock 测试的 fetch_prices 返回不含 turnover_rate 键，用 `price_info["turnover_rate"]` 会 KeyError。新加的可选字段一律 `.get()`。
+
+## Key Learnings (2026-08-06 三项优化)
+
+- **E2E 慢测试源于缺失 mock**：`test_full_pipeline_no_zero_candidates` 缺 `filter_by_correlation`/`select_allocation_method`/`compute_concentration` 三个 mock，导致真实网络调用 23.5s。补齐后 0.13s（全测试 25.5s→10.2s）。新 E2E 测试必须 mock portfolio_builder 网络函数。
+- **分组去重/排序边界**：`_group_stocks_by_sector` 的 `ident = code or name` 在无代码无名时会全部合并成一条（空字符串碰撞）；`x.get("buy_score", 0)` 当值存在但为 None 时返回 None 导致排序 TypeError。修复：`ident = code or name or f"__idx_{idx}"` + `(x.get("buy_score") or 0)`。
+- **换手率自然打破精选并列**：加入换手率分量后，之前"MLCC 5 只同分 3.8"自然分散（4.14~3.46）。剩余真并列（如 4.0）用次级排序键（流动性→买点→分数）破。报告显示 1 位小数可能隐藏真实差异（3.65 vs 3.57 都显示 3.6），排序用未取整值正确。
