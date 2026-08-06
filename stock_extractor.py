@@ -2103,7 +2103,7 @@ def _long_term_value_score(stock: dict) -> float:
 
 
 def _selectivity_score(stock: dict) -> float:
-    """精选综合分：score×40% + logic_strength×30% + long_term_value×20% + buy_score×10%。"""
+    """精选综合分：score×35% + logic×25% + ltv×20% + buy×10% + liquidity×10%。"""
     score = stock.get("score", 0)
     logic = stock.get("logic_strength")
     if logic is None:
@@ -2114,7 +2114,10 @@ def _selectivity_score(stock: dict) -> float:
     if ltv is None:
         ltv = _long_term_value_score(stock)
     buy = stock.get("buy_score", 0)
-    return round(score * 0.4 + logic * 0.3 + ltv * 0.2 + buy * 0.1, 2)
+    liq = stock.get("liquidity_score")
+    if liq is None:
+        liq = _liquidity_score(stock)
+    return round(score * 0.35 + logic * 0.25 + ltv * 0.2 + buy * 0.1 + liq * 0.1, 2)
 
 
 def _liquidity_score(stock: dict) -> float:

@@ -585,9 +585,10 @@ class TestSelectivityScores:
             "logic_strength": 8.0,
             "long_term_value": 7.0,
             "buy_score": 6.0,
+            "liquidity_score": 7.0,
         }
         s = _selectivity_score(stock)
-        expected = round(4.0 * 0.4 + 8.0 * 0.3 + 7.0 * 0.2 + 6.0 * 0.1, 2)
+        expected = round(4.0 * 0.35 + 8.0 * 0.25 + 7.0 * 0.2 + 6.0 * 0.1 + 7.0 * 0.1, 2)
         assert s == expected
         # 逻辑强度权重高 → 高分逻辑推高精选分
         assert s > stock["score"]
