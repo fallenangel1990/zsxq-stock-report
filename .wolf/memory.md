@@ -715,3 +715,9 @@
 | 10:29 | Edited price_fetcher.py | modified search_stock_code_by_name() | ~315 |
 | 10:32 | Edited stock_extractor.py | modified _is_a_share_candidate() | ~255 |
 | 10:55 | 数据补全：科创板代码回填修复 + AI占位文本过滤 | price_fetcher.py, stock_extractor.py, tests/ | ✅ 有代码97%, 有市值97%, 中性流动性3%, 141 tests | ~800 |
+| 10:36 | Session end: 103 writes across 21 files (summarizer.py, config.yaml, config.example.yaml, stock_extractor.py, 2026-08-04-sector-classified-report-design.md) | 50 reads | ~127026 tok |
+| 11:59 | Edited stock_extractor.py | 6→7 lines | ~127 |
+| 11:59 | Edited stock_extractor.py | 3→4 lines | ~46 |
+| 11:59 | Edited stock_extractor.py | modified _liquidity_score() | ~336 |
+| 12:00 | Edited stock_extractor.py | inline fix | ~23 |
+| 11:10 | 补抓 turnover_rate：透传+落盘 stock_view，_liquidity_score 加换手率分量 | stock_extractor.py, tests/ | ✅ 换手率92%覆盖, 144 tests | ~600 |

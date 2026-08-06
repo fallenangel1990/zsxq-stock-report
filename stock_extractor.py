@@ -1427,6 +1427,7 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
         pe = price_info["pe"] if price_info else None
         pb = price_info["pb"] if price_info else None
         market_cap = price_info["market_cap_yi"] if price_info else None
+        turnover_rate = price_info.get("turnover_rate") if price_info else None
         change_5d = changes_5d.get(code) if code else None
         technical = technicals.get(code, {}) if code else {}
 
@@ -1599,6 +1600,7 @@ def _enrich_and_score(stocks_json: dict, verbose: bool = True) -> tuple[list[dic
             "pe": pe,
             "pb": pb,
             "market_cap_yi": market_cap,
+            "turnover_rate": turnover_rate,
             "change_5d": change_5d,
             "upside_pct": upside_pct,
             "score": total_score,
@@ -2185,10 +2187,11 @@ def _selectivity_score(stock: dict) -> float:
 
 
 def _liquidity_score(stock: dict) -> float:
-    """流动性评分（0-10）：市值分×70% + 量比活跃度×30%。
+    """流动性评分（0-10）：市值×50% + 量比×25% + 换手率×25%。
 
     市值分：对数映射（越大越优），无市值给中性 5.0。
     量比分：放量(>=1.5)8 / 温和放量(>=1.2)7 / 中性(>=0.8)5 / 缩量(<0.8)3，无量比给中性 5.0。
+    换手率分：>=5% 高活跃 8 / >=2% 活跃 7 / >=1% 中性 5 / <1% 低活跃 3，无换手率给中性 5.0。
     """
     market_cap = stock.get("market_cap_yi")
     if market_cap is not None and market_cap > 0:
@@ -2209,7 +2212,19 @@ def _liquidity_score(stock: dict) -> float:
     else:
         vol_score = 3.0
 
-    return round(cap_score * 0.7 + vol_score * 0.3, 2)
+    turnover = stock.get("turnover_rate")
+    if turnover is None:
+        turn_score = 5.0
+    elif turnover >= 5.0:
+        turn_score = 8.0
+    elif turnover >= 2.0:
+        turn_score = 7.0
+    elif turnover >= 1.0:
+        turn_score = 5.0
+    else:
+        turn_score = 3.0
+
+    return round(cap_score * 0.5 + vol_score * 0.25 + turn_score * 0.25, 2)
 
 
 def _liquidity_eligible(stock: dict, min_cap_yi: float = 50.0) -> bool:

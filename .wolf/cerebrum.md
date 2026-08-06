@@ -301,3 +301,9 @@
 
 - **东财搜索 SecurityTypeName 变体**：科创板股票返回"科创板"而非"沪A"（德龙激光→688170 科创板）。按 `SecurityTypeName` 文本过滤会漏掉科创板。正确做法是按**代码段**判定 A 股：6/0/3/8/4 开头（含 688 科创板、300 创业板、8/4 北交所），港股/美股按代码特征排除。
 - **AI 占位文本会混入候选池**：AI 把"无直接A股推荐标的"/"中金研究覆盖"/"本批次暂无符合条件的标的"等占位文本误填进 name 字段，`_is_a_share_candidate` 只过滤拉丁字母境外代码，拦不住中文占位。修复：`_is_placeholder_name()` 过滤占位模式（无/暂无/标的/研究覆盖/板块等），真实股票名（科达利/三环集团等）不受影响。
+
+## Key Learnings (2026-08-06 turnover_rate 补全)
+
+- **腾讯行情 turnover_rate 字段在 fetch_prices 已返回但未透传**：price_fetcher 的 `_FIELD_TURNOVER`（f38）解析后有 `turnover_rate`，但 `_enrich_and_score` 只取 price/pe/pb/market_cap，导致 stock_view 无换手率。`_apply_liquidity_filter` 的换手率检查因此长期是死代码。修复：`_enrich_and_score` 加 `price_info.get("turnover_rate")` 透传 + 落盘 stock_view。
+- **换手率加入流动性分**：`_liquidity_score` 从 市值×0.7+量比×0.3 改为 市值×0.5+量比×0.25+换手率×0.25（换手率>=5%→8 / >=2%→7 / >=1%→5 / <1%→3，无数据→5）。实测换手率>=5% 流动性均值 4.98 vs <1% 的 3.41，区分有效。
+- **price_info 取字段用 .get() 不用 []**：既有 mock 测试的 fetch_prices 返回不含 turnover_rate 键，用 `price_info["turnover_rate"]` 会 KeyError。新加的可选字段一律 `.get()`。
