@@ -372,6 +372,10 @@ class SignalGenerator:
                     signals["skip"].append({**stock, "skip_reason": f"流动性不足(市值{stock.get('market_cap_yi')}亿<50亿)"})
                     continue
                 sel = stock.get("selectivity_score")
+                # 精选分门槛：有精选分但低于门槛的票不进买入
+                if sel is not None and sel < self.risk.selectivity_min:
+                    signals["skip"].append({**stock, "skip_reason": f"精选分{sel:.1f}<{self.risk.selectivity_min}"})
+                    continue
                 ltv = stock.get("long_term_value")
                 liq = stock.get("liquidity_score")
                 reason = f"buy_score={buy_score:.1f}, score={score:.1f}"

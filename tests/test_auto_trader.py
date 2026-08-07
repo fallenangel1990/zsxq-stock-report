@@ -227,12 +227,14 @@ class TestSignalGeneratorSelectivity:
              patch("auto_trader.DAILY_STATE_FILE", tmp_path / "daily_state.json"):
             yield
 
-    def _make_risk(self):
+    def _make_risk(self, **overrides):
         from auto_trader import RiskController
-        return RiskController({
+        cfg = {
             "buy_score_threshold": 7.4, "buy_total_score": 7.0,
             "sell_score_threshold": 4.0, "liquidity_gate": True,
-        })
+        }
+        cfg.update(overrides)
+        return RiskController(cfg)
 
     def test_low_liquidity_skipped_from_buy(self):
         from auto_trader import SignalGenerator
@@ -261,19 +263,36 @@ class TestSignalGeneratorSelectivity:
         buy_names = [s["name"] for s in signals["buy"]]
         assert buy_names == ["B", "A"], "精选分高的应排前面（B 4.5 > A 3.0）"
 
-    def test_selectivity_missing_falls_back_to_buy_score(self):
+    def test_missing_selectivity_sorts_below_present(self):
+        """有精选分(即使很低)的应排在无精选分之前——验证 -1.0 哨兵而非回退 buy_score。"""
         from auto_trader import SignalGenerator
-        risk = self._make_risk()
+        # 关闭精选分/买分门槛，专注 -1.0 哨兵排序行为
+        risk = self._make_risk(selectivity_min=0.0, buy_score_threshold=6.5)
         gen = SignalGenerator(risk)
         stocks = [
-            {"code": "600001", "name": "A", "score": 7.5, "buy_score": 8.0,
+            {"code": "600001", "name": "无精选分", "score": 7.5, "buy_score": 8.0,
              "decision_tier": "可执行清单", "market_cap_yi": 100.0},  # 无 selectivity
-            {"code": "600002", "name": "B", "score": 7.6, "buy_score": 7.5,
-             "decision_tier": "可执行清单", "market_cap_yi": 100.0},
+            {"code": "600002", "name": "低精选分", "score": 7.6, "buy_score": 7.0,
+             "decision_tier": "可执行清单", "market_cap_yi": 100.0, "selectivity_score": 0.5},
         ]
         signals = gen.generate_signals(stocks, [])
         buy_names = [s["name"] for s in signals["buy"]]
-        assert buy_names == ["A", "B"], "无精选分时回退 buy_score 排序（A 8.0 > B 7.5）"
+        # 有精选分(0.5)的应排在无精选分之前（-1.0 哨兵），即使 buy_score 更低
+        assert buy_names == ["低精选分", "无精选分"], f"got {buy_names}"
+
+    def test_selectivity_below_min_skipped_from_buy(self):
+        """精选分低于门槛的票不应进入买入（门槛强制执行）。"""
+        from auto_trader import SignalGenerator
+        risk = self._make_risk(selectivity_min=3.0)
+        gen = SignalGenerator(risk)
+        stock = {
+            "code": "600001", "name": "低精选分", "score": 7.5, "buy_score": 8.0,
+            "decision_tier": "可执行清单", "market_cap_yi": 100.0, "selectivity_score": 0.5,
+        }
+        signals = gen.generate_signals([stock], [])
+        assert len(signals["buy"]) == 0, "精选分低于门槛的票不应进买入"
+        assert len(signals["skip"]) == 1
+        assert "精选分" in signals["skip"][0].get("skip_reason", "")
 
 
 # ──────────────────────────────────────────────────────────────

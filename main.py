@@ -799,16 +799,7 @@ def cmd_quant(args) -> None:
         for t in result.get("executed", []):
             _log(f"   {t.get('action')} {t.get('name')}({t.get('code')}) × {t.get('shares')} @ {t.get('price')}")
 
-    # 6. 回测复盘
-    try:
-        from backtester import run_backtest, format_backtest_report
-        metrics = run_backtest()
-        print("\n" + "=" * 40)
-        print("📊 回测复盘:")
-        print(format_backtest_report(metrics))
-    except Exception as exc:
-        _log(f"回测失败（不影响交易）: {exc}")
-
+    # 回测复盘已由 _build_quant_report 写入报告（避免重复运行 run_backtest）
     print(report)
 
 
