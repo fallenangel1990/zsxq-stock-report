@@ -319,3 +319,23 @@
 - **backtester 单测触发真实网络**：`validate_score_monotonicity` 对每条记录调 `_get_forward_returns`（真实取行情），单测里 1 条记录就 9.8s。测试应 mock `backtester._get_forward_returns` 返回 None 模拟无数据，9.8s→0.16s。
 - **enriched 重复股票的根源是 key 漂移**：`_enrich_and_score` 收集用 `key = code if code else name`，但 sectors 回填循环里 sector 拆分 entry 无 code 时 key=name，若该股票已以 code 作 key 存在（quant/elastic 提过），就产生两条。修复：sectors 回填先按 name 匹配已有股票（只补 sector 不新增）。实测重复 17 组→0。
 - **AI 误写股票名搜索查不到**：误写名（晟冢→昀冢 688260）东财搜索无结果。加 `_STOCK_ALIAS_CODES` 别名表，搜索前命中直接返回代码。
+
+## Key Learnings (2026-08-07 quant Task 1)
+
+- **brief 的 `__init__` 函数级 import 是作用域 bug**：Task 1 brief 说在 `SignalGenerator.__init__` 里 `from stock_extractor import _liquidity_eligible, _selectivity_score`，但函数内 import 只把名字绑定到该方法的局部作用域，`generate_signals` 里根本用不到，运行会 NameError。正确做法：把 import 放到 `generate_signals` 函数顶部（父任务已确认 stock_extractor 不 import auto_trader，函数级导入无循环依赖）。
+- **`_selectivity_score` 被 import 但排序不用它**：brief 的 Step 4 同时 import 两个名字，但 Step 5 排序读的是股票上已算好的 `selectivity_score` 字段（缺省回退 -1.0 → buy_score），不是调 `_selectivity_score()` 现算。若用函数现算会破坏 `test_selectivity_missing_falls_back_to_buy_score`（现算值会让 A/B 顺序可能偏离 buy_score 期望）。`_selectivity_score` 保留为 brief 照抄、供后续任务使用。
+- **`test_selectivity_missing_falls_back_to_buy_score` 不是有效 RED**：旧代码按 buy_score 降序排序，A(buy 8.0) 本来就排在 B(7.5) 前，断言在改动前后都通过。3 个 brief 测试只有 2 个真 RED（流动性门槛、精选分排序）；该测试保留为回归守卫。与 2026-08-05 Task 1 / 2026-08-06 Task 2 同一模式。
+- **旧测试不受流动性门槛影响**：`liquidity_gate` 默认 True，但 `_liquidity_eligible` 对 `market_cap_yi is None` 放行（无市值不误杀），既有测试股票都不带市值所以照常进买入。
+- **新测试类补了 hermetic fixture**：brief 的 `TestSignalGeneratorSelectivity` 没带 tmp_path fixture，但 `RiskController.__init__` 会 `_load_daily_state()` 写 `data/auto_trading/daily_state.json`。按既有类结构补 `patch auto_trader.TRADE_DIR/DAILY_STATE_FILE` 到 tmp_path，避免仓库数据目录被测试污染。
+
+## Key Learnings (2026-08-07 quant Task 2)
+
+- **模块级 `from X import Y` 的 patch 目标与函数级局部导入相反**：`paper_trader` 在模块级 `from price_fetcher import fetch_single_price, fetch_prices`（第 13 行），名字绑定在 `paper_trader` 命名空间。patch `price_fetcher.fetch_single_price` 是静默空转（`buy_stock` 里的引用解析到 `paper_trader.fetch_single_price` 原函数 → 真网络调用 → "无法获取实时价格"）。正确目标：patch `paper_trader.fetch_single_price` / `paper_trader.fetch_prices`。规则：**函数级局部导入 patch 源模块（`X.Y`），模块级 from 导入 patch 调用方模块名（`调用方.Y`）**。另需补 `fetch_prices` mock——买入后 `_calculate_total_value`/`check_circuit_breakers` 会对持仓代码调 `fetch_prices`，只 mock `fetch_single_price` 不够。
+- **函数级 `from X import Y` 会遮蔽模块级同名绑定导致 UnboundLocalError**：`buy_stock`/`sell_stock` 的 try 块里 `from price_fetcher import fetch_single_price`（位于首个引用之后）使该名在整个函数作用域变成局部变量，`price is None` 时首引用（第 193/295 行）必然 UnboundLocalError——`buy_stock(price=None)` 一直隐性崩溃。修复：删冗余函数级 import，用模块级绑定名。quant Task 1 的 `__init__` import 是"局部可见性不足"，这里是"函数级 import 遮蔽"，同一坑的两面。
+- **brief 的 `_save_trade` 目标过期**：paper_trader 真实写交易函数是 `_append_trade`（brief 写 `_save_trade` 不存在）。test-as-spec 修正为 `paper_trader._append_trade`。
+- **brief 未给 hermetic fixture**：repo 存在 `data/paper_trading/nav_history.json`，且模拟买入会写 portfolio/trades/nav 三个文件。按既有模式 patch `paper_trader.PORTFOLIO_FILE/TRADES_FILE/NAV_HISTORY_FILE` 到 tmp_path，避免仓库数据目录被污染（与 quant Task 1 的 hermetic fixture 一致）。
+- **流动性门槛实现照抄 brief 即 GREEN**：`from stock_extractor import _liquidity_eligible` + 循环内 `if not _liquidity_eligible(stock): continue`（放在 sector 计数之前，被过滤票不占板块额度）。`_liquidity_eligible` 对 `market_cap_yi is None` 放行（不误杀），既有测试不带市值照常买入。全量 156 passed。
+
+## Decision Log (2026-08-07 quant Task 4)
+
+- [2026-08-07] **量化闭环端到端验证（Task 4）**：新增 `TestQuantCommand.test_quant_no_execute_end_to_end`，全链路 mock 驱动 `cmd_quant`（storage.load_latest_raw → stock_extractor.extract_stock_opportunities → storage.load_latest_stock_data → _build_quant_report → backtester），`no_execute=True` 验证不崩溃且报告落盘。brief 的三处 mock 目标又是老坑：`main.load_latest_raw`/`main.extract_stock_opportunities`/`main.Path.write_text` 都是静默空转（cmd_quant 内函数级 `from storage/stock_extractor/pathlib import ...`）。按既定规则 patch 源模块 `storage.*`/`stock_extractor.*`/`backtester.*`；`main.Path.write_text` 无模块级 Path，改用 `monkeypatch.chdir(tmp_path)` 让报告写进 tmp/data/quant（hermetic）。另补 `auto_trader.TRADE_DIR/DAILY_STATE_FILE` patch 到 tmp_path（_build_quant_report 构造 RiskController 会写 daily_state）。全量 159 passed，commit `test(quant): 量化闭环端到端验证`（未 push，待控制器真数据 run）。

@@ -36,3 +36,30 @@ class TestQuantCommand:
             report = main._build_quant_report(enriched, None, "2026-08-07")
         assert "量化交易决策报告" in report
         assert "精选候选" in report
+
+    def test_quant_no_execute_end_to_end(self, tmp_path, monkeypatch):
+        # 端到端：cmd_quant --no-execute 全链路 mock，验证不崩溃且报告落盘。
+        # 说明：cmd_quant 内是函数级 `from X import Y` 导入，patch 源模块才能生效。
+        from unittest import mock
+        import main
+        enriched = [
+            {"code": "600001", "name": "A", "score": 8.0, "buy_score": 8.0,
+             "decision_tier": "可执行清单", "market_cap_yi": 100.0,
+             "selectivity_score": 5.0, "liquidity_score": 6.0},
+        ]
+        # 报告保存到 tmp 目录，保持 hermetic（cmd_quant 写 Path("data/quant")）
+        monkeypatch.chdir(tmp_path)
+        with mock.patch("storage.load_latest_raw", return_value=([{"content": "测试"}], "f")), \
+             mock.patch("stock_extractor.extract_stock_opportunities", return_value="ok"), \
+             mock.patch("storage.load_latest_stock_data", return_value=(enriched, "")), \
+             mock.patch("backtester.run_backtest", return_value={"metrics": {}}), \
+             mock.patch("backtester.format_backtest_report", return_value="回测摘要"), \
+             mock.patch("auto_trader.TRADE_DIR", tmp_path), \
+             mock.patch("auto_trader.DAILY_STATE_FILE", tmp_path / "daily_state.json"):
+            class FakeArgs:
+                mode = None
+                no_execute = True
+            main.cmd_quant(FakeArgs())
+        # 报告已写入 tmp/data/quant/
+        reports = list((tmp_path / "data" / "quant").glob("quant_report_*.md"))
+        assert len(reports) == 1, "cmd_quant --no-execute 应生成并保存量化决策报告"
