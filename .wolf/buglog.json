@@ -2119,6 +2119,104 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-08-06T00:00:00.000Z"
+    },
+    {
+      "id": "bug-121",
+      "timestamp": "2026-08-06T03:59:50.940Z",
+      "error_message": "Significant refactor of ",
+      "file": "stock_extractor.py",
+      "root_cause": "2 lines replaced/restructured",
+      "fix": "Rewrote 26→39 lines (2 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-08-06T03:59:50.940Z"
+    },
+    {
+      "id": "bug-122",
+      "timestamp": "2026-08-07T01:45:25.198Z",
+      "error_message": "Significant refactor of ",
+      "file": "auto_trader.py",
+      "root_cause": "6 lines replaced/restructured",
+      "fix": "Rewrote 14→28 lines (6 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-08-07T01:45:25.198Z"
+    },
+    {
+      "id": "bug-123",
+      "timestamp": "2026-08-07T01:52:03.484Z",
+      "error_message": "Incorrect value in code",
+      "file": "tests/test_paper_trader.py",
+      "root_cause": "Had \"price_fetcher.fetch_single_price\"",
+      "fix": "Changed to \"paper_trader.fetch_single_price\"",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-08-07T01:52:03.484Z"
+    },
+    {
+      "id": "bug-124",
+      "timestamp": "2026-08-07T01:52:25.912Z",
+      "error_message": "Wrong reference: sector_count should be from",
+      "file": "paper_trader.py",
+      "root_cause": "Used \"sector_count\" instead of \"from\"",
+      "fix": "Changed sector_count → from",
+      "tags": [
+        "auto-detected",
+        "wrong-reference",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-08-07T01:52:25.912Z"
+    },
+    {
+      "id": "bug-125",
+      "timestamp": "2026-08-07T01:53:00.492079+00:00",
+      "error_message": "UnboundLocalError: cannot access local variable fetch_single_price where it is not associated with a value (paper_trader.py:193)",
+      "file": "paper_trader.py",
+      "root_cause": "buy_stock/sell_stock 函数体内有函数级 from price_fetcher import fetch_single_price（try 块内，位于首个引用之后），使 fetch_single_price 在整个函数作用域内成为局部变量；price is None 时第 193/295 行的引用先于赋值执行，必然 UnboundLocalError。函数级 import 冗余——模块级 from price_fetcher import fetch_single_price 已存在。",
+      "fix": "删除 buy_stock 与 sell_stock 内冗余的函数级 from price_fetcher import fetch_single_price，改用模块级绑定名（patch 目标也随之变为 paper_trader.fetch_single_price）。",
+      "tags": [
+        "unbound-local",
+        "function-level-import",
+        "paper_trader",
+        "quant-closed-loop",
+        "tdd-exposed"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-08-07T01:53:00.492175+00:00"
+    },
+    {
+      "id": "bug-126",
+      "timestamp": "2026-08-07T02:24:17.861Z",
+      "error_message": "Significant refactor of ",
+      "file": "tests/test_auto_trader.py",
+      "root_cause": "6 lines replaced/restructured",
+      "fix": "Rewrote 13→29 lines (6 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-08-07T02:24:17.861Z"
     }
   ]
 }

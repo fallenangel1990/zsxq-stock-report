@@ -339,3 +339,11 @@
 ## Decision Log (2026-08-07 quant Task 4)
 
 - [2026-08-07] **量化闭环端到端验证（Task 4）**：新增 `TestQuantCommand.test_quant_no_execute_end_to_end`，全链路 mock 驱动 `cmd_quant`（storage.load_latest_raw → stock_extractor.extract_stock_opportunities → storage.load_latest_stock_data → _build_quant_report → backtester），`no_execute=True` 验证不崩溃且报告落盘。brief 的三处 mock 目标又是老坑：`main.load_latest_raw`/`main.extract_stock_opportunities`/`main.Path.write_text` 都是静默空转（cmd_quant 内函数级 `from storage/stock_extractor/pathlib import ...`）。按既定规则 patch 源模块 `storage.*`/`stock_extractor.*`/`backtester.*`；`main.Path.write_text` 无模块级 Path，改用 `monkeypatch.chdir(tmp_path)` 让报告写进 tmp/data/quant（hermetic）。另补 `auto_trader.TRADE_DIR/DAILY_STATE_FILE` patch 到 tmp_path（_build_quant_report 构造 RiskController 会写 daily_state）。全量 159 passed，commit `test(quant): 量化闭环端到端验证`（未 push，待控制器真数据 run）。
+
+## Key Learnings (2026-08-07 Final Review Fix)
+
+- **brief 判别性测试的 buy_score 低于 harness 阈值 → 测试必失败**：最终审查 brief 的 `test_missing_selectivity_sorts_below_present` 里 `低精选分` 股票 `buy_score=7.0`，但 `_make_risk` 的 `buy_score_threshold=7.4`，导致该票根本不进买入分支（落入 else 的 skip），断言 `buy_names == ["低精选分","无精选分"]` 得到 `["无精选分"]`。且该测试的 `selectivity_score=0.5` 与本次同批新增的精选分门槛（默认 3.0）冲突，也会被门槛跳过。解决：`_make_risk` 加 `**overrides`，排序测试用 `_make_risk(selectivity_min=0.0, buy_score_threshold=6.5)` 关闭两道门槛，隔离 `_buy_sort_key` 的 `-1.0` 哨兵行为；门槛行为另写 `test_selectivity_below_min_skipped_from_buy` 覆盖。写 brief 测试前先核对 harness 阈值与同批修复的门槛是否吞掉被测路径——与 2026-08-05/06 同一模式。
+
+## Decision Log (2026-08-07)
+
+- [2026-08-07] **量化交易闭环**：新增 `python3 main.py quant [--mode semi|full] [--no-execute]` 一键闭环命令。编排：extract_stock_opportunities → 精选增强数据（selectivity/liquidity/turnover）→ SignalGenerator 信号（流动性门槛+精选分排序+长期价值标注）→ AutoTrader.run 执行（semi 人工确认/full 自动）→ run_backtest 复盘。决策报告存 data/quant/quant_report_*.md。4 任务 SDD 执行，含最终审查修复（去重回测、selectivity_min 强制执行、判别性测试）。160 tests passed。
