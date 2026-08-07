@@ -316,7 +316,7 @@ def cmd_quant(args) -> None:
         return
     _log(f"共 {len(enriched)} 只候选，生成交易信号...")
 
-    # 3. 构建决策报告
+    # 3. 构建决策报告（信号预览，不下单）
     from main import _build_quant_report
     date_str = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y%m%d_%H%M%S")
     report = _build_quant_report(enriched, args, date_str)
@@ -328,6 +328,40 @@ def cmd_quant(args) -> None:
     report_path = quant_dir / f"quant_report_{date_str}.md"
     report_path.write_text(report, encoding="utf-8")
     _log(f"决策报告已保存到: {report_path}")
+
+    # 5. 执行（--no-execute 则只出报告不下单）
+    if getattr(args, "no_execute", False):
+        _log("⏸ --no-execute 模式：只生成信号与报告，不下单。")
+        print(report)
+        return
+
+    from auto_trader import AutoTrader, load_trading_config
+    config = load_trading_config()
+    mode = getattr(args, "mode", None) or config.get("mode", "semi")
+    config["mode"] = mode
+    trader = AutoTrader(config)
+    _log(f"🤖 执行量化交易（模式: {mode}）...")
+    result = trader.run(enriched_stocks=enriched)
+    if "error" in result:
+        _log(f"❌ 执行错误: {result['error']}")
+    elif result.get("circuit_breaker"):
+        _log(f"⚠️ 熔断已触发: {result.get('circuit_breaker_reason', '')}")
+    else:
+        signals = result.get("signals", {})
+        _log(f"✅ 执行完成: 买{signals.get('buy_count',0)} 卖{signals.get('sell_count',0)}")
+        for t in result.get("executed", []):
+            _log(f"   {t.get('action')} {t.get('name')}({t.get('code')}) × {t.get('shares')} @ {t.get('price')}")
+
+    # 6. 回测复盘
+    try:
+        from backtester import run_backtest, format_backtest_report
+        metrics = run_backtest()
+        print("\n" + "=" * 40)
+        print("📊 回测复盘:")
+        print(format_backtest_report(metrics))
+    except Exception as exc:
+        _log(f"回测失败（不影响交易）: {exc}")
+
     print(report)
 
 
