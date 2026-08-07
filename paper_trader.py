@@ -206,7 +206,6 @@ def buy_stock(
     avg_volume = 0
     market_cap = 0
     try:
-        from price_fetcher import fetch_single_price
         price_data = fetch_single_price(code)
         if price_data:
             avg_volume = price_data.get("volume", 0) or 0
@@ -305,7 +304,6 @@ def sell_stock(
     avg_volume = 0
     market_cap = 0
     try:
-        from price_fetcher import fetch_single_price
         price_data = fetch_single_price(code)
         if price_data:
             avg_volume = price_data.get("volume", 0) or 0
@@ -630,7 +628,8 @@ def auto_trade_from_recommendations(
                 if verbose:
                     print(f"  [模拟卖出] {result['message']}", flush=True)
 
-    # 买入可执行清单中的股票
+    # 买入可执行清单中的股票（精选合格 + 流动性门槛）
+    from stock_extractor import _liquidity_eligible
     sector_count = {}
     buy_candidates = [
         s for s in enriched_stocks
@@ -647,6 +646,10 @@ def auto_trade_from_recommendations(
 
         code = stock.get("code", "")
         if not code or code in portfolio["positions"]:
+            continue
+
+        # 流动性门槛：低流动性票不模拟买入
+        if not _liquidity_eligible(stock):
             continue
 
         sector = stock.get("sector") or "未分类"
