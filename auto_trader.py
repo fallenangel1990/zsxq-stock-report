@@ -51,6 +51,7 @@ DEFAULT_MIN_LISTING_DAYS = 60
 DEFAULT_BUY_SCORE_THRESHOLD = 7.4
 DEFAULT_BUY_TOTAL_SCORE = 7.0
 DEFAULT_SELL_SCORE_THRESHOLD = 4.0
+DEFAULT_SELECTIVITY_MIN = 3.0
 
 # 黑名单关键词（股票名称含这些字自动排除）
 BLACKLIST_KEYWORDS = ["ST", "退", "退市", "风险警示", "*ST"]
@@ -97,6 +98,8 @@ class RiskController:
         self.buy_score_threshold = config.get("buy_score_threshold", DEFAULT_BUY_SCORE_THRESHOLD)
         self.buy_total_score = config.get("buy_total_score", DEFAULT_BUY_TOTAL_SCORE)
         self.sell_score_threshold = config.get("sell_score_threshold", DEFAULT_SELL_SCORE_THRESHOLD)
+        self.selectivity_min = config.get("selectivity_min", DEFAULT_SELECTIVITY_MIN)
+        self.liquidity_gate = config.get("liquidity_gate", True)
         self._load_daily_state()
 
     def _load_daily_state(self) -> None:
@@ -334,6 +337,9 @@ class SignalGenerator:
                 "skip": [stock, ...],
             }
         """
+        # 函数级导入 stock_extractor 的精选/流动性工具（避免模块级循环依赖）
+        from stock_extractor import _liquidity_eligible, _selectivity_score
+
         signals = {"buy": [], "sell": [], "hold": [], "skip": []}
         position_codes = {p.get("code", p.get("stock_code", "")) for p in current_positions}
 
@@ -361,17 +367,31 @@ class SignalGenerator:
 
             # 买入信号
             if tier == "可执行清单" and buy_score >= self.risk.buy_score_threshold and score >= self.risk.buy_total_score:
-                signals["buy"].append({
-                    **stock,
-                    "signal_reason": f"buy_score={buy_score:.1f}, score={score:.1f}",
-                })
+                # 流动性门槛：低流动性票不进可执行清单
+                if self.risk.liquidity_gate and not _liquidity_eligible(stock):
+                    signals["skip"].append({**stock, "skip_reason": f"流动性不足(市值{stock.get('market_cap_yi')}亿<50亿)"})
+                    continue
+                sel = stock.get("selectivity_score")
+                ltv = stock.get("long_term_value")
+                liq = stock.get("liquidity_score")
+                reason = f"buy_score={buy_score:.1f}, score={score:.1f}"
+                if sel is not None:
+                    reason += f", 精选分={sel:.1f}"
+                if ltv is not None:
+                    reason += f", 长期价值={ltv:.1f}"
+                if liq is not None:
+                    reason += f", 流动性={liq:.1f}"
+                signals["buy"].append({**stock, "signal_reason": reason})
             elif tier == "观察清单":
                 signals["skip"].append({**stock, "skip_reason": "观察清单，等待触发"})
             else:
                 signals["skip"].append({**stock, "skip_reason": f"tier={tier}, buy_score={buy_score:.1f}"})
 
-        # 排序：买入按 buy_score 降序，卖出按 score 升序（先卖最差的）
-        signals["buy"].sort(key=lambda x: x.get("buy_score", 0), reverse=True)
+        # 排序：买入按 (精选分, buy_score) 降序；无精选分回退 buy_score
+        def _buy_sort_key(x):
+            sel = x.get("selectivity_score")
+            return (sel if sel is not None else -1.0, x.get("buy_score", 0))
+        signals["buy"].sort(key=_buy_sort_key, reverse=True)
         signals["sell"].sort(key=lambda x: x.get("score", 0))
 
         return signals

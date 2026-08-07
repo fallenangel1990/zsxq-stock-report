@@ -215,6 +215,68 @@ class TestSignalGenerator:
 
 
 # ──────────────────────────────────────────────────────────────
+# SignalGenerator 精选/流动性测试
+# ──────────────────────────────────────────────────────────────
+class TestSignalGeneratorSelectivity:
+    """Tests for SignalGenerator using selectivity/liquidity data."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self, tmp_path):
+        """每个测试使用临时目录，避免写库副作用。"""
+        with patch("auto_trader.TRADE_DIR", tmp_path), \
+             patch("auto_trader.DAILY_STATE_FILE", tmp_path / "daily_state.json"):
+            yield
+
+    def _make_risk(self):
+        from auto_trader import RiskController
+        return RiskController({
+            "buy_score_threshold": 7.4, "buy_total_score": 7.0,
+            "sell_score_threshold": 4.0, "liquidity_gate": True,
+        })
+
+    def test_low_liquidity_skipped_from_buy(self):
+        from auto_trader import SignalGenerator
+        risk = self._make_risk()
+        gen = SignalGenerator(risk)
+        stock = {
+            "code": "600001", "name": "低流动性股", "score": 7.5, "buy_score": 8.0,
+            "decision_tier": "可执行清单", "market_cap_yi": 30.0,  # <50亿
+        }
+        signals = gen.generate_signals([stock], [])
+        assert len(signals["buy"]) == 0, "低流动性票不应进买入"
+        assert len(signals["skip"]) == 1
+        assert "流动性" in signals["skip"][0].get("skip_reason", "")
+
+    def test_buy_sorted_by_selectivity_score(self):
+        from auto_trader import SignalGenerator
+        risk = self._make_risk()
+        gen = SignalGenerator(risk)
+        stocks = [
+            {"code": "600001", "name": "A", "score": 7.5, "buy_score": 8.0,
+             "decision_tier": "可执行清单", "market_cap_yi": 100.0, "selectivity_score": 3.0},
+            {"code": "600002", "name": "B", "score": 7.6, "buy_score": 7.5,
+             "decision_tier": "可执行清单", "market_cap_yi": 100.0, "selectivity_score": 4.5},
+        ]
+        signals = gen.generate_signals(stocks, [])
+        buy_names = [s["name"] for s in signals["buy"]]
+        assert buy_names == ["B", "A"], "精选分高的应排前面（B 4.5 > A 3.0）"
+
+    def test_selectivity_missing_falls_back_to_buy_score(self):
+        from auto_trader import SignalGenerator
+        risk = self._make_risk()
+        gen = SignalGenerator(risk)
+        stocks = [
+            {"code": "600001", "name": "A", "score": 7.5, "buy_score": 8.0,
+             "decision_tier": "可执行清单", "market_cap_yi": 100.0},  # 无 selectivity
+            {"code": "600002", "name": "B", "score": 7.6, "buy_score": 7.5,
+             "decision_tier": "可执行清单", "market_cap_yi": 100.0},
+        ]
+        signals = gen.generate_signals(stocks, [])
+        buy_names = [s["name"] for s in signals["buy"]]
+        assert buy_names == ["A", "B"], "无精选分时回退 buy_score 排序（A 8.0 > B 7.5）"
+
+
+# ──────────────────────────────────────────────────────────────
 # BrokerClient 测试（mock）
 # ──────────────────────────────────────────────────────────────
 class TestBrokerClient:
