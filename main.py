@@ -741,6 +741,149 @@ def cmd_auto(args) -> None:
     _cmd_auto(args)
 
 
+def cmd_quant(args) -> None:
+    """量化交易闭环：评分→精选→信号→执行→回测，输出决策报告。"""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    # 1. 生成精选增强数据
+    from storage import load_latest_raw
+    posts, _ = load_latest_raw()
+    if not posts:
+        _log("错误：没有已爬取的数据。请先运行 crawl 命令。")
+        return
+    from stock_extractor import extract_stock_opportunities
+    _log(f"共 {len(posts)} 篇帖子，提取股票机会...")
+    extract_stock_opportunities(posts)
+
+    # 2. 加载最新 enriched（含精选分/流动性/换手率）
+    from storage import load_latest_stock_data
+    enriched, _ = load_latest_stock_data()
+    if not enriched:
+        _log("错误：无推荐数据，请先运行 stocks 命令。")
+        return
+    _log(f"共 {len(enriched)} 只候选，生成交易信号...")
+
+    # 3. 构建决策报告（信号预览，不下单）
+    date_str = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y%m%d_%H%M%S")
+    report = _build_quant_report(enriched, args, date_str)
+
+    # 4. 保存报告
+    from pathlib import Path
+    quant_dir = Path("data/quant")
+    quant_dir.mkdir(parents=True, exist_ok=True)
+    report_path = quant_dir / f"quant_report_{date_str}.md"
+    report_path.write_text(report, encoding="utf-8")
+    _log(f"决策报告已保存到: {report_path}")
+
+    # 5. 执行（--no-execute 则只出报告不下单）
+    if getattr(args, "no_execute", False):
+        _log("⏸ --no-execute 模式：只生成信号与报告，不下单。")
+        print(report)
+        return
+
+    from auto_trader import AutoTrader, load_trading_config
+    config = load_trading_config()
+    mode = getattr(args, "mode", None) or config.get("mode", "semi")
+    config["mode"] = mode
+    trader = AutoTrader(config)
+    _log(f"🤖 执行量化交易（模式: {mode}）...")
+    result = trader.run(enriched_stocks=enriched)
+    if "error" in result:
+        _log(f"❌ 执行错误: {result['error']}")
+    elif result.get("circuit_breaker"):
+        _log(f"⚠️ 熔断已触发: {result.get('circuit_breaker_reason', '')}")
+    else:
+        signals = result.get("signals", {})
+        _log(f"✅ 执行完成: 买{signals.get('buy_count',0)} 卖{signals.get('sell_count',0)}")
+        for t in result.get("executed", []):
+            _log(f"   {t.get('action')} {t.get('name')}({t.get('code')}) × {t.get('shares')} @ {t.get('price')}")
+
+    # 6. 回测复盘
+    try:
+        from backtester import run_backtest, format_backtest_report
+        metrics = run_backtest()
+        print("\n" + "=" * 40)
+        print("📊 回测复盘:")
+        print(format_backtest_report(metrics))
+    except Exception as exc:
+        _log(f"回测失败（不影响交易）: {exc}")
+
+    print(report)
+
+
+def _build_quant_report(
+    enriched: list[dict],
+    args,
+    date_str: str,
+) -> str:
+    """构建量化交易决策报告（不含下单执行）。"""
+    from stock_extractor import _liquidity_eligible
+    parts = []
+
+    # 头部
+    parts.append(f"# 🤖 量化交易决策报告 {date_str[:8]} {date_str[9:15]}\n")
+
+    # 精选候选（复用精选分排序）
+    from stock_extractor import _load_scoring_config, _group_stocks_by_sector
+    scoring_cfg = _load_scoring_config()
+    aliases = scoring_cfg.get("sector_aliases", {})
+    eligible = [s for s in enriched if _liquidity_eligible(s)]
+    eligible.sort(key=lambda s: (s.get("selectivity_score") or 0), reverse=True)
+    top = eligible[:10]
+    parts.append("## ⭐ 精选候选（前 10 只，流动性合格）\n")
+    parts.append("| 排名 | 股票 | 板块 | 精选分 | 推荐指数 | 长期价值 | 流动性 | 换手率 | 买入参考 |")
+    parts.append("|------|------|------|--------|----------|----------|--------|--------|----------|")
+    for i, s in enumerate(top, 1):
+        parts.append(
+            f"| {i} | {s.get('name','-')} | {s.get('sector','-')} | "
+            f"{s.get('selectivity_score','-')} | {s.get('score','-')} | "
+            f"{s.get('long_term_value','-')} | {s.get('liquidity_score','-')} | "
+            f"{s.get('turnover_rate','-')} | {s.get('entry_ref','-')[:30]} |"
+        )
+    parts.append("")
+
+    # 交易信号（调用 SignalGenerator 预览，不下单）
+    risk = None
+    try:
+        from auto_trader import load_trading_config, RiskController, SignalGenerator
+        config = load_trading_config()
+        mode = getattr(args, "mode", None) or config.get("mode", "semi")
+        risk = RiskController(config.get("risk", config))
+        gen = SignalGenerator(risk)
+        signals = gen.generate_signals(eligible, [])
+        parts.append(f"## 📈 交易信号（模式: {mode}）\n")
+        parts.append(f"- 🟢 买入 {len(signals['buy'])} 只")
+        parts.append(f"- 🔴 卖出 {len(signals['sell'])} 只")
+        parts.append(f"- ⏸ 持有 {len(signals['hold'])} 只")
+        parts.append(f"- ⏭ 跳过 {len(signals['skip'])} 只")
+        parts.append("")
+        if signals["buy"]:
+            parts.append("**买入候选：**")
+            for s in signals["buy"]:
+                parts.append(f"- {s.get('name')}({s.get('code')}) {s.get('signal_reason','')}")
+            parts.append("")
+    except Exception as exc:
+        parts.append(f"## 📈 交易信号\n\n> 生成失败: {exc}\n")
+    parts.append("")
+
+    # 风控状态
+    parts.append("## 🛡️ 风控状态\n")
+    parts.append(f"- 精选分门槛: {getattr(risk, 'selectivity_min', 3.0)} | 流动性门槛: {'开' if getattr(risk, 'liquidity_gate', True) else '关'}")
+    parts.append("")
+
+    # 回测复盘
+    try:
+        from backtester import run_backtest, format_backtest_report
+        metrics = run_backtest()
+        parts.append("## 📊 回测复盘\n")
+        parts.append(format_backtest_report(metrics))
+    except Exception as exc:
+        parts.append(f"## 📊 回测复盘\n\n> 回测失败: {exc}\n")
+    parts.append("")
+
+    return "\n".join(parts)
+
 
 def cmd_auction(args) -> None:
     """开盘竞价选股。"""
@@ -923,7 +1066,11 @@ def main():
     auto_parser.add_argument("--mode", choices=["semi", "full"], help="semi=半自动(默认), full=全自动")
     auto_parser.add_argument("--broker", default=None, help="券商代码: eb/ht/zx/gf/pa/gt/zs/sw")
 
-    
+    quant_parser = subparsers.add_parser("quant", help="量化交易闭环（评分→精选→信号→执行→回测）")
+    quant_parser.add_argument("--mode", choices=["semi", "full"], default=None, help="交易模式（默认读配置 semi）")
+    quant_parser.add_argument("--no-execute", action="store_true", help="只出信号不下单（安全预览）")
+
+
     auction_parser = subparsers.add_parser("auction", help="开盘竞价选股")
     auction_parser.add_argument("action", nargs="?", default="run", choices=["run", "report"], help="run=扫描, report=报告")
     auction_parser.add_argument("-n", "--count", type=int, default=50, help="候选池数量")
@@ -977,6 +1124,8 @@ def main():
         cmd_monitor(args)
     elif args.command == "auto":
         cmd_auto(args)
+    elif args.command == "quant":
+        cmd_quant(args)
     elif args.command == "auction":
         cmd_auction(args)
     elif args.command == "all":
